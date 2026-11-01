@@ -76,7 +76,14 @@ class ProductionReadinessAuditTests(unittest.TestCase):
         self.assertIn("CREATE INDEX IF NOT EXISTS", sql)
         self.assertIn("DROP TRIGGER IF EXISTS", sql)
 
-        # 4. Zero destructive commands
+        # 4. Specific safety for pre-existing tables without deleted_at
+        self.assertIn("ALTER TABLE class_materials", sql)
+        self.assertIn("ALTER TABLE class_recordings", sql)
+        self.assertIn("ALTER TABLE course_trials", sql)
+        self.assertNotIn("idx_class_materials_course ON class_materials(course_id) WHERE deleted_at IS NULL", sql)
+        self.assertNotIn("idx_class_recordings_course ON class_recordings(course_id) WHERE deleted_at IS NULL", sql)
+
+        # 5. Zero destructive commands
         self.assertNotIn("DROP TABLE", sql)
         self.assertNotIn("TRUNCATE", sql)
         self.assertNotIn("DELETE FROM", sql)
@@ -191,6 +198,43 @@ class ProductionReadinessAuditTests(unittest.TestCase):
         self.assertIn("upi_id VARCHAR(100) DEFAULT NULL", sql)
         self.assertIn("merchant_name VARCHAR(255) DEFAULT 'Winners Creek LMS'", sql)
         self.assertIn("payment_methods JSONB NOT NULL DEFAULT '[\"UPI\", \"GATEWAY\"]'::jsonb", sql)
+
+    def test_12_safe_additive_deleted_at_extensions(self):
+        """Verify deleted_at is safely added via ALTER TABLE to companion tables without partial index failures."""
+        m3_path = pathlib.Path(__file__).parent.parent / "migrations" / "003_course_extensions_and_learning_materials.sql"
+        sql = m3_path.read_text(encoding="utf-8")
+
+        self.assertIn("ALTER TABLE class_materials\n    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;", sql)
+        self.assertIn("ALTER TABLE class_recordings\n    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;", sql)
+        self.assertIn("ALTER TABLE course_trials\n    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;", sql)
+
+        # Standard non-partial indexes matching repository queries
+        self.assertIn("idx_class_materials_course ON class_materials(course_id);", sql)
+        self.assertIn("idx_class_recordings_course ON class_recordings(course_id);", sql)
+        self.assertNotIn("idx_class_materials_course ON class_materials(course_id) WHERE deleted_at IS NULL", sql)
+        self.assertNotIn("idx_class_recordings_course ON class_recordings(course_id) WHERE deleted_at IS NULL", sql)
+
+    def test_13_zero_data_modification_on_existing_records(self):
+        """Verify migration preserves all existing production records without UPDATE, DELETE, or TRUNCATE."""
+        m3_path = pathlib.Path(__file__).parent.parent / "migrations" / "003_course_extensions_and_learning_materials.sql"
+        sql = m3_path.read_text(encoding="utf-8")
+
+        self.assertNotIn("UPDATE course_trials", sql, "Existing course_trials record must not be modified")
+        self.assertNotIn("UPDATE courses", sql)
+        self.assertNotIn("DROP TABLE", sql)
+        self.assertNotIn("TRUNCATE", sql)
+        self.assertNotIn("DELETE FROM", sql)
+
+    def test_14_migration_atomicity_and_lock_handling(self):
+        """Verify that migration runner executes each file in an atomic transaction with advisory locking."""
+        import inspect
+        from app.db import postgres
+        src = inspect.getsource(postgres.run_migrations)
+
+        self.assertIn("pg_advisory_lock", src)
+        self.assertIn("pg_advisory_unlock", src)
+        self.assertIn("async with conn.transaction():", src)
+        self.assertIn("INSERT INTO schema_migrations (version)", src)
 
 
 if __name__ == "__main__":

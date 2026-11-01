@@ -45,6 +45,9 @@ CREATE TABLE IF NOT EXISTS course_trials (
     CONSTRAINT uq_course_trials_user_course UNIQUE (participant_user_id, course_id)
 );
 
+ALTER TABLE course_trials
+    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
 CREATE INDEX IF NOT EXISTS idx_course_trials_participant_course ON course_trials(participant_user_id, course_id);
 CREATE INDEX IF NOT EXISTS idx_course_trials_status_expires ON course_trials(status, expires_at);
 
@@ -71,7 +74,11 @@ CREATE TABLE IF NOT EXISTS class_materials (
     deleted_at TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_class_materials_course ON class_materials(course_id) WHERE deleted_at IS NULL;
+ALTER TABLE class_materials
+    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+DROP INDEX IF EXISTS idx_class_materials_course;
+CREATE INDEX IF NOT EXISTS idx_class_materials_course ON class_materials(course_id);
 CREATE INDEX IF NOT EXISTS idx_class_materials_trainer ON class_materials(trainer_user_id);
 
 DROP TRIGGER IF EXISTS trg_class_materials_timestamp ON class_materials;
@@ -95,7 +102,11 @@ CREATE TABLE IF NOT EXISTS class_recordings (
     deleted_at TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_class_recordings_course ON class_recordings(course_id) WHERE deleted_at IS NULL;
+ALTER TABLE class_recordings
+    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+DROP INDEX IF EXISTS idx_class_recordings_course;
+CREATE INDEX IF NOT EXISTS idx_class_recordings_course ON class_recordings(course_id);
 CREATE INDEX IF NOT EXISTS idx_class_recordings_trainer ON class_recordings(trainer_user_id);
 
 DROP TRIGGER IF EXISTS trg_class_recordings_timestamp ON class_recordings;
