@@ -9,8 +9,8 @@ import { WinnersCreekLogo } from '@/components/ui/WinnersCreekLogo';
  */
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-dvh box-border grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:h-dvh lg:overflow-hidden">
-      <div className="flex flex-col justify-between box-border px-6 py-4 sm:px-10 lg:px-12 lg:py-5 h-full overflow-y-auto">
+    <div className="min-h-dvh box-border grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+      <div className="flex flex-col justify-between box-border px-6 py-4 sm:px-10 lg:px-12 lg:py-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="shrink-0 mb-2 sm:mb-3">
           <Link
             href="/"
@@ -22,7 +22,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         </div>
 
         <main id="main" className="flex flex-1 items-center justify-center py-2 sm:py-4">
-          <div className="w-full max-w-[440px] rounded-2xl border border-line bg-card p-6 sm:p-7 shadow-card animate-enter my-auto">
+          <div className="w-full max-w-[440px] [&:has([data-auth-wide])]:max-w-[560px] rounded-2xl border border-line [&:has([data-auth-wide])]:border-b-0 bg-card p-6 sm:p-7 shadow-card animate-enter my-auto transition-all duration-200">
             {children}
           </div>
         </main>

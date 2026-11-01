@@ -4,7 +4,7 @@ import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import * as React from 'react';
 import { cn } from '@/lib/cn';
-import { useTheme } from '@/lib/theme/ThemeContext';
+
 
 export interface BackgroundConfig {
   image?: string;
@@ -402,7 +402,7 @@ export function useGlobalBackground() {
  * - Ambient subtle cyber tech grid + radiant atmospheric orbs
  */
 export function GlobalBackgroundLayer({ config }: { config: BackgroundConfig }) {
-  const { theme } = useTheme();
+
   const {
     image = '/images/hero-ai.webp',
     imageAlt = 'Winners Creek Environment',
@@ -414,7 +414,7 @@ export function GlobalBackgroundLayer({ config }: { config: BackgroundConfig }) 
     orbTone = 'indigo',
   } = config;
 
-  const activeVariant = theme;
+
   const safeBlur = Math.min(Math.max(blur, 4), 10);
 
   return (
@@ -463,7 +463,7 @@ export function GlobalBackgroundLayer({ config }: { config: BackgroundConfig }) 
           <div
             className={cn(
               'absolute -top-32 -right-32 size-[460px] rounded-full blur-[140px] transition-colors duration-700',
-              activeVariant === 'dark' ? 'opacity-25' : 'opacity-10',
+              'opacity-10 dark:opacity-25',
               orbTone === 'indigo' && 'bg-indigo-500',
               orbTone === 'cyan' && 'bg-cyan-500',
               orbTone === 'purple' && 'bg-purple-600',
@@ -473,13 +473,13 @@ export function GlobalBackgroundLayer({ config }: { config: BackgroundConfig }) 
           <div
             className={cn(
               'absolute top-1/2 -left-36 size-[400px] rounded-full bg-blue-600 blur-[130px]',
-              activeVariant === 'dark' ? 'opacity-20' : 'opacity-10',
+              'opacity-10 dark:opacity-20',
             )}
           />
           <div
             className={cn(
               'absolute -bottom-32 right-1/4 size-[440px] rounded-full bg-violet-600 blur-[140px]',
-              activeVariant === 'dark' ? 'opacity-20' : 'opacity-10',
+              'opacity-10 dark:opacity-20',
             )}
           />
         </div>
