@@ -7,7 +7,8 @@ invalidates existing sessions, and logout-all.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
@@ -31,6 +32,7 @@ from app.core.security import (
     create_purpose_token,
     decode_token,
     hash_password,
+    hash_token,
     needs_rehash,
     password_strength,
     verify_password,
@@ -322,20 +324,24 @@ async def resend_otp(payload: ResendOtpRequest) -> dict[str, Any]:
     if payload.purpose == VERIFY and user.get("email_verified"):
         return generic
 
-    purpose = VERIFY if payload.purpose == VERIFY else RESET
-    otp = await rate_limit.issue_otp(purpose, email)
-    link_token = create_purpose_token(
-        user_id=str(user["id"]),
-        purpose="verify" if purpose == VERIFY else "reset",
-        ttl_minutes=60 if purpose == RESET else 60 * 24,
-    )
     if purpose == VERIFY:
+        otp = await rate_limit.issue_otp(purpose, email)
+        link_token = create_purpose_token(
+            user_id=str(user["id"]),
+            purpose="verify",
+            ttl_minutes=60 * 24,
+        )
         await send_verification_email(
             to=email, name=user.get("name", ""), otp=otp, link_token=link_token
         )
     else:
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hash_token(raw_token)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+        await UserRepository.set_password_reset_token(user["id"], token_hash, expires_at)
+        reset_link = f"{settings.PUBLIC_WEB_URL}/reset-password?token={raw_token}"
         await send_password_reset_email(
-            to=email, name=user.get("name", ""), otp=otp, link_token=link_token
+            to=email, name=user.get("name", ""), reset_link=reset_link
         )
     return generic
 
@@ -599,21 +605,26 @@ async def switch_role(
 # --------------------------------------------------------------------------- password reset
 @router.post("/forgot-password")
 async def forgot_password(payload: ForgotPasswordRequest, request: Request) -> dict[str, Any]:
-    email = payload.email.lower().strip()
+    identifier = (payload.identifier or payload.email or "").strip()
     await rate_limit.enforce_rate_limit("forgot", _client_ip(request) or "anon", "10/hour")
-    user = await UserRepository.get_by_email(email)
+    user = await UserRepository.get_by_identifier(identifier)
     if user and str(user.get("status", "")).upper() == "ACTIVE":
-        otp = await rate_limit.issue_otp(RESET, email)
-        link_token = create_purpose_token(
-            user_id=str(user["id"]), purpose="reset", ttl_minutes=60
-        )
-        await send_password_reset_email(
-            to=email, name=user.get("name", ""), otp=otp, link_token=link_token
-        )
+        email = user.get("email")
+        if email:
+            raw_token = secrets.token_urlsafe(32)
+            token_hash = hash_token(raw_token)
+            expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+            await UserRepository.set_password_reset_token(user["id"], token_hash, expires_at)
+            reset_link = f"{settings.PUBLIC_WEB_URL}/reset-password?token={raw_token}"
+            await send_password_reset_email(
+                to=email,
+                name=user.get("name", ""),
+                reset_link=reset_link,
+            )
     return {
         "success": True,
-        "message": "If that account exists, we've sent reset instructions.",
-        "data": {"otpExpiresInMinutes": settings.OTP_TTL_MINUTES},
+        "message": "If an account exists with those credentials, we've sent password reset instructions to the registered email.",
+        "data": {"expiresInMinutes": 15},
     }
 
 
@@ -623,31 +634,55 @@ async def reset_password(
 ) -> dict[str, Any]:
     assert_password_policy(payload.password)
 
-    if payload.token:
-        claims = decode_token(payload.token, expected_type="reset")
-        user = await UserRepository.get_by_id(claims["sub"])
-    else:
-        if not payload.email or not payload.otp:
-            raise ValidationError("Enter the code we emailed you")
+    token = (payload.token or "").strip()
+    if not token and payload.otp and payload.email:
+        # Backward compatibility for any remaining OTP attempts
         await rate_limit.enforce_rate_limit("reset", payload.email.lower(), "15/hour")
         user = await UserRepository.get_by_email(payload.email.lower())
-        if user and not await rate_limit.verify_otp(RESET, payload.email.lower(), payload.otp):
-            await write_security_event(
-                kind="reset_otp_invalid",
-                user_id=user["id"],
-                detail="invalid or expired password-reset code",
-                ip=_client_ip(request),
-                college_id=user.get("institution_id"),
-                department_id=user.get("department_id"),
-            )
+        if not user or not await rate_limit.verify_otp(RESET, payload.email.lower(), payload.otp):
+            if user:
+                await write_security_event(
+                    kind="reset_otp_invalid",
+                    user_id=user["id"],
+                    detail="invalid or expired password-reset code",
+                    ip=_client_ip(request),
+                    college_id=user.get("institution_id"),
+                    department_id=user.get("department_id"),
+                )
             raise ValidationError("That code is invalid or has expired. Request a new one.")
+    else:
+        if not token:
+            raise ValidationError("Password reset token is required")
+
+        await rate_limit.enforce_rate_limit("reset-token", _client_ip(request) or "anon", "15/hour")
+        token_hash = hash_token(token)
+        user = await UserRepository.get_by_reset_token_hash(token_hash)
+
+        # Fallback to legacy JWT token if not found as DB hash
+        if not user:
+            try:
+                claims = decode_token(token, expected_type="reset")
+                user = await UserRepository.get_by_id(claims["sub"])
+            except Exception:
+                user = None
+
+        if not user:
+            raise ValidationError("This password reset link is invalid or has expired. Please request a new one.")
+
+        expires_at = user.get("reset_password_token_expires_at")
+        if expires_at and expires_at < datetime.now(timezone.utc):
+            await UserRepository.clear_password_reset_token(user["id"])
+            raise ValidationError("This password reset link is invalid or has expired. Please request a new one.")
+
     if not user:
-        raise ValidationError("That code is invalid or has expired. Request a new one.")
+        raise ValidationError("This password reset link is invalid or has expired. Please request a new one.")
 
     if verify_password(payload.password, user.get("password_hash", "")):
         raise ValidationError("Choose a password you haven't used before")
 
     await UserRepository.update_password(user["id"], hash_password(payload.password))
+    await UserRepository.clear_password_reset_token(user["id"])
+
     revoked = await session_service.revoke_all_sessions(str(user["id"]), reason="password_reset")
     await rate_limit.clear_failed_logins(str(user.get("email", "")))
     _clear_refresh_cookie(response)
@@ -672,7 +707,7 @@ async def reset_password(
     )
     return {
         "success": True,
-        "message": "Password updated. Please sign in with your new password.",
+        "message": "Password updated successfully. Please sign in with your new password.",
         "data": {"sessionsInvalidated": revoked},
     }
 

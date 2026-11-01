@@ -12,7 +12,7 @@ from uuid import UUID
 
 from app.authz.audit import write_security_event
 from app.core.config import settings
-from app.core.errors import Unauthenticated
+from app.core.errors import ServiceUnavailable, Unauthenticated
 from app.core.logging import get_logger
 from app.core.redis_client import K, get_redis
 from app.core.security import (
@@ -65,12 +65,18 @@ async def open_session(
     )
 
     ttl = REFRESH_TTL * (2 if remember_me else 1)
-    await redis.delete(K.user_revoked_at(user_id))
-    await redis.setex(K.session(user_id, session_id), ttl, family_id)
-    await redis.sadd(K.session_index(user_id), session_id)
-    await redis.setex(K.refresh(refresh_jti), ttl, session_id)
-    await redis.sadd(K.refresh_family(family_id), refresh_jti)
-    await redis.expire(K.refresh_family(family_id), ttl)
+    try:
+        await redis.delete(K.user_revoked_at(user_id))
+        await redis.setex(K.session(user_id, session_id), ttl, family_id)
+        await redis.sadd(K.session_index(user_id), session_id)
+        await redis.setex(K.refresh(refresh_jti), ttl, session_id)
+        await redis.sadd(K.refresh_family(family_id), refresh_jti)
+        await redis.expire(K.refresh_family(family_id), ttl)
+    except Exception as exc:
+        log.error("session_redis_unavailable", extra={"error": str(exc), "user_id": user_id})
+        raise ServiceUnavailable(
+            "Session service is temporarily unavailable. Please retry shortly."
+        ) from exc
 
     try:
         u_uuid = _to_uuid(user_id)
@@ -247,12 +253,16 @@ async def revoke_family(user_id: str, family_id: str, *, reason: str) -> None:
 
 
 async def revoke_all_sessions(user_id: str, *, reason: str = "logout_all") -> int:
-    redis = get_redis()
-    sessions = list(await redis.smembers(K.session_index(user_id)) or [])
-    for session_id in sessions:
-        await close_session(user_id, session_id)
-    await redis.delete(K.session_index(user_id))
-    await redis.setex(K.user_revoked_at(user_id), REFRESH_TTL, str(int(_now().timestamp())))
+    sessions = []
+    try:
+        redis = get_redis()
+        sessions = list(await redis.smembers(K.session_index(user_id)) or [])
+        for session_id in sessions:
+            await close_session(user_id, session_id)
+        await redis.delete(K.session_index(user_id))
+        await redis.setex(K.user_revoked_at(user_id), REFRESH_TTL, str(int(_now().timestamp())))
+    except Exception as exc:
+        log.warning("session_revoke_redis_failed", extra={"error": str(exc), "user_id": user_id})
 
     try:
         u_uuid = _to_uuid(user_id)

@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 Str1 = Annotated[str, Field(min_length=1, max_length=200)]
 Text = Annotated[str, Field(min_length=1, max_length=4000)]
@@ -60,15 +60,22 @@ class ResendOtpRequest(Base):
 
 
 class ForgotPasswordRequest(Base):
-    email: EmailStr
+    email: EmailStr | None = None
+    identifier: Annotated[str, Field(min_length=2, max_length=160)] | None = None
+
+    @model_validator(mode="after")
+    def _check_identifier(self) -> ForgotPasswordRequest:
+        if not self.email and not self.identifier:
+            raise ValueError("Email or institution ID is required")
+        return self
 
 
 class ResetPasswordRequest(Base):
-    email: EmailStr | None = None
-    otp: Annotated[str, Field(min_length=4, max_length=8)] | None = None
-    token: str | None = None
+    token: Annotated[str, Field(min_length=10, max_length=512)] | None = None
     password: Annotated[str, Field(min_length=8, max_length=128)]
     confirmPassword: Annotated[str, Field(min_length=8, max_length=128)]
+    email: EmailStr | None = None
+    otp: Annotated[str, Field(min_length=4, max_length=8)] | None = None
 
     @field_validator("confirmPassword")
     @classmethod
