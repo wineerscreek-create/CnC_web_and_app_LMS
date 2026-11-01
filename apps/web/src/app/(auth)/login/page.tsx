@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import * as React from 'react';
@@ -22,7 +22,6 @@ export default function LoginPage() {
   const [password, setPassword] = React.useState('');
   const [remember, setRemember] = React.useState(false);
   const [reveal, setReveal] = React.useState(false);
-  const [needsVerification, setNeedsVerification] = React.useState<string | null>(null);
 
   const hintedRole = params.get('role') as Role | null;
   const next = params.get('next');
@@ -38,14 +37,9 @@ export default function LoginPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    setNeedsVerification(null);
-    const result = await dispatch(
+    await dispatch(
       signIn({ identifier: identifier.trim(), password, rememberMe: remember }),
     );
-    const payload = result.payload as any;
-    if (result.meta.requestStatus === 'rejected' && payload?.verificationRequired) {
-      setNeedsVerification(payload.email ?? identifier.trim());
-    }
   }
 
   return (
@@ -104,25 +98,11 @@ export default function LoginPage() {
           Keep me signed in on this device
         </label>
 
-        {error && !needsVerification && (
+        {error && (
           <p role="alert" className="flex items-start gap-2 rounded-xl bg-rose-500/15 border border-rose-500/30 px-3.5 py-2.5 text-sm font-semibold text-rose-300">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-rose-400" aria-hidden />
             {error}
           </p>
-        )}
-
-        {needsVerification && (
-          <div role="alert" className="rounded-xl bg-amber-500/15 border border-amber-500/30 px-3.5 py-3 text-sm text-amber-200">
-            <p className="font-semibold text-amber-300">Your email isn’t verified yet</p>
-            <p className="mt-1 text-slate-200">We’ve sent a fresh code to {needsVerification}.</p>
-            <Link
-              href={`/verify-email?email=${encodeURIComponent(needsVerification)}`}
-              className="mt-2 inline-flex items-center gap-1 font-semibold text-amber-300 underline hover:text-amber-200"
-            >
-              Enter the code
-              <ArrowRight className="size-3.5" aria-hidden />
-            </Link>
-          </div>
         )}
 
         <Button type="submit" variant="gradient" size="lg" className="w-full" loading={signingIn}>

@@ -432,7 +432,7 @@ async def login(payload: LoginRequest, request: Request, response: Response) -> 
     if user.get("status") != "active":
         raise Unauthenticated("This account is not active")
 
-    if not user.get("emailVerified"):
+    if settings.EMAIL_VERIFICATION_ENABLED and not user.get("emailVerified"):
         otp = await rate_limit.issue_otp(VERIFY, user["email"])
         link_token = create_purpose_token(
             user_id=str(user["_id"]), purpose="verify", ttl_minutes=60 * 24

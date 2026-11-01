@@ -200,6 +200,10 @@ async def refresh_session(refresh_token_raw: str, ip: str | None = None) -> dict
     }
 
 
+# Alias for rotate_session
+rotate_session = refresh_session
+
+
 async def close_session(user_id: str, session_id: str) -> None:
     redis = get_redis()
     family_id = await redis.get(K.session(user_id, session_id))

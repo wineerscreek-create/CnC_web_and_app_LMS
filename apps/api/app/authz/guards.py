@@ -89,7 +89,7 @@ async def get_scope_context(request: Request) -> ScopeContext:
                     "collegeId": str(pg_user["institution_id"]) if pg_user.get("institution_id") else None,
                     "departmentId": str(pg_user["department_id"]) if pg_user.get("department_id") else None,
                     "status": str(pg_user["status"]).lower(),
-                    "emailVerified": True,
+                    "emailVerified": bool(pg_user.get("email_verified", True)),
                 }
         except Exception:
             pass
@@ -109,7 +109,7 @@ async def get_scope_context(request: Request) -> ScopeContext:
         raise Unauthenticated("Account not found")
     if user.get("status") != "active":
         raise Unauthenticated("This account is not active")
-    if not user.get("emailVerified", False):
+    if settings.EMAIL_VERIFICATION_ENABLED and not user.get("emailVerified", False):
         raise Unauthenticated("Please verify your email address to continue")
 
     role = parse_role(user["role"])

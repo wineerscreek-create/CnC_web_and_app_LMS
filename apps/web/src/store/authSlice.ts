@@ -57,11 +57,8 @@ export const signIn = createAsyncThunk(
     try {
       const response = await api.post('/auth/login', payload);
       if (!response.success) {
-        // e.g. the account exists but is not verified yet.
         return rejectWithValue({
-          message: response.message as string,
-          verificationRequired: Boolean(response.data?.verificationRequired),
-          email: response.data?.email as string | undefined,
+          message: response.message || 'Sign-in failed',
         });
       }
       setAccessToken(response.data.accessToken);
