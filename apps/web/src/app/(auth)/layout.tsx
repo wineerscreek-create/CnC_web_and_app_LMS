@@ -9,9 +9,9 @@ import { WinnersCreekLogo } from '@/components/ui/WinnersCreekLogo';
  */
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="grid min-h-screen lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-      <div className="flex flex-col justify-between px-6 py-8 sm:px-12 lg:px-16">
-        <div>
+    <div className="min-h-dvh box-border grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:h-dvh lg:overflow-hidden">
+      <div className="flex flex-col justify-between box-border px-6 py-4 sm:px-10 lg:px-12 lg:py-5 h-full overflow-y-auto">
+        <div className="shrink-0 mb-2 sm:mb-3">
           <Link
             href="/"
             className="inline-flex items-center transition-transform hover:opacity-90 active:scale-95"
@@ -21,18 +21,18 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           </Link>
         </div>
 
-        <main id="main" className="flex flex-1 items-center justify-center py-10">
-          <div className="w-full max-w-[420px] rounded-2xl border border-line bg-card p-6 sm:p-8 shadow-card animate-enter">
+        <main id="main" className="flex flex-1 items-center justify-center py-2 sm:py-4">
+          <div className="w-full max-w-[440px] rounded-2xl border border-line bg-card p-6 sm:p-7 shadow-card animate-enter my-auto">
             {children}
           </div>
         </main>
 
-        <p className="text-xs text-ink-3">
+        <p className="text-xs text-ink-3 shrink-0 pt-2">
           By continuing you agree that your institution administers this account.
         </p>
       </div>
 
-      <aside className="relative hidden border-l border-slate-200 text-slate-900 dark:border-white/10 dark:text-white lg:flex lg:flex-col lg:justify-center px-12 py-16">
+      <aside className="relative hidden lg:flex lg:flex-col lg:justify-center border-l border-slate-200 text-slate-900 dark:border-white/10 dark:text-white px-10 xl:px-14 py-12 lg:sticky lg:top-0 lg:h-dvh lg:overflow-hidden shrink-0">
         <GradientOrb color="indigo" size={450} className="-left-20 top-10 opacity-30" />
         <GradientOrb color="amber" size={320} className="-bottom-16 right-0 opacity-20" />
         <div className="relative z-10 max-w-[420px]">

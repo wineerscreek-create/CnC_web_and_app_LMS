@@ -50,14 +50,14 @@ export default function LoginPage() {
 
   return (
     <>
-      <h1 className="font-serif heading-section font-semibold tracking-tight text-ink-1">Sign in</h1>
-      <p className="mt-2 text-base text-ink-2">
+      <h1 className="font-serif text-2xl sm:text-[28px] font-semibold tracking-tight text-ink-1">Sign in</h1>
+      <p className="mt-1.5 text-sm sm:text-base text-ink-2">
         {hintedRole
           ? `${ROLE_LABEL[hintedRole] ?? 'Portal'} access — use your institution email or ID.`
           : 'Use your institution email address or your institution ID.'}
       </p>
 
-      <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
+      <form onSubmit={submit} className="mt-4 sm:mt-5 space-y-3.5" noValidate>
         <Field label="Email or institution ID" htmlFor="identifier">
           <Input
             id="identifier"
@@ -99,7 +99,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <label className="flex items-center gap-2.5 text-sm text-slate-300 cursor-pointer">
+        <label className="flex items-center gap-2.5 text-sm text-ink-2 hover:text-ink-1 transition-colors cursor-pointer">
           <Checkbox checked={remember} onCheckedChange={(value) => setRemember(Boolean(value))} />
           Keep me signed in on this device
         </label>
@@ -130,7 +130,7 @@ export default function LoginPage() {
         </Button>
       </form>
 
-      <p className="mt-5 text-sm text-slate-300">
+      <p className="mt-4 text-sm text-ink-2">
         Don’t have an account?{' '}
         <Link href="/signup" className="font-semibold text-indigo-400 hover:text-indigo-300 hover:underline">
           Create one

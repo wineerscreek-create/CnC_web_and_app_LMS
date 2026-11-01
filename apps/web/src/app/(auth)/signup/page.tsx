@@ -80,13 +80,13 @@ export default function SignupPage() {
 
   return (
     <>
-      <h1 className="font-serif text-[26px] font-semibold tracking-tight">Create your account</h1>
-      <p className="mt-1.5 text-base text-ink-2">
+      <h1 className="font-serif text-xl sm:text-2xl font-semibold tracking-tight">Create your account</h1>
+      <p className="mt-1 text-xs sm:text-sm text-ink-2">
         Participant accounts only. Trainer, SPOC and administrator accounts are created by your
         institution.
       </p>
 
-      <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
+      <form onSubmit={submit} className="mt-3.5 space-y-2.5 sm:space-y-3" noValidate>
         <Field label="Full name" htmlFor="name" required error={fieldErrors.name}>
           <Input
             id="name"
@@ -109,7 +109,7 @@ export default function SignupPage() {
           />
         </Field>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2.5 sm:space-y-3">
           <Field label="Institution" htmlFor="collegeCode" required error={fieldErrors.collegeCode}>
             <Select
               value={form.collegeCode}
@@ -226,7 +226,7 @@ export default function SignupPage() {
         </Button>
       </form>
 
-      <p className="mt-5 text-base text-ink-2">
+      <p className="mt-3 text-sm text-ink-2">
         Already have an account?{' '}
         <Link href="/login" className="font-semibold text-indigo hover:underline">
           Sign in

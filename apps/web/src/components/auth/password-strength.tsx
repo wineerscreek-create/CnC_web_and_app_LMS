@@ -52,13 +52,13 @@ export function PasswordStrength({ value }: { value: string }) {
         {value ? `Password strength: ${LABELS[score]}` : ''}
       </p>
       {value && unmet.length > 0 && (
-        <ul className="mt-2 space-y-1">
+        <ul className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-xs">
           {PASSWORD_RULES.map((rule) => {
             const ok = rule.test(value);
             return (
               <li
                 key={rule.label}
-                className={cn('flex items-center gap-1.5 text-xs', ok ? 'text-success' : 'text-ink-3')}
+                className={cn('flex items-center gap-1.5 text-xs truncate', ok ? 'text-success' : 'text-ink-3')}
               >
                 {ok ? <Check className="size-3" aria-hidden /> : <X className="size-3" aria-hidden />}
                 {rule.label}
