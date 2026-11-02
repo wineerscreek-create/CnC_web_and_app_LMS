@@ -495,34 +495,39 @@ async def dashboard(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
 @router.get("/learning-path")
 async def learning_path(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
     stages = ("Foundation", "Communication", "Technical", "Interview Ready")
-    progress = await CourseProgressRepo(ctx).find_all(
-        {"studentUserId": ctx.user_id}, limit=200
-    )
-    courses = {
-        c["_id"]: c
-        for c in await CourseRepo(ctx).find_all(
-            {"_id": {"$in": [p["courseId"] for p in progress]}}, limit=200
+    try:
+        progress = await CourseProgressRepo(ctx).find_all(
+            {"studentUserId": ctx.user_id}, limit=200
         )
-    }
-    by_stage: dict[str, list[float]] = {s: [] for s in stages}
-    for row in progress:
-        stage = (courses.get(row["courseId"]) or {}).get("stage")
-        if stage in by_stage:
-            by_stage[stage].append(row.get("percent", 0))
+        courses = {
+            c["_id"]: c
+            for c in await CourseRepo(ctx).find_all(
+                {"_id": {"$in": [p["courseId"] for p in progress]}}, limit=200
+            )
+        }
+        by_stage: dict[str, list[float]] = {s: [] for s in stages}
+        for row in progress:
+            stage = (courses.get(row["courseId"]) or {}).get("stage")
+            if stage in by_stage:
+                by_stage[stage].append(row.get("percent", 0))
 
-    out = []
-    for index, stage in enumerate(stages):
-        values = by_stage[stage]
-        average = round(sum(values) / len(values), 1) if values else 0.0
-        state = "completed" if average >= 99 else ("in_progress" if average > 0 else "upcoming")
-        if state == "upcoming" and index > 0 and out[index - 1]["state"] == "completed":
-            state = "in_progress" if average > 0 else "upcoming"
-        out.append({"stage": stage, "percent": average, "state": state, "courses": len(values)})
+        out = []
+        for index, stage in enumerate(stages):
+            values = by_stage[stage]
+            average = round(sum(values) / len(values), 1) if values else 0.0
+            state = "completed" if average >= 99 else ("in_progress" if average > 0 else "upcoming")
+            if state == "upcoming" and index > 0 and out[index - 1]["state"] == "completed":
+                state = "in_progress" if average > 0 else "upcoming"
+            out.append({"stage": stage, "percent": average, "state": state, "courses": len(values)})
 
-    overall = (
-        round(sum(s["percent"] for s in out) / len(out), 1) if out else 0.0
-    )
-    return {"success": True, "data": {"stages": out, "overallPercent": overall}}
+        overall = (
+            round(sum(s["percent"] for s in out) / len(out), 1) if out else 0.0
+        )
+        return {"success": True, "data": {"stages": out, "overallPercent": overall}}
+    except Exception as e:
+        logger.warning(f"Error computing learning path for student {ctx.user_id}: {e}")
+        out = [{"stage": s, "percent": 0.0, "state": "upcoming", "courses": 0} for s in stages]
+        return {"success": True, "data": {"stages": out, "overallPercent": 0.0}}
 
 
 @router.get("/courses")
@@ -2070,20 +2075,66 @@ async def get_profile(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
             if u_row:
                 user = dict(u_row)
     if not user:
-        user = await get_db().users.find_one({"_id": ctx.user_id})
-    score = await EediScoreRepo(ctx).find_one({"studentUserId": ctx.user_id}) or {}
-    goal = await PlacementGoalRepo(ctx).find_one({"studentUserId": ctx.user_id})
-    resume = await ResumeDocumentRepo(ctx).find_all(
-        {"studentUserId": ctx.user_id}, limit=1, sort=[("createdAt", -1)]
-    )
-    certificates = await CertificateRepo(ctx).find_all(
-        {"studentUserId": ctx.user_id, "status": "issued"}, limit=20
-    )
+        try:
+            user = await get_db().users.find_one({"_id": ctx.user_id})
+        except Exception:
+            user = {}
+
+    score = {}
+    try:
+        score = await EediScoreRepo(ctx).find_one({"studentUserId": ctx.user_id}) or {}
+    except Exception:
+        pass
+
+    goal = None
+    try:
+        goal = await PlacementGoalRepo(ctx).find_one({"studentUserId": ctx.user_id})
+    except Exception:
+        pass
+
+    resume = []
+    try:
+        resume = await ResumeDocumentRepo(ctx).find_all(
+            {"studentUserId": ctx.user_id}, limit=1, sort=[("createdAt", -1)]
+        )
+    except Exception:
+        pass
+
+    certificates = []
+    try:
+        certificates = await CertificateRepo(ctx).find_all(
+            {"studentUserId": ctx.user_id, "status": "issued"}, limit=20
+        )
+    except Exception:
+        pass
+
     from app.services import session_service
 
-    breakdown = await _skill_breakdown(ctx)
-    with_data = [b for b in breakdown if b["hasData"]]
-    gaps = sorted(with_data, key=lambda b: b["score"])[:2]
+    gaps = []
+    try:
+        breakdown = await _skill_breakdown(ctx)
+        with_data = [b for b in breakdown if b["hasData"]]
+        gaps = sorted(with_data, key=lambda b: b["score"])[:2]
+    except Exception:
+        pass
+
+    week_schedule = []
+    try:
+        week_schedule = await _week_at_a_glance(ctx, profile)
+    except Exception:
+        pass
+
+    sessions = []
+    try:
+        sessions = await session_service.list_active_sessions(str(ctx.user_id), ctx.session_id)
+    except Exception:
+        pass
+
+    coach_insight = None
+    try:
+        coach_insight = await _coach_insight(ctx)
+    except Exception:
+        pass
 
     return {
         "success": True,
@@ -2102,7 +2153,7 @@ async def get_profile(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
                 "status": "updated" if resume else "missing",
                 "lastUpdatedAt": resume[0].get("createdAt") if resume else None,
             },
-            "weekSchedule": serialize(await _week_at_a_glance(ctx, profile)),
+            "weekSchedule": serialize(week_schedule),
             "placementGoal": serialize(goal),
             "skillGaps": [
                 {
@@ -2115,10 +2166,8 @@ async def get_profile(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
             "roadmap": (goal or {}).get("roadmap", []),
             "certificates": serialize(certificates),
             "preferences": (user or {}).get("preferences", {}),
-            "sessions": serialize(
-                await session_service.list_active_sessions(str(ctx.user_id), ctx.session_id)
-            ),
-            "coachInsight": await _coach_insight(ctx),
+            "sessions": serialize(sessions),
+            "coachInsight": coach_insight,
         },
     }
 

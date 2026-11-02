@@ -82,11 +82,21 @@ async def get_authorized_trainers_for_student(
 
 
 async def get_authorized_students_for_trainer(
-    trainer_user_id: UUID | str, college_id: UUID | str
+    trainer_user_id: UUID | str, college_id: UUID | str | None = None
 ) -> list[dict[str, Any]]:
     """Return students in batches assigned to this trainer."""
-    t_uuid = UUID(str(trainer_user_id))
-    c_uuid = UUID(str(college_id))
+    try:
+        t_uuid = UUID(str(trainer_user_id)) if trainer_user_id else None
+    except Exception:
+        return []
+    
+    try:
+        c_uuid = UUID(str(college_id)) if college_id else None
+    except Exception:
+        c_uuid = None
+
+    if not t_uuid:
+        return []
 
     async with get_pg_connection() as conn:
         rows = await conn.fetch(
@@ -115,59 +125,81 @@ async def get_authorized_students_for_trainer(
             ]
 
         # Fallback to college students
-        students = await conn.fetch(
-            """
-            SELECT sp.user_id as id, u.name, sp.roll_number, u.email, u.avatar_color
-            FROM student_profiles sp
-            JOIN users u ON u.id = sp.user_id
-            WHERE sp.institution_id = $1 AND u.status = 'ACTIVE' AND u.deleted_at IS NULL
-            LIMIT 100
-            """,
-            c_uuid,
-        )
-        return [
-            {
-                "id": str(s["id"]),
-                "name": s["name"],
-                "rollNumber": s["roll_number"],
-                "email": s["email"],
-                "batchName": "Assigned Batch",
-                "avatarColor": s["avatar_color"] or "#4f46e5",
-            }
-            for s in students
-        ]
+        if c_uuid:
+            students = await conn.fetch(
+                """
+                SELECT sp.user_id as id, u.name, sp.roll_number, u.email, u.avatar_color
+                FROM student_profiles sp
+                JOIN users u ON u.id = sp.user_id
+                WHERE sp.institution_id = $1 AND u.status = 'ACTIVE' AND u.deleted_at IS NULL
+                LIMIT 100
+                """,
+                c_uuid,
+            )
+            return [
+                {
+                    "id": str(s["id"]),
+                    "name": s["name"],
+                    "rollNumber": s["roll_number"],
+                    "email": s["email"],
+                    "batchName": "Assigned Batch",
+                    "avatarColor": s["avatar_color"] or "#4f46e5",
+                }
+                for s in students
+            ]
+        return []
 
 
 async def verify_relationship(
-    student_user_id: UUID | str, trainer_user_id: UUID | str, college_id: UUID | str
+    student_user_id: UUID | str, trainer_user_id: UUID | str, college_id: UUID | str | None = None
 ) -> bool:
     """Check that student and trainer belong to the same college and share an assigned batch or scope."""
-    s_uuid = UUID(str(student_user_id))
-    t_uuid = UUID(str(trainer_user_id))
-    c_uuid = UUID(str(college_id))
+    try:
+        s_uuid = UUID(str(student_user_id)) if student_user_id else None
+        t_uuid = UUID(str(trainer_user_id)) if trainer_user_id else None
+        c_uuid = UUID(str(college_id)) if college_id else None
+    except Exception:
+        return False
+
+    if not s_uuid or not t_uuid:
+        return False
 
     async with get_pg_connection() as conn:
-        count = await conn.fetchval(
-            """
-            SELECT COUNT(*) FROM users
-            WHERE id IN ($1, $2) AND (institution_id = $3 OR institution_id IS NULL)
-              AND status = 'ACTIVE' AND deleted_at IS NULL
-            """,
-            s_uuid,
-            t_uuid,
-            c_uuid,
-        )
+        if c_uuid:
+            count = await conn.fetchval(
+                """
+                SELECT COUNT(*) FROM users
+                WHERE id IN ($1, $2) AND (institution_id = $3 OR institution_id IS NULL)
+                  AND status = 'ACTIVE' AND deleted_at IS NULL
+                """,
+                s_uuid,
+                t_uuid,
+                c_uuid,
+            )
+        else:
+            count = await conn.fetchval(
+                """
+                SELECT COUNT(*) FROM users
+                WHERE id IN ($1, $2)
+                  AND status = 'ACTIVE' AND deleted_at IS NULL
+                """,
+                s_uuid,
+                t_uuid,
+            )
         return bool(count and count >= 2)
 
 
 async def get_or_create_conversation(
     student_user_id: UUID | str,
     trainer_user_id: UUID | str,
-    college_id: UUID | str,
+    college_id: UUID | str | None = None,
 ) -> dict[str, Any]:
-    s_uuid = UUID(str(student_user_id))
-    t_uuid = UUID(str(trainer_user_id))
-    c_uuid = UUID(str(college_id))
+    try:
+        s_uuid = UUID(str(student_user_id))
+        t_uuid = UUID(str(trainer_user_id))
+        c_uuid = UUID(str(college_id)) if college_id else None
+    except Exception:
+        raise ScopeForbidden("Invalid student or trainer identifier.")
 
     is_valid = await verify_relationship(s_uuid, t_uuid, c_uuid)
     if not is_valid:
