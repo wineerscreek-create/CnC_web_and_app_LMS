@@ -324,8 +324,8 @@ async def resend_otp(payload: ResendOtpRequest) -> dict[str, Any]:
     if payload.purpose == VERIFY and user.get("email_verified"):
         return generic
 
-    if purpose == VERIFY:
-        otp = await rate_limit.issue_otp(purpose, email)
+    if payload.purpose == VERIFY:
+        otp = await rate_limit.issue_otp(VERIFY, email)
         link_token = create_purpose_token(
             user_id=str(user["id"]),
             purpose="verify",
