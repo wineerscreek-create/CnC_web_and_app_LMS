@@ -163,31 +163,31 @@ export default function AdminPaymentsPage() {
 
       {/* Ledger Table */}
       <Card>
-        <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800">
+        <CardHeader className="p-5 border-b border-border">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <CardTitle className="text-base">Campus Transaction Ledger</CardTitle>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 Every transaction contains an immutable idempotency key and checksum
               </p>
             </div>
 
             <div className="flex items-center gap-2">
               <div className="relative">
-                <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search participant or order…"
-                  className="pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900"
+                  className="pl-8 pr-3 py-1.5 text-xs rounded-lg border border-border bg-card text-foreground"
                 />
               </div>
 
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium"
+                className="px-3 py-1.5 text-xs rounded-lg border border-border bg-card text-foreground font-medium"
               >
                 <option value="all">All Statuses</option>
                 <option value="success">Success</option>
@@ -202,15 +202,15 @@ export default function AdminPaymentsPage() {
         <CardBody className="p-0">
           {filtered.length === 0 ? (
             <div className="text-center py-12">
-              <Receipt className="size-10 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
-              <p className="font-semibold text-sm text-slate-700 dark:text-slate-300">
+              <Receipt className="size-10 text-muted-foreground mx-auto mb-2" />
+              <p className="font-semibold text-sm text-foreground">
                 No matching transactions found
               </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 text-slate-500 uppercase tracking-wider font-semibold">
+                <thead className="bg-slate-50 dark:bg-slate-900 border-b border-border text-muted-foreground uppercase tracking-wider font-semibold">
                   <tr>
                     <th className="px-5 py-3">Order ID</th>
                     <th className="px-5 py-3">Participant</th>
@@ -221,23 +221,23 @@ export default function AdminPaymentsPage() {
                     <th className="px-5 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                <tbody className="divide-y divide-border">
                   {filtered.map((p) => (
-                    <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                      <td className="px-5 py-3.5 font-mono text-slate-600 dark:text-slate-300 font-medium">
+                    <tr key={p.id} className="hover:bg-muted/50">
+                      <td className="px-5 py-3.5 font-mono text-muted-foreground font-medium">
                         {p.orderId}
                       </td>
                       <td className="px-5 py-3.5">
-                        <p className="font-semibold text-slate-900 dark:text-white">{p.studentName}</p>
-                        <p className="text-[11px] text-slate-400">{p.studentEmail}</p>
+                        <p className="font-semibold text-foreground">{p.studentName}</p>
+                        <p className="text-[11px] text-muted-foreground">{p.studentEmail}</p>
                       </td>
-                      <td className="px-5 py-3.5 text-slate-700 dark:text-slate-300 max-w-xs truncate">
+                      <td className="px-5 py-3.5 text-foreground max-w-xs truncate">
                         {p.purpose}
                       </td>
-                      <td className="px-5 py-3.5 font-bold text-slate-900 dark:text-white">
+                      <td className="px-5 py-3.5 font-bold text-foreground">
                         ₹{num(p.amount)}
                       </td>
-                      <td className="px-5 py-3.5 text-slate-500">
+                      <td className="px-5 py-3.5 text-muted-foreground">
                         {formatDate(p.createdAt)}
                       </td>
                       <td className="px-5 py-3.5">
@@ -288,7 +288,7 @@ export default function AdminPaymentsPage() {
 
           {refundTarget && (
             <form onSubmit={handleRefund} className="p-6 space-y-4">
-              <div className="p-3 rounded-lg bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 text-xs text-rose-800 dark:text-rose-300">
+              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-xs text-destructive">
                 <p>
                   <strong>Order:</strong> {refundTarget.orderId}
                 </p>
@@ -301,7 +301,7 @@ export default function AdminPaymentsPage() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                <label className="text-xs font-semibold text-foreground">
                   Reason for Refund
                 </label>
                 <input
@@ -310,7 +310,7 @@ export default function AdminPaymentsPage() {
                   value={refundReason}
                   onChange={(e) => setRefundReason(e.target.value)}
                   placeholder="e.g., Course cancellation, participant request within policy"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-card text-foreground"
                 />
               </div>
 

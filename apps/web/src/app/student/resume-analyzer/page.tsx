@@ -142,15 +142,15 @@ export default function ResumeAnalyzerPage() {
             />
 
             {/* Target Role Selector Bar */}
-            <Card className="card-interactive bg-surface dark:bg-slate-900 border-line dark:border-slate-800">
+            <Card className="card-interactive bg-card border-border">
               <CardBody className="p-4 sm:p-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="space-y-1">
-                    <label className="text-xs font-bold uppercase tracking-wider text-ink-3 dark:text-slate-400 flex items-center gap-1.5">
-                      <Briefcase className="size-3.5 text-indigo" />
+                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                      <Briefcase className="size-3.5 text-primary" />
                       Target Career Role & Job Description
                     </label>
-                    <p className="text-xs text-ink-2 dark:text-slate-300">
+                    <p className="text-xs text-muted-foreground">
                       Select your target role to benchmark your resume keywords and section scores against recruiter criteria.
                     </p>
                   </div>
@@ -158,7 +158,7 @@ export default function ResumeAnalyzerPage() {
                     <select
                       value={selectedRole}
                       onChange={(e) => setSelectedRole(e.target.value)}
-                      className="px-3 py-2 text-xs font-semibold rounded-xl border border-line dark:border-slate-700 bg-app dark:bg-slate-950 text-ink-1 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-indigo"
+                      className="px-3 py-2 text-xs font-semibold rounded-xl border border-input bg-background text-heading focus:outline-hidden focus:ring-2 focus:ring-ring"
                     >
                       {availableRoles.map((r: any) => (
                         <option key={r.key} value={r.key}>
@@ -178,8 +178,8 @@ export default function ResumeAnalyzerPage() {
                 </div>
 
                 {useCustomJd && (
-                  <div className="mt-4 pt-4 border-t border-line dark:border-slate-800 space-y-2">
-                    <label className="text-xs font-semibold text-ink-2 dark:text-slate-300">
+                  <div className="mt-4 pt-4 border-t border-border space-y-2">
+                    <label className="text-xs font-semibold text-muted-foreground">
                       Paste Custom Job Description (Text)
                     </label>
                     <textarea
@@ -187,7 +187,7 @@ export default function ResumeAnalyzerPage() {
                       value={customJdText}
                       onChange={(e) => setCustomJdText(e.target.value)}
                       placeholder="Paste specific job requirements, required technologies, and qualification criteria here…"
-                      className="w-full p-3 text-xs rounded-xl border border-line dark:border-slate-700 bg-app dark:bg-slate-950 text-ink-1 dark:text-white placeholder:text-ink-3 focus:outline-hidden focus:ring-2 focus:ring-indigo"
+                      className="w-full p-3 text-xs rounded-xl border border-input bg-background text-heading placeholder:text-ink-3 focus:outline-hidden focus:ring-2 focus:ring-ring"
                     />
                   </div>
                 )}
@@ -197,11 +197,11 @@ export default function ResumeAnalyzerPage() {
             {!latest ? (
               <Card className="card-interactive">
                 <CardBody className="py-12 text-center">
-                  <span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-indigo/10 text-indigo dark:bg-indigo/20">
+                  <span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-muted text-primary border border-border">
                     <FileText className="size-6" aria-hidden />
                   </span>
-                  <p className="mt-4 text-md font-semibold text-ink-1 dark:text-white">No resume uploaded yet</p>
-                  <p className="mx-auto mt-1.5 max-w-[440px] text-sm text-ink-2 dark:text-slate-400">
+                  <p className="mt-4 text-md font-semibold text-heading">No resume uploaded yet</p>
+                  <p className="mx-auto mt-1.5 max-w-[440px] text-sm text-muted-foreground">
                     Upload your latest resume (PDF, Word, or TXT). It will be evaluated deterministically against the selected target role for keyword match, section structure, and action-verb strength.
                   </p>
                   <Button
@@ -219,7 +219,7 @@ export default function ResumeAnalyzerPage() {
               <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
                 {/* Left Column: ATS Score & Metadata */}
                 <div className="space-y-5">
-                  <Card className="card-interactive bg-white dark:bg-slate-900 border-line dark:border-slate-800">
+                  <Card className="card-interactive bg-card border-border">
                     <CardBody className="text-center p-5">
                       <RadialScore value={atsScore} label="ATS Match Score" size={130} thickness={12} />
                       <div className="mt-3">
@@ -227,16 +227,16 @@ export default function ResumeAnalyzerPage() {
                           {atsScore >= 75 ? 'High Compatibility' : atsScore >= 50 ? 'Moderate Alignment' : 'Needs Optimization'}
                         </Badge>
                       </div>
-                      <p className="mt-2 text-xs font-semibold text-ink-1 dark:text-slate-200">
+                      <p className="mt-2 text-xs font-semibold text-heading">
                         {targetTitle}
                       </p>
-                      <p className="mt-1 text-[11px] text-ink-3 dark:text-slate-400">
+                      <p className="mt-1 text-[11px] text-muted-foreground">
                         {analysis?.basis || 'Deterministic ATS match algorithm v2.4.0'}
                       </p>
                     </CardBody>
                   </Card>
 
-                  <Card className="card-interactive bg-white dark:bg-slate-900 border-line dark:border-slate-800">
+                  <Card className="card-interactive bg-card border-border">
                     <CardHeader>
                       <div>
                         <CardTitle>Analyzed File</CardTitle>
@@ -244,8 +244,8 @@ export default function ResumeAnalyzerPage() {
                       </div>
                     </CardHeader>
                     <CardBody className="p-4 pt-0">
-                      <p className="truncate text-sm font-semibold text-ink-1 dark:text-white">{latest.filename}</p>
-                      <p className="mt-0.5 text-xs text-ink-3 dark:text-slate-400">
+                      <p className="truncate text-sm font-semibold text-heading">{latest.filename}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
                         {bytes(latest.bytes)} · {latest.extractedCharacters} chars read
                       </p>
                       {latest.downloadUrl && (
@@ -260,7 +260,7 @@ export default function ResumeAnalyzerPage() {
                   </Card>
 
                   {historyList.length > 0 && (
-                    <Card className="card-interactive bg-white dark:bg-slate-900 border-line dark:border-slate-800">
+                    <Card className="card-interactive bg-card border-border">
                       <CardHeader>
                         <div>
                           <CardTitle>Version History</CardTitle>
@@ -270,11 +270,11 @@ export default function ResumeAnalyzerPage() {
                       <CardBody className="p-4 pt-0">
                         <ul className="space-y-1.5">
                           {historyList.map((row: any) => (
-                            <li key={row.id} className="flex items-baseline justify-between gap-3 rounded-lg p-1.5 -mx-1.5 transition-colors hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                              <span className="min-w-0 truncate text-xs text-ink-2 dark:text-slate-300">
+                            <li key={row.id} className="flex items-baseline justify-between gap-3 rounded-lg p-1.5 -mx-1.5 transition-colors hover:bg-muted/50">
+                              <span className="min-w-0 truncate text-xs text-muted-foreground">
                                 {formatDate(row.createdAt)}
                               </span>
-                              <span className="tnum shrink-0 text-xs font-bold text-ink-1 dark:text-white">
+                              <span className="tnum shrink-0 text-xs font-bold text-heading">
                                 {row.analysis?.overallScore ?? row.analysis?.score ?? '—'}/100
                               </span>
                             </li>
@@ -290,7 +290,7 @@ export default function ResumeAnalyzerPage() {
                   {/* Matched vs Missing Skills Cards */}
                   <div className="grid gap-4 sm:grid-cols-2">
                     {/* Matched Skills */}
-                    <Card className="card-interactive bg-white dark:bg-slate-900 border-line dark:border-slate-800">
+                    <Card className="card-interactive bg-card border-border">
                       <CardHeader>
                         <div>
                           <CardTitle className="text-success flex items-center gap-1.5">
@@ -306,14 +306,14 @@ export default function ResumeAnalyzerPage() {
                             {matchedSkills.map((skill) => (
                               <span
                                 key={skill}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-muted text-primary border border-border"
                               >
                                 ✓ {skill}
                               </span>
                             ))}
                           </div>
                         ) : (
-                          <p className="text-xs text-ink-3 dark:text-slate-400">
+                          <p className="text-xs text-muted-foreground">
                             No primary technical keywords matched for this target role.
                           </p>
                         )}
@@ -321,7 +321,7 @@ export default function ResumeAnalyzerPage() {
                     </Card>
 
                     {/* Missing Skills */}
-                    <Card className="card-interactive bg-white dark:bg-slate-900 border-line dark:border-slate-800">
+                    <Card className="card-interactive bg-card border-border">
                       <CardHeader>
                         <div>
                           <CardTitle className="text-amber flex items-center gap-1.5">
@@ -337,7 +337,7 @@ export default function ResumeAnalyzerPage() {
                             {missingSkills.map((skill) => (
                               <span
                                 key={skill}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-secondary text-secondary-foreground border border-border"
                               >
                                 + {skill}
                               </span>
@@ -354,7 +354,7 @@ export default function ResumeAnalyzerPage() {
                   </div>
 
                   {/* Actionable AI Critique */}
-                  <Card className="card-interactive bg-white dark:bg-slate-900 border-line dark:border-slate-800">
+                  <Card className="card-interactive bg-card border-border">
                     <CardHeader>
                       <div>
                         <CardTitle className="flex items-center gap-2">
@@ -370,12 +370,12 @@ export default function ResumeAnalyzerPage() {
                           {actionableCritique.map((critique, idx) => (
                             <li
                               key={idx}
-                              className="flex items-start gap-3 rounded-xl bg-surface dark:bg-slate-850 p-3 border border-line dark:border-slate-800"
+                              className="flex items-start gap-3 rounded-xl bg-muted/40 p-3 border border-border"
                             >
-                              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-indigo/10 text-indigo dark:bg-indigo/20 text-2xs font-bold mt-0.5">
+                              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-primary border border-border text-2xs font-bold mt-0.5">
                                 {idx + 1}
                               </span>
-                              <span className="text-xs text-ink-1 dark:text-slate-200 leading-relaxed">
+                              <span className="text-xs text-heading leading-relaxed">
                                 {critique}
                               </span>
                             </li>
@@ -391,7 +391,7 @@ export default function ResumeAnalyzerPage() {
                   </Card>
 
                   {/* Section Checklist */}
-                  <Card className="card-interactive bg-white dark:bg-slate-900 border-line dark:border-slate-800">
+                  <Card className="card-interactive bg-card border-border">
                     <CardHeader>
                       <div>
                         <CardTitle>Structural Sections</CardTitle>
@@ -405,17 +405,17 @@ export default function ResumeAnalyzerPage() {
                           return (
                             <li
                               key={section}
-                              className="flex items-center gap-2 rounded-xl bg-surface dark:bg-slate-850 px-3 py-2 border border-line dark:border-slate-800"
+                              className="flex items-center gap-2 rounded-xl bg-muted/40 px-3 py-2 border border-border"
                             >
                               {found ? (
                                 <CheckCircle2 className="size-3.5 shrink-0 text-success" aria-hidden />
                               ) : (
                                 <XCircle className="size-3.5 shrink-0 text-danger" aria-hidden />
                               )}
-                              <span className="text-xs font-semibold text-ink-1 dark:text-slate-200">
+                              <span className="text-xs font-semibold text-heading">
                                 {titleCase(section)}
                               </span>
-                              <span className="ml-auto text-[10px] text-ink-3 dark:text-slate-400">
+                              <span className="ml-auto text-[10px] text-muted-foreground">
                                 {found ? 'Found' : 'Missing'}
                               </span>
                             </li>
@@ -426,7 +426,7 @@ export default function ResumeAnalyzerPage() {
                   </Card>
 
                   {/* Bullet Strength */}
-                  <Card className="card-interactive bg-white dark:bg-slate-900 border-line dark:border-slate-800">
+                  <Card className="card-interactive bg-card border-border">
                     <CardHeader>
                       <div>
                         <CardTitle>Bullet Point Impact</CardTitle>
@@ -435,15 +435,15 @@ export default function ResumeAnalyzerPage() {
                     </CardHeader>
                     <CardBody className="p-4 pt-0">
                       <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-xl bg-surface dark:bg-slate-850 p-3 border border-line dark:border-slate-800">
-                          <span className="text-[11px] text-ink-3 dark:text-slate-400">Strong Action Verbs</span>
-                          <p className="text-base font-bold text-ink-1 dark:text-white mt-0.5">
+                        <div className="rounded-xl bg-muted/40 p-3 border border-border">
+                          <span className="text-[11px] text-muted-foreground">Strong Action Verbs</span>
+                          <p className="text-base font-bold text-heading mt-0.5">
                             {analysis?.actionVerbCount ?? 0}
                           </p>
                         </div>
-                        <div className="rounded-xl bg-surface dark:bg-slate-850 p-3 border border-line dark:border-slate-800">
-                          <span className="text-[11px] text-ink-3 dark:text-slate-400">Quantified Achievements</span>
-                          <p className="text-base font-bold text-ink-1 dark:text-white mt-0.5">
+                        <div className="rounded-xl bg-muted/40 p-3 border border-border">
+                          <span className="text-[11px] text-muted-foreground">Quantified Achievements</span>
+                          <p className="text-base font-bold text-heading mt-0.5">
                             {analysis?.quantifiedClaims ?? 0}
                           </p>
                         </div>

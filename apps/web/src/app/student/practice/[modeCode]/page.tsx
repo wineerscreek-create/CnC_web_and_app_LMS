@@ -99,7 +99,7 @@ export default function PracticeBriefPage() {
                     {mode.questions?.length ?? 1} question(s) · about {mode.durationMinutes} minutes
                   </CardSubtitle>
                 </div>
-                <span className="flex size-9 items-center justify-center rounded-[10px] bg-indigo-50 text-indigo">
+                <span className="flex size-9 items-center justify-center rounded-[10px] bg-muted text-primary border border-border">
                   <Icon className="size-[18px]" aria-hidden />
                 </span>
               </CardHeader>

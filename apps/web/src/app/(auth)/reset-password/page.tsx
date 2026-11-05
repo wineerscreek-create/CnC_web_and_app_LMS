@@ -63,14 +63,14 @@ export default function ResetPasswordPage() {
   if (done) {
     return (
       <div className="text-center">
-        <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-success-bg text-success">
+        <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
           <CheckCircle2 className="size-5" aria-hidden />
         </span>
-        <h1 className="mt-4 font-serif text-[24px] font-semibold tracking-tight">Password updated</h1>
-        <p className="mt-1.5 text-base text-ink-2">
+        <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-heading">Password updated</h1>
+        <p className="mt-1.5 text-base text-muted-foreground">
           Your password has been changed successfully. All active sessions have been signed out. Redirecting to sign in...
         </p>
-        <Button asChild variant="primary" className="mt-5">
+        <Button asChild variant="primary" className="mt-5 font-bold" size="lg">
           <Link href="/login">Sign in now</Link>
         </Button>
       </div>
@@ -80,15 +80,15 @@ export default function ResetPasswordPage() {
   if (!token) {
     return (
       <div className="text-center">
-        <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+        <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-accent/15 text-gold-text">
           <KeyRound className="size-5" aria-hidden />
         </span>
-        <h1 className="mt-4 font-serif text-[24px] font-semibold tracking-tight">Password reset link required</h1>
-        <p className="mt-2 text-base text-ink-2">
+        <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-heading">Password reset link required</h1>
+        <p className="mt-2 text-base text-muted-foreground">
           To reset your password, please use the reset link sent to your registered email address.
         </p>
         <div className="mt-6 flex flex-col gap-3">
-          <Button asChild variant="primary" size="lg" className="w-full">
+          <Button asChild variant="primary" size="lg" className="w-full font-bold">
             <Link href="/forgot-password">Request password reset link</Link>
           </Button>
           <Button asChild variant="ghost" size="lg" className="w-full">
@@ -101,11 +101,11 @@ export default function ResetPasswordPage() {
 
   return (
     <>
-      <span className="flex size-11 items-center justify-center rounded-full bg-indigo-50 text-indigo">
+      <span className="flex size-11 items-center justify-center rounded-full bg-muted text-primary">
         <ShieldCheck className="size-5" aria-hidden />
       </span>
-      <h1 className="mt-4 font-serif text-[26px] font-semibold tracking-tight">Choose a new password</h1>
-      <p className="mt-1.5 text-base text-ink-2">
+      <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-heading">Choose a new password</h1>
+      <p className="mt-1.5 text-base text-muted-foreground">
         Pick a secure password you haven’t used here before.
       </p>
 
@@ -119,6 +119,7 @@ export default function ResetPasswordPage() {
               autoComplete="new-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
+              className="rounded-xl text-sm"
             />
           </Field>
           <PasswordStrength value={password} />
@@ -132,11 +133,12 @@ export default function ResetPasswordPage() {
             autoComplete="new-password"
             value={confirm}
             onChange={(event) => setConfirm(event.target.value)}
+            className="rounded-xl text-sm"
           />
         </Field>
 
         {error && (
-          <p role="alert" className="flex items-start gap-2 rounded-[10px] bg-danger-bg px-3.5 py-2.5 text-sm font-semibold text-danger">
+          <p role="alert" className="flex items-start gap-2 rounded-xl bg-destructive/10 border border-destructive/30 px-3.5 py-2.5 text-sm font-semibold text-destructive">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             {error}
           </p>
@@ -146,7 +148,7 @@ export default function ResetPasswordPage() {
           type="submit"
           variant="primary"
           size="lg"
-          className="w-full"
+          className="w-full font-bold"
           loading={pending}
           disabled={passwordScore(password) < 2}
         >
@@ -154,8 +156,8 @@ export default function ResetPasswordPage() {
         </Button>
       </form>
 
-      <p className="mt-5 text-base text-ink-2">
-        <Link href="/login" className="font-semibold text-indigo hover:underline">
+      <p className="mt-5 text-base text-muted-foreground">
+        <Link href="/login" className="font-semibold text-foreground hover:underline">
           Back to sign in
         </Link>
       </p>

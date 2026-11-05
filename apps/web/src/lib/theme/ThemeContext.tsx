@@ -26,14 +26,14 @@ function applyThemeToDOM(theme: Theme) {
     root.setAttribute('data-theme', 'dark');
     root.style.colorScheme = 'dark';
     const metaTheme = document.querySelector('meta[name="theme-color"]');
-    if (metaTheme) metaTheme.setAttribute('content', '#0b0f19');
+    if (metaTheme) metaTheme.setAttribute('content', '#1A1A1A');
   } else {
     root.classList.remove('dark');
     root.classList.add('light');
     root.setAttribute('data-theme', 'light');
     root.style.colorScheme = 'light';
     const metaTheme = document.querySelector('meta[name="theme-color"]');
-    if (metaTheme) metaTheme.setAttribute('content', '#F4F6F8');
+    if (metaTheme) metaTheme.setAttribute('content', '#F4F1EA');
   }
 }
 

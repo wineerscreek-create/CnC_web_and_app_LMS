@@ -16,7 +16,7 @@ const LineTrend = dynamic(
   () => import('@/components/charts').then((mod) => mod.LineTrend),
   {
     ssr: false,
-    loading: () => <div className="h-[210px] w-full animate-pulse rounded-lg bg-slate-100/70" />,
+    loading: () => <div className="h-[210px] w-full animate-pulse rounded-2xl bg-muted" />,
   },
 );
 
@@ -24,9 +24,10 @@ const BarCompare = dynamic(
   () => import('@/components/charts').then((mod) => mod.BarCompare),
   {
     ssr: false,
-    loading: () => <div className="h-[210px] w-full animate-pulse rounded-lg bg-slate-100/70" />,
+    loading: () => <div className="h-[210px] w-full animate-pulse rounded-2xl bg-muted" />,
   },
 );
+
 import { PageHeader } from '@/components/shared/page-header';
 import { ProgressBar } from '@/components/shared/progress-bits';
 import { StatCard } from '@/components/shared/stat-card';
@@ -34,9 +35,6 @@ import { AsyncSection } from '@/components/shared/state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardSubtitle, CardTitle } from '@/components/ui/card';
-import { ImageHero } from '@/components/ui/ImageHero';
-import { InteractiveArrowButton } from '@/components/ui/InteractiveArrowButton';
-import { VisualPageBackground } from '@/components/ui/VisualPageBackground';
 import { AnimatedCounter } from '@/components/ui/counter';
 import { useApi } from '@/hooks/useApi';
 import { cn } from '@/lib/cn';
@@ -46,12 +44,7 @@ export default function TrainerDashboardPage() {
   const query = useApi<any>('/trainer/dashboard');
 
   return (
-    <VisualPageBackground
-      image="/images/backgrounds/trainer.webp"
-      imageAlt="Trainer Command Studio"
-      overlay="dark"
-      className="min-h-full rounded-2xl p-4 sm:p-6"
-    >
+    <div className="space-y-6">
       <AsyncSection query={query} skeleton="kpis">
         {(rawData) => {
           const data = {
@@ -84,227 +77,235 @@ export default function TrainerDashboardPage() {
             moduleScores: Array.isArray(rawData?.moduleScores) ? rawData.moduleScores : [],
           };
           return (
-          <>
-          <ImageHero
-            image="/images/trainer-ai.webp"
-            imageAlt="Trainer Command and Cohort Analytics"
-            title="Trainer Command Studio"
-            subtitle="Authoritative oversight for your assigned participant cohorts and institutional batches."
-            badge={
-              <div className="flex flex-wrap items-center gap-1.5">
-                {data.assignedBatches.map((batch: any) => (
-                  <Badge key={batch.id} tone="indigo" className="bg-indigo-500/20 text-indigo-200 border-indigo-500/30">
-                    {batch.name}
-                  </Badge>
-                ))}
+            <>
+              {/* Header with Batches Overview */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border">
+                <div>
+                  <h1 className="text-2xl font-black font-heading tracking-tight text-heading">
+                    Trainer Command Studio
+                  </h1>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Comprehensive pedagogical oversight across your assigned student cohorts and institutional training batches.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {data.assignedBatches.map((batch: any) => (
+                    <Badge key={batch.id} tone="mustard" className="font-semibold text-xs py-1 px-3">
+                      {batch.name}
+                    </Badge>
+                  ))}
+                </div>
               </div>
-            }
-          />
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard
-              label="Participants"
-              value={num(data.studentCount)}
-              icon={<Users />}
-              deltaLabel={`${data.assignedBatches.length} batch(es) assigned`}
-            />
-            <StatCard
-              label="Attendance"
-              value={pct(data.attendance.percentage, 1)}
-              icon={<CalendarCheck />}
-              tone={data.attendance.percentage >= 75 ? 'success' : 'amber'}
-              hasData={data.attendance.hasData}
-              deltaLabel={`${num(data.attendance.present)} of ${num(data.attendance.total)} marks present`}
-            />
-            <StatCard
-              label="Assessment average"
-              value={num(data.assessments.average, 1)}
-              outOf={100}
-              icon={<GraduationCap />}
-              tone="teal"
-              hasData={data.assessments.hasData}
-              deltaLabel={`${num(data.assessments.count)} scores · range ${data.assessments.min}–${data.assessments.max}`}
-            />
-            <StatCard
-              label="Pending evaluations"
-              value={num(data.pendingEvaluations)}
-              icon={<ClipboardCheck />}
-              tone={data.pendingEvaluations > 0 ? 'amber' : 'success'}
-              deltaLabel={
-                data.pendingEvaluations > 0 ? 'Drafts not yet submitted' : 'Nothing in draft'
-              }
-            />
-          </div>
+              {/* KPI Stat Cards */}
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <StatCard
+                  label="Enrolled participants"
+                  value={num(data.studentCount)}
+                  icon={<Users className="text-heading" />}
+                  tone="charcoal"
+                  deltaLabel={`${data.assignedBatches.length} batch(es) assigned`}
+                />
+                <StatCard
+                  label="Batch attendance"
+                  value={pct(data.attendance.percentage, 1)}
+                  icon={<CalendarCheck className="text-heading" />}
+                  tone={data.attendance.percentage >= 75 ? 'mustard' : 'charcoal'}
+                  hasData={data.attendance.hasData}
+                  deltaLabel={`${num(data.attendance.present)} of ${num(data.attendance.total)} verified present`}
+                />
+                <StatCard
+                  label="Assessment average"
+                  value={num(data.assessments.average, 1)}
+                  outOf={100}
+                  icon={<GraduationCap className="text-heading" />}
+                  tone="mustard"
+                  hasData={data.assessments.hasData}
+                  deltaLabel={`${num(data.assessments.count)} scores · range ${data.assessments.min}–${data.assessments.max}`}
+                />
+                <StatCard
+                  label="Pending evaluations"
+                  value={num(data.pendingEvaluations)}
+                  icon={<ClipboardCheck className="text-heading" />}
+                  tone={data.pendingEvaluations > 0 ? 'mustard' : 'charcoal'}
+                  deltaLabel={
+                    data.pendingEvaluations > 0 ? 'Submissions awaiting evaluation' : 'Queue clear'
+                  }
+                />
+              </div>
 
-          <div className="mt-5 grid gap-5 xl:grid-cols-[1.4fr_1fr]">
-            <div className="space-y-5">
-              <Card elevated className="card-interactive">
-                <CardHeader>
-                  <div>
-                    <CardTitle>Today&apos;s classes</CardTitle>
-                    <CardSubtitle>
-                      {data.todaysClasses.total} scheduled ·{' '}
-                      {data.todaysClasses.attendanceNotMarked} without attendance
-                    </CardSubtitle>
-                  </div>
-                  <Button asChild variant="secondary" size="sm">
-                    <Link href="/trainer/classes">All classes</Link>
-                  </Button>
-                </CardHeader>
-                <CardBody>
-                  {data.todaysClasses.sessions.length === 0 ? (
-                    <p className="py-6 text-center text-base text-ink-2">
-                      No classes scheduled today.
-                    </p>
-                  ) : (
-                    <ul className="space-y-2.5">
-                      {data.todaysClasses.sessions.map((session: any) => (
-                        <li
-                          key={session.id}
-                          className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200/80 dark:border-white/[0.08] surface-3d px-4 py-3.5 transition-all duration-200 hover:border-indigo-400 hover:shadow-3d-hover"
-                        >
-                          <div className="min-w-[180px] flex-1">
-                            <p className="text-base font-semibold">{session.topic}</p>
-                            <p className="mt-0.5 text-sm text-ink-2">
-                              {session.batchName} · {session.trainingModuleName}
-                            </p>
-                          </div>
-                          <p className="tnum text-sm font-semibold">
-                            {formatTime(session.date)} – {formatTime(session.endsAt)}
-                          </p>
-                          <Button asChild variant="primary" size="sm">
-                            <Link href={`/trainer/attendance/${session.id}`}>
-                              <CalendarCheck className="size-3.5" aria-hidden />
-                              Mark attendance
+              {/* Bento Content Sections */}
+              <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
+                <div className="space-y-6">
+                  {/* Today's Classes */}
+                  <Card className="border-border bg-card shadow-card">
+                    <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
+                      <div>
+                        <CardTitle className="text-base font-bold font-heading text-heading">Today&apos;s Training Sessions</CardTitle>
+                        <CardSubtitle className="text-xs text-muted-foreground">
+                          {data.todaysClasses.total} scheduled ·{' '}
+                          {data.todaysClasses.attendanceNotMarked} without attendance marked
+                        </CardSubtitle>
+                      </div>
+                      <Button asChild variant="secondary" size="sm" className="text-xs">
+                        <Link href="/trainer/classes">All Classes</Link>
+                      </Button>
+                    </CardHeader>
+                    <CardBody className="pt-4">
+                      {data.todaysClasses.sessions.length === 0 ? (
+                        <p className="py-6 text-center text-xs text-muted-foreground">
+                          No training classes scheduled for today.
+                        </p>
+                      ) : (
+                        <ul className="space-y-3">
+                          {data.todaysClasses.sessions.map((session: any) => (
+                            <li
+                              key={session.id}
+                              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-muted/40 p-4 transition-all duration-200 hover:bg-card hover:border-accent hover:shadow-card"
+                            >
+                              <div className="min-w-[180px] flex-1">
+                                <p className="text-sm font-bold font-heading text-heading">{session.topic}</p>
+                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                  {session.batchName} · {session.trainingModuleName}
+                                </p>
+                              </div>
+                              <p className="tnum text-xs font-mono font-bold text-heading">
+                                {formatTime(session.date)} – {formatTime(session.endsAt)}
+                              </p>
+                              <Button asChild variant="primary" size="sm" className="flex items-center gap-1.5 text-xs">
+                                <Link href={`/trainer/attendance/${session.id}`}>
+                                  <CalendarCheck className="size-3.5" aria-hidden />
+                                  Mark Attendance
+                                </Link>
+                              </Button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </CardBody>
+                  </Card>
+
+                  {/* Attendance Trend */}
+                  <ChartCard
+                    title="Attendance Velocity"
+                    subtitle="Historical participation across your cohorts over the last eight weeks"
+                    description={`Weekly attendance percentage across ${data.attendanceTrend.length} weeks.`}
+                    isEmpty={!data.attendanceTrend.some((week: any) => week.hasSession)}
+                    height={210}
+                  >
+                    <LineTrend
+                      data={data.attendanceTrend}
+                      xKey="label"
+                      series={[{ key: 'percentage', label: 'Attendance %' }]}
+                      unit="%"
+                    />
+                  </ChartCard>
+
+                  {/* Module Scores */}
+                  <ChartCard
+                    title="Evaluation Benchmark by Module"
+                    subtitle="Trainer-rated parameters, normalized to 100"
+                    description={data.moduleScores
+                      .map((row: any) => `${row.module}: ${row.average}`)
+                      .join('; ')}
+                    isEmpty={data.moduleScores.length === 0}
+                    height={210}
+                  >
+                    <BarCompare
+                      data={data.moduleScores}
+                      xKey="module"
+                      valueKey="average"
+                      colorBy={(row) => attendanceColor(row.average)}
+                    />
+                  </ChartCard>
+                </div>
+
+                <div className="space-y-6">
+                  {/* Course Completion */}
+                  <Card className="border-border bg-card shadow-card">
+                    <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
+                      <div>
+                        <CardTitle className="text-base font-bold font-heading text-heading">Syllabus Progression</CardTitle>
+                        <CardSubtitle className="text-xs text-muted-foreground">Aggregate completion across your assigned batches</CardSubtitle>
+                      </div>
+                      <TrendingUp className="size-4 text-accent" aria-hidden />
+                    </CardHeader>
+                    <CardBody className="pt-4">
+                      <div className="flex items-center justify-between text-xs font-semibold text-heading mb-2">
+                        <span>Cohort Completion</span>
+                        <span className="font-mono">{pct(data.courseCompletionPercent, 0)}</span>
+                      </div>
+                      <ProgressBar value={data.courseCompletionPercent} />
+                      <Button asChild variant="secondary" size="sm" className="mt-4 w-full text-xs">
+                        <Link href="/trainer/course-progress">Inspect Course Milestones</Link>
+                      </Button>
+                    </CardBody>
+                  </Card>
+
+                  {/* Participant Alerts */}
+                  <Card className="border-border bg-card shadow-card">
+                    <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
+                      <div>
+                        <CardTitle className="text-base font-bold font-heading text-heading">Intervention Alerts</CardTitle>
+                        <CardSubtitle className="text-xs text-muted-foreground">Automated flags raised from attendance &amp; test thresholds</CardSubtitle>
+                      </div>
+                      <AlertTriangle
+                        className={
+                          data.weakStudentAlerts > 0 ? 'size-4 text-heading' : 'size-4 text-muted-foreground'
+                        }
+                        aria-hidden
+                      />
+                    </CardHeader>
+                    <CardBody className="pt-4">
+                      <p className="tnum text-3xl font-bold font-mono text-heading">
+                        <AnimatedCounter value={data.weakStudentAlerts} />
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {data.weakStudentAlerts > 0
+                          ? 'Participants requiring targeted pedagogical remediation this week.'
+                          : 'All participants currently meeting threshold milestones.'}
+                      </p>
+                      <Button asChild variant="secondary" size="sm" className="mt-4 w-full text-xs">
+                        <Link href="/trainer/alerts">Review Intervention Alerts</Link>
+                      </Button>
+                    </CardBody>
+                  </Card>
+
+                  {/* My Batches */}
+                  <Card className="border-border bg-card shadow-card">
+                    <CardHeader className="pb-3 border-b border-border">
+                      <CardTitle className="text-base font-bold font-heading text-heading">Assigned Cohorts</CardTitle>
+                      <CardSubtitle className="text-xs text-muted-foreground">{data.assignedBatches.length} academic batches assigned</CardSubtitle>
+                    </CardHeader>
+                    <CardBody className="pt-4">
+                      <ul className="space-y-2.5">
+                        {data.assignedBatches.map((batch: any) => (
+                          <li key={batch.id}>
+                            <Link
+                              href={`/trainer/batches/${batch.id}`}
+                              className="flex items-center justify-between gap-3 rounded-2xl border border-border p-3 transition-all duration-200 hover:border-accent hover:bg-muted"
+                            >
+                              <span className="min-w-0">
+                                <span className="block text-xs font-bold font-heading text-heading">{batch.name}</span>
+                                <span className="block text-[11px] text-muted-foreground mt-0.5">
+                                  {batch.code} · {batch.departmentName}
+                                </span>
+                              </span>
+                              <Badge tone={batch.status === 'active' ? 'mustard' : 'neutral'} className="text-[10px] font-semibold">
+                                {batch.status}
+                              </Badge>
                             </Link>
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </CardBody>
-              </Card>
-
-              <ChartCard
-                title="Attendance trend"
-                subtitle="Last eight weeks across your batches"
-                description={`Weekly attendance percentage across ${data.attendanceTrend.length} weeks.`}
-                isEmpty={!data.attendanceTrend.some((week: any) => week.hasSession)}
-                height={210}
-              >
-                <LineTrend
-                  data={data.attendanceTrend}
-                  xKey="label"
-                  series={[{ key: 'percentage', label: 'Attendance %' }]}
-                  unit="%"
-                />
-              </ChartCard>
-
-              <ChartCard
-                title="Average score by module"
-                subtitle="Trainer-rated parameters, normalised to 100"
-                description={data.moduleScores
-                  .map((row: any) => `${row.module}: ${row.average}`)
-                  .join('; ')}
-                isEmpty={data.moduleScores.length === 0}
-                height={210}
-              >
-                <BarCompare
-                  data={data.moduleScores}
-                  xKey="module"
-                  valueKey="average"
-                  colorBy={(row) => attendanceColor(row.average)}
-                />
-              </ChartCard>
-            </div>
-
-            <div className="space-y-5">
-              <Card elevated className="card-interactive">
-                <CardHeader>
-                  <div>
-                    <CardTitle>Course completion</CardTitle>
-                    <CardSubtitle>Across your assigned batches</CardSubtitle>
-                  </div>
-                  <TrendingUp className="size-4 text-ink-3" aria-hidden />
-                </CardHeader>
-                <CardBody>
-                  <ProgressBar value={data.courseCompletionPercent} />
-                  <Button asChild variant="secondary" size="sm" className="mt-3.5 w-full">
-                    <Link href="/trainer/course-progress">Open course progress</Link>
-                  </Button>
-                </CardBody>
-              </Card>
-
-              <Card
-                elevated
-                className={cn(
-                  'card-interactive transition-all duration-200',
-                  data.weakStudentAlerts > 0 && 'border-amber/50 bg-amber-50/50',
-                )}
-              >
-                <CardHeader>
-                  <div>
-                    <CardTitle>Participant alerts</CardTitle>
-                    <CardSubtitle>Raised automatically from scores and attendance</CardSubtitle>
-                  </div>
-                  <AlertTriangle
-                    className={
-                      data.weakStudentAlerts > 0 ? 'size-4 text-amber-dark' : 'size-4 text-ink-3'
-                    }
-                    aria-hidden
-                  />
-                </CardHeader>
-                <CardBody>
-                  <p className="tnum text-[26px] font-bold leading-none">
-                    <AnimatedCounter value={data.weakStudentAlerts} />
-                  </p>
-                  <p className="mt-1.5 text-sm text-ink-2">
-                    {data.weakStudentAlerts > 0
-                      ? 'Participants who need attention this week.'
-                      : 'No open alerts for your batches.'}
-                  </p>
-                  <Button asChild variant="secondary" size="sm" className="mt-3.5 w-full">
-                    <Link href="/trainer/alerts">Review alerts</Link>
-                  </Button>
-                </CardBody>
-              </Card>
-
-              <Card elevated className="card-interactive">
-                <CardHeader>
-                  <div>
-                    <CardTitle>My batches</CardTitle>
-                    <CardSubtitle>{data.assignedBatches.length} assigned</CardSubtitle>
-                  </div>
-                </CardHeader>
-                <CardBody>
-                  <ul className="space-y-2">
-                    {data.assignedBatches.map((batch: any) => (
-                      <li key={batch.id}>
-                        <Link
-                          href={`/trainer/batches/${batch.id}`}
-                          className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 dark:border-white/[0.08] surface-3d px-3.5 py-3 transition-all duration-200 hover:border-indigo-400 hover:shadow-3d-hover hover:translate-x-0.5"
-                        >
-                          <span className="min-w-0">
-                            <span className="block text-base font-semibold">{batch.name}</span>
-                            <span className="block text-xs text-ink-3">
-                              {batch.code} · {batch.departmentName}
-                            </span>
-                          </span>
-                          <Badge tone={batch.status === 'active' ? 'success' : 'neutral'}>
-                            {batch.status}
-                          </Badge>
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </CardBody>
-              </Card>
-            </div>
-          </div>
-        </>
+                          </li>
+                        ))}
+                      </ul>
+                    </CardBody>
+                  </Card>
+                </div>
+              </div>
+            </>
           );
         }}
       </AsyncSection>
-    </VisualPageBackground>
+    </div>
   );
 }

@@ -189,10 +189,10 @@ export default function PracticeSessionPage() {
                   className={cn(
                     'flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm font-semibold',
                     state === 'current'
-                      ? 'border-indigo bg-indigo-50 text-indigo-600'
+                      ? 'border-accent bg-accent/20 text-accent-foreground'
                       : state === 'done'
                         ? 'border-success-bg bg-success-bg text-success'
-                        : 'border-line bg-white text-ink-3',
+                        : 'border-border bg-card text-muted-foreground',
                   )}
                 >
                   {state === 'done' ? (
@@ -223,7 +223,7 @@ export default function PracticeSessionPage() {
                     'You can stop and finish at any point; a partial attempt is still scored.',
                   ].map((line) => (
                     <li key={line} className="flex items-start gap-2.5">
-                      <ArrowRight className="mt-1 size-3.5 shrink-0 text-indigo" aria-hidden />
+                      <ArrowRight className="mt-1 size-3.5 shrink-0 text-primary" aria-hidden />
                       {line}
                     </li>
                   ))}
@@ -272,7 +272,7 @@ export default function PracticeSessionPage() {
                 </div>
               </CardHeader>
               <CardBody>
-                <p className="rounded-[12px] border border-line bg-surface-muted p-5 text-md leading-relaxed text-ink-1 dark:border-transparent dark:bg-navy-950 dark:text-white">
+                <p className="rounded-[12px] border border-line bg-surface-muted p-5 text-md leading-relaxed text-ink-1 border-border bg-card text-foreground">
                   {questions[index]?.text}
                 </p>
                 {questions[index]?.guidance && (
@@ -289,8 +289,8 @@ export default function PracticeSessionPage() {
                       disabled={uploading}
                       aria-label={recording ? 'Stop recording' : 'Start recording'}
                       className={cn(
-                        'flex size-16 items-center justify-center rounded-full text-white transition-transform hover:scale-105',
-                        recording ? 'animate-pulse bg-danger' : 'bg-indigo',
+                        'flex size-16 items-center justify-center rounded-full text-primary-foreground transition-transform hover:scale-105',
+                        recording ? 'animate-pulse bg-danger' : 'bg-primary',
                       )}
                     >
                       {recording ? (
@@ -310,7 +310,7 @@ export default function PracticeSessionPage() {
                             : 'Press to start recording'}
                     </p>
                     {uploading && (
-                      <Loader2 className="mt-2 size-4 animate-spin text-indigo" aria-hidden />
+                      <Loader2 className="mt-2 size-4 animate-spin text-primary" aria-hidden />
                     )}
                     {recorderError && (
                       <p

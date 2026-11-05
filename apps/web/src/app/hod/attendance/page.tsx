@@ -102,7 +102,7 @@ export default function HodAttendancePage() {
           {data.notes?.length > 0 && (
             <ul className="mt-4 space-y-1.5">
               {data.notes.map((note: string) => (
-                <li key={note} className="flex items-start gap-2 text-sm text-ink-2">
+                <li key={note} className="flex items-start gap-2 text-sm text-muted-foreground">
                   <Info className="mt-0.5 size-3.5 shrink-0 text-info" aria-hidden />
                   {note}
                 </li>
@@ -218,13 +218,13 @@ export default function HodAttendancePage() {
                       <Td>
                         <Link
                           href={`/hod/participants/${row.studentUserId}`}
-                          className="font-semibold hover:text-indigo-600"
+                          className="font-semibold hover:text-primary"
                         >
                           {row.name}
                         </Link>
-                        <span className="block text-xs text-ink-3">{row.rollNumber}</span>
+                        <span className="block text-xs text-muted-foreground">{row.rollNumber}</span>
                       </Td>
-                      <Td hideBelow="sm" className="text-ink-2">
+                      <Td hideBelow="sm" className="text-muted-foreground">
                         {row.batchName}
                       </Td>
                       <Td
@@ -234,7 +234,7 @@ export default function HodAttendancePage() {
                       >
                         {pct(row.attendancePct, 1)}
                       </Td>
-                      <Td align="right" hideBelow="md" className="tnum text-ink-2">
+                      <Td align="right" hideBelow="md" className="tnum text-muted-foreground">
                         {num(row.sessionsAttended)}/{num(row.sessionsTotal)}
                       </Td>
                     </Tr>

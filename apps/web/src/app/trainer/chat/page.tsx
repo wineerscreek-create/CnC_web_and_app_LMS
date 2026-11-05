@@ -235,36 +235,36 @@ export default function TrainerChatPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[720px]">
         {/* Left Column: Conversations & Batch Students */}
-        <div className="lg:col-span-4 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+        <div className="lg:col-span-4 flex flex-col bg-card border border-border rounded-xl overflow-hidden shadow-sm">
           {/* Search bar */}
-          <div className="p-3 border-b border-slate-200 dark:border-slate-800">
+          <div className="p-3 border-b border-border">
             <div className="relative">
-              <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search students or batches…"
-                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 focus:outline-hidden focus:ring-1 focus:ring-indigo"
+                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-hidden focus:ring-1 focus:ring-ring"
               />
             </div>
           </div>
 
           {/* Tab buttons */}
-          <div className="flex border-b border-slate-200 dark:border-slate-800 p-2 gap-1 bg-slate-50/70 dark:bg-slate-950/40">
+          <div className="flex border-b border-border p-2 gap-1 bg-muted/40">
             <button
               onClick={() => setActiveTab('recent')}
               className={cn(
                 'flex-1 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5',
                 activeTab === 'recent'
-                  ? 'bg-white dark:bg-slate-800 text-indigo shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                  ? 'bg-card text-foreground shadow-xs border border-border font-semibold'
+                  : 'text-muted-foreground hover:text-slate-900'
               )}
             >
               <MessageSquare className="size-3.5" />
               Chats
               {conversations.reduce((acc, c) => acc + (c.unreadCount || 0), 0) > 0 && (
-                <span className="size-2 rounded-full bg-rose-500" />
+                <span className="size-2 rounded-full bg-primary" />
               )}
             </button>
             <button
@@ -272,8 +272,8 @@ export default function TrainerChatPage() {
               className={cn(
                 'flex-1 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5',
                 activeTab === 'students'
-                  ? 'bg-white dark:bg-slate-800 text-indigo shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                  ? 'bg-card text-foreground shadow-xs border border-border font-semibold'
+                  : 'text-muted-foreground hover:text-slate-900'
               )}
             >
               <Users className="size-3.5" />
@@ -284,13 +284,13 @@ export default function TrainerChatPage() {
           {/* List items */}
           <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60 p-2 space-y-1">
             {loadingInitial ? (
-              <div className="p-8 text-center text-xs text-slate-500">Loading students…</div>
+              <div className="p-8 text-center text-xs text-muted-foreground">Loading students…</div>
             ) : activeTab === 'recent' ? (
               filteredConversations.length === 0 ? (
                 <div className="p-8 text-center">
-                  <MessageSquare className="size-8 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
-                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300">No active chats</p>
-                  <p className="text-xs text-slate-500 mt-1">
+                  <MessageSquare className="size-8 mx-auto text-muted-foreground mb-2" />
+                  <p className="text-sm font-medium text-foreground">No active chats</p>
+                  <p className="text-xs text-muted-foreground mt-1">
                     Select a student from the Batch Students list to start answering doubts.
                   </p>
                 </div>
@@ -304,30 +304,30 @@ export default function TrainerChatPage() {
                       className={cn(
                         'w-full text-left p-3 rounded-lg transition-all flex items-start gap-3 relative',
                         isSelected
-                          ? 'bg-indigo/10 dark:bg-indigo/20 border border-indigo/20'
-                          : 'hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-transparent'
+                          ? 'bg-accent/20 border border-accent/40 text-accent-foreground'
+                          : 'hover:bg-muted border border-transparent'
                       )}
                     >
-                      <div className="size-10 rounded-full bg-gradient-to-tr from-sky-400 to-indigo text-white flex items-center justify-center font-bold text-sm shrink-0">
+                      <div className="size-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold text-sm shrink-0">
                         {conv.participant.name.charAt(0).toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-1">
-                          <span className="font-semibold text-sm text-slate-900 dark:text-white truncate">
+                          <span className="font-semibold text-sm text-heading truncate">
                             {conv.participant.name}
                           </span>
                           {conv.lastMessage && (
-                            <span className="text-[10px] text-slate-400 shrink-0">
+                            <span className="text-[10px] text-muted-foreground shrink-0">
                               {relativeTime(conv.lastMessage.createdAt)}
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">
                           {conv.lastMessage?.content || 'No messages yet'}
                         </p>
                       </div>
                       {conv.unreadCount > 0 && (
-                        <span className="size-5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                        <span className="size-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center shrink-0">
                           {conv.unreadCount}
                         </span>
                       )}
@@ -337,8 +337,8 @@ export default function TrainerChatPage() {
               )
             ) : filteredStudents.length === 0 ? (
               <div className="p-8 text-center">
-                <Users className="size-8 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">No students found</p>
+                <Users className="size-8 mx-auto text-muted-foreground mb-2" />
+                <p className="text-sm font-medium text-foreground">No students found</p>
               </div>
             ) : (
               filteredStudents.map((student) => {
@@ -350,23 +350,23 @@ export default function TrainerChatPage() {
                     className={cn(
                       'w-full text-left p-3 rounded-lg transition-all flex items-start gap-3',
                       isSelected
-                        ? 'bg-indigo/10 dark:bg-indigo/20 border border-indigo/20'
-                        : 'hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-transparent'
+                        ? 'bg-accent/20 border border-accent/40 text-accent-foreground'
+                        : 'hover:bg-muted border border-transparent'
                     )}
                   >
-                    <div className="size-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center font-bold text-sm shrink-0">
+                    <div className="size-10 rounded-full bg-muted text-foreground flex items-center justify-center font-bold text-sm shrink-0">
                       {student.name.charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
-                        <span className="font-semibold text-sm text-slate-900 dark:text-white truncate">
+                        <span className="font-semibold text-sm text-heading truncate">
                           {student.name}
                         </span>
                         <Badge tone="neutral">
                           {student.batchName}
                         </Badge>
                       </div>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
                         {student.email}
                       </p>
                     </div>
@@ -378,47 +378,47 @@ export default function TrainerChatPage() {
         </div>
 
         {/* Right Column: Chat History & Reply */}
-        <div className="lg:col-span-8 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+        <div className="lg:col-span-8 flex flex-col bg-card border border-border rounded-xl overflow-hidden shadow-sm">
           {activeStudent ? (
             <>
               {/* Header */}
-              <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/20">
+              <div className="p-4 border-b border-border flex items-center justify-between bg-card">
                 <div className="flex items-center gap-3">
-                  <div className="size-10 rounded-full bg-gradient-to-tr from-sky-400 to-indigo text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                  <div className="size-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold text-sm shadow-sm">
                     {activeStudent.name.charAt(0).toUpperCase()}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h2 className="font-semibold text-slate-900 dark:text-white text-base">
+                      <h2 className="font-semibold text-heading text-base">
                         {activeStudent.name}
                       </h2>
                       <Badge tone="neutral">
                         {activeStudent.batchName}
                       </Badge>
                     </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                    <p className="text-xs text-muted-foreground">
                       {activeStudent.email} {activeStudent.departmentName ? `· ${activeStudent.departmentName}` : ''}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <GraduationCap className="size-3.5 text-indigo" />
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <GraduationCap className="size-3.5 text-primary" />
                   <span>Enrolled Student</span>
                 </div>
               </div>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/30 dark:bg-slate-950/10">
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-background">
                 {messages.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center p-6">
-                    <div className="size-12 rounded-full bg-indigo/10 text-indigo flex items-center justify-center mb-3">
+                    <div className="size-12 rounded-full bg-muted text-primary border border-border flex items-center justify-center mb-3">
                       <MessageSquare className="size-6" />
                     </div>
-                    <h3 className="font-semibold text-slate-800 dark:text-slate-200 text-base">
+                    <h3 className="font-semibold text-heading text-base">
                       No message history with {activeStudent.name}
                     </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mt-1">
+                    <p className="text-xs text-muted-foreground max-w-sm mt-1">
                       Send a message to follow up with the student on assignment submissions or project updates.
                     </p>
                   </div>
@@ -440,14 +440,14 @@ export default function TrainerChatPage() {
                             className={cn(
                               'p-3.5 rounded-2xl text-sm leading-relaxed shadow-xs',
                               isMe
-                                ? 'bg-indigo text-white rounded-br-xs'
-                                : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-bl-xs'
+                                ? 'bg-primary text-primary-foreground rounded-br-xs'
+                                : 'bg-card text-foreground border border-border rounded-bl-xs'
                             )}
                           >
                             <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                           </div>
                         </div>
-                        <span className="text-[10px] text-slate-400 mt-1 px-1">
+                        <span className="text-[10px] text-muted-foreground mt-1 px-1">
                           {relativeTime(msg.createdAt)}
                         </span>
                       </div>
@@ -460,14 +460,14 @@ export default function TrainerChatPage() {
               {/* Composer */}
               <form
                 onSubmit={handleSend}
-                className="p-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2"
+                className="p-3 border-t border-border bg-card flex items-center gap-2"
               >
                 <input
                   type="text"
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
                   placeholder={`Reply to ${activeStudent.name}…`}
-                  className="flex-1 px-4 py-2.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-950 focus:outline-hidden focus:ring-2 focus:ring-indigo text-slate-900 dark:text-white placeholder:text-slate-400"
+                  className="flex-1 px-4 py-2.5 text-sm rounded-lg border border-input bg-slate-50/50 dark:bg-slate-950 focus:outline-hidden focus:ring-2 focus:ring-ring text-heading placeholder:text-muted-foreground"
                 />
                 <Button
                   type="submit"
@@ -482,13 +482,13 @@ export default function TrainerChatPage() {
             </>
           ) : (
             <div className="h-full flex flex-col items-center justify-center p-8 text-center">
-              <div className="size-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-3">
+              <div className="size-16 rounded-full bg-muted flex items-center justify-center text-muted-foreground mb-3">
                 <MessageSquare className="size-8" />
               </div>
-              <h3 className="font-semibold text-slate-800 dark:text-slate-200 text-base">
+              <h3 className="font-semibold text-heading text-base">
                 No student selected
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mt-1">
+              <p className="text-xs text-muted-foreground max-w-sm mt-1">
                 Select a student from the sidebar to inspect conversations or send a direct follow-up message.
               </p>
             </div>

@@ -19,16 +19,17 @@ export const Switch = React.forwardRef<
   <SwitchPrimitive.Root
     ref={ref}
     className={cn(
-      'peer inline-flex h-[19px] w-[34px] shrink-0 cursor-pointer items-center rounded-full',
-      'border-2 border-transparent transition-colors data-[state=checked]:bg-indigo',
-      'data-[state=unchecked]:bg-line disabled:cursor-not-allowed disabled:opacity-50',
+      'peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-transparent shadow-xs transition-colors',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+      'data-[state=checked]:bg-primary data-[state=unchecked]:bg-muted',
+      'disabled:cursor-not-allowed disabled:opacity-50',
       className,
     )}
     {...props}
   >
     <SwitchPrimitive.Thumb
       className={cn(
-        'pointer-events-none block size-[15px] rounded-full bg-white shadow-sm ring-0',
+        'pointer-events-none block size-[15px] rounded-full bg-card shadow-xs ring-0',
         'transition-transform data-[state=checked]:translate-x-[15px]',
         'data-[state=unchecked]:translate-x-0',
       )}
@@ -45,9 +46,9 @@ export const Checkbox = React.forwardRef<
   <CheckboxPrimitive.Root
     ref={ref}
     className={cn(
-      'peer size-[17px] shrink-0 rounded-[5px] border border-slate-300 bg-white dark:border-white/20 dark:bg-slate-900/80',
-      'data-[state=checked]:border-indigo-600 data-[state=checked]:bg-indigo-600',
-      'data-[state=checked]:text-white disabled:opacity-50 transition-colors',
+      'peer size-[18px] shrink-0 rounded-md border border-input bg-card',
+      'data-[state=checked]:border-primary data-[state=checked]:bg-primary',
+      'data-[state=checked]:text-primary-foreground disabled:opacity-50 transition-colors',
       className,
     )}
     {...props}
@@ -72,14 +73,14 @@ export const Progress = React.forwardRef<
     ref={ref}
     value={Math.min(100, Math.max(0, value ?? 0))}
     className={cn(
-      'relative w-full overflow-hidden rounded-full bg-line-soft',
-      thin ? 'h-1.5' : 'h-[7px]',
+      'relative w-full overflow-hidden rounded-full bg-muted',
+      thin ? 'h-1.5' : 'h-2',
       className,
     )}
     {...props}
   >
     <ProgressPrimitive.Indicator
-      className={cn('h-full rounded-full bg-indigo transition-transform duration-700 ease-out', barClassName)}
+      className={cn('h-full rounded-full bg-accent transition-transform duration-700 ease-out', barClassName)}
       style={{ transform: `translateX(-${100 - Math.min(100, Math.max(0, value ?? 0))}%)` }}
     />
   </ProgressPrimitive.Root>
@@ -108,15 +109,14 @@ export function Avatar({
     .join('');
   return (
     <AvatarPrimitive.Root
-      className={cn('inline-flex shrink-0 select-none overflow-hidden rounded-full', className)}
+      className={cn('inline-flex shrink-0 select-none overflow-hidden rounded-full border border-border', className)}
       style={{ width: size, height: size }}
     >
       {src && <AvatarPrimitive.Image src={src} alt={name ?? ''} className="size-full object-cover" />}
       <AvatarPrimitive.Fallback
         delayMs={src ? 300 : 0}
-        className="flex size-full items-center justify-center font-bold text-white"
+        className="flex size-full items-center justify-center font-bold text-accent-foreground bg-accent"
         style={{
-          background: color || 'var(--indigo)',
           fontSize: Math.max(9, Math.round(size * 0.38)),
         }}
       >
@@ -135,7 +135,7 @@ export const Separator = React.forwardRef<
     ref={ref}
     orientation={orientation}
     className={cn(
-      'shrink-0 bg-line-soft',
+      'shrink-0 bg-border',
       orientation === 'horizontal' ? 'h-px w-full' : 'h-full w-px',
       className,
     )}
@@ -148,26 +148,25 @@ Separator.displayName = 'Separator';
 export const TooltipProvider = TooltipPrimitive.Provider;
 
 export function Tooltip({
-  children,
   content,
+  children,
   side = 'top',
 }: {
-  children: React.ReactNode;
   content: React.ReactNode;
+  children: React.ReactNode;
   side?: 'top' | 'right' | 'bottom' | 'left';
 }) {
-  if (!content) return <>{children}</>;
   return (
-    <TooltipPrimitive.Root delayDuration={200}>
+    <TooltipPrimitive.Root>
       <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
         <TooltipPrimitive.Content
           side={side}
           sideOffset={6}
-          className="z-[150] max-w-xs rounded-[8px] border border-white/15 bg-slate-900/95 px-2.5 py-1.5 text-xs font-medium text-white shadow-2xl backdrop-blur-md"
+          className="z-50 max-w-[280px] rounded-xl border border-border bg-popover px-3 py-1.5 text-xs text-popover-foreground shadow-md animate-enter"
         >
           {content}
-          <TooltipPrimitive.Arrow className="fill-slate-900" />
+          <TooltipPrimitive.Arrow className="fill-popover stroke-border" />
         </TooltipPrimitive.Content>
       </TooltipPrimitive.Portal>
     </TooltipPrimitive.Root>

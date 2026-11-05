@@ -48,10 +48,10 @@ export default function HodAssessmentsPage() {
       render: (row) => (
         <Link
           href={`/hod/participants/${row.studentUserId}`}
-          className="hover:text-indigo-600"
+          className="hover:text-primary"
         >
           <span className="block font-semibold">{row.name}</span>
-          <span className="block text-xs text-ink-3">
+          <span className="block text-xs text-muted-foreground">
             {row.rollNumber} · {row.batchName}
           </span>
         </Link>

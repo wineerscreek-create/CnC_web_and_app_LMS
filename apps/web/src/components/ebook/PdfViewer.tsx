@@ -144,17 +144,17 @@ export function PdfViewer({
     <div
       ref={containerRef}
       className={cn(
-        'relative flex flex-col rounded-2xl border border-line-soft bg-slate-950 text-white overflow-hidden shadow-2xl transition-all',
+        'relative flex flex-col rounded-2xl border border-border bg-card text-foreground overflow-hidden shadow-card transition-all',
         fullscreen ? 'fixed inset-0 z-50 rounded-none' : 'w-full min-h-[700px]'
       )}
     >
       {/* ---------------------------------------------------------------- Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-slate-900/90 px-4 py-3 backdrop-blur-md">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/90 px-4 py-3 backdrop-blur-md">
         <div className="flex items-center gap-3 min-w-0">
-          <BookOpen className="size-4 text-indigo-400 shrink-0" />
-          <span className="truncate text-xs font-semibold text-white/90">{title}</span>
+          <BookOpen className="size-4 text-primary shrink-0" />
+          <span className="truncate text-xs font-semibold text-heading">{title}</span>
           {!isAuthenticated && (
-            <span className="rounded bg-indigo-500/20 px-2 py-0.5 text-[10px] font-semibold text-indigo-300 border border-indigo-500/30">
+            <span className="rounded bg-secondary px-2 py-0.5 text-[10px] font-semibold text-secondary-foreground border border-border">
               Free 5-Page Preview
             </span>
           )}
@@ -173,7 +173,7 @@ export function PdfViewer({
             Prev
           </Button>
 
-          <div className="flex items-center gap-1.5 text-xs text-slate-300">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span>Page</span>
             <input
               type="number"
@@ -181,7 +181,7 @@ export function PdfViewer({
               max={isAuthenticated ? pageCount : freePreviewLimit}
               value={currentPage}
               onChange={(e) => handlePageChange(parseInt(e.target.value) || 1)}
-              className="h-7 w-12 rounded border border-white/20 bg-slate-800 text-center font-mono text-xs text-white"
+              className="h-7 w-12 rounded border border-input bg-card text-center font-mono text-xs text-foreground focus:ring-1 focus:ring-ring"
             />
             <span>of {isAuthenticated ? pageCount : freePreviewLimit}</span>
           </div>
@@ -203,16 +203,16 @@ export function PdfViewer({
           <button
             type="button"
             onClick={() => setZoom((z) => Math.max(75, z - 15))}
-            className="rounded p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"
+            className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
             title="Zoom Out"
           >
             <ZoomOut className="size-4" />
           </button>
-          <span className="text-[11px] font-mono text-slate-400 w-10 text-center">{zoom}%</span>
+          <span className="text-[11px] font-mono text-muted-foreground w-10 text-center">{zoom}%</span>
           <button
             type="button"
             onClick={() => setZoom((z) => Math.min(175, z + 15))}
-            className="rounded p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"
+            className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
             title="Zoom In"
           >
             <ZoomIn className="size-4" />
@@ -220,7 +220,7 @@ export function PdfViewer({
           <button
             type="button"
             onClick={toggleFullscreen}
-            className="rounded p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"
+            className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
             title="Toggle Fullscreen"
           >
             {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
@@ -237,16 +237,16 @@ export function PdfViewer({
       </div>
 
       {/* ---------------------------------------------------------------- Reader Body */}
-      <div className="relative flex-1 bg-slate-950/80 p-4 sm:p-8 flex items-center justify-center overflow-auto">
+      <div className="relative flex-1 bg-muted/40 p-4 sm:p-8 flex items-center justify-center overflow-auto">
         {loading && (
-          <div className="flex flex-col items-center gap-3 text-slate-400">
-            <div className="size-8 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+          <div className="flex flex-col items-center gap-3 text-muted-foreground">
+            <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             <p className="text-xs">Preparing secure eBook viewer…</p>
           </div>
         )}
 
         {error && (
-          <div className="max-w-md rounded-xl border border-red-500/20 bg-red-950/40 p-6 text-center text-red-200">
+          <div className="max-w-md rounded-xl border border-destructive/20 bg-destructive/10 p-6 text-center text-destructive">
             <p className="text-sm font-semibold">{error}</p>
             <Button
               variant="secondary"
@@ -262,26 +262,26 @@ export function PdfViewer({
         {/* Embedded Controlled Viewer */}
         {!loading && !error && pdfBlobUrl && (
           <div
-            className="transition-transform duration-200 shadow-2xl rounded-lg overflow-hidden border border-white/10"
+            className="transition-transform duration-200 shadow-card rounded-lg overflow-hidden border border-border"
             style={{ width: `${zoom}%`, maxWidth: '100%' }}
           >
             <iframe
               src={`${pdfBlobUrl}#page=${currentPage}&toolbar=0&navpanes=0`}
               title={title}
-              className="w-full min-h-[680px] bg-white rounded-lg"
+              className="w-full min-h-[680px] bg-card rounded-lg"
             />
           </div>
         )}
 
         {/* -------------------------------------------------------------- Page 6+ Paywall Gate */}
         {showPaywall && (
-          <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-6 animate-enter">
-            <div className="w-full max-w-md rounded-2xl border border-white/20 bg-slate-900/95 p-8 text-center shadow-2xl">
-              <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-foreground/50 backdrop-blur-md p-6 animate-enter">
+            <div className="w-full max-w-md rounded-2xl border border-border bg-popover p-8 text-center shadow-2xl">
+              <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-muted text-primary border border-border">
                 <Lock className="size-7" />
               </div>
-              <h3 className="text-xl font-bold text-white">Continue Reading</h3>
-              <p className="mt-2 text-sm text-slate-300 leading-relaxed">
+              <h3 className="text-xl font-bold text-heading">Continue Reading</h3>
+              <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
                 You’ve reached the end of the free 5-page preview. Create or sign in to your Winners Creek
                 account to unlock the complete eBook, progress tracking, and annotations.
               </p>
@@ -299,7 +299,7 @@ export function PdfViewer({
                   setShowPaywall(false);
                   setCurrentPage(5);
                 }}
-                className="mt-4 text-xs text-slate-400 hover:text-white"
+                className="mt-4 text-xs text-muted-foreground hover:text-foreground"
               >
                 ← Return to Page 5
               </button>
@@ -309,7 +309,7 @@ export function PdfViewer({
       </div>
 
       {/* ---------------------------------------------------------------- Progress Tracker Bar */}
-      <div className="border-t border-white/10 bg-slate-900/80 px-4 py-2 flex items-center justify-between text-2xs text-slate-400">
+      <div className="border-t border-border bg-card px-4 py-2 flex items-center justify-between text-2xs text-muted-foreground">
         <span>
           Viewing Page {currentPage} of {isAuthenticated ? pageCount : freePreviewLimit}
         </span>

@@ -90,13 +90,13 @@ export default function CourseDetailPage() {
   return (
     <GlobalPageBackground
       image="/images/backgrounds/course-detail.webp"
-      orbTone="indigo"
+      orbTone="amber"
       className="min-h-screen py-10 px-4"
     >
       <div className="mx-auto max-w-[900px]">
         <Link
           href="/courses"
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink-3 hover:text-ink-1"
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-3.5" aria-hidden />
           All programs
@@ -104,44 +104,44 @@ export default function CourseDetailPage() {
 
         <div className="mt-5 flex flex-col md:flex-row items-start justify-between gap-6">
           <div className="flex items-start gap-4 flex-1">
-            <span className="flex size-12 items-center justify-center rounded-[12px] bg-indigo-500/20 border border-indigo-500/30 text-indigo-500 shrink-0">
+            <span className="flex size-12 items-center justify-center rounded-[12px] bg-muted border border-border text-primary shrink-0">
               <Icon className="size-6" aria-hidden />
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge tone="indigo">{data.category}</Badge>
-                <Badge tone={data.courseMode === 'OFFLINE' ? 'amber' : 'success'}>
+                <Badge tone="neutral">{data.category}</Badge>
+                <Badge tone={data.courseMode === 'OFFLINE' ? 'mustard' : 'success'}>
                   {data.courseMode === 'OFFLINE' ? 'Offline (Campus Cohort)' : 'Online (Direct Platform)'}
                 </Badge>
                 {isTrialAvailable && (
-                  <Badge tone="amber" className="bg-amber-500/20 text-amber-200 border-amber-500/30">
+                  <Badge tone="mustard" className="font-semibold">
                     <Sparkles className="size-3 mr-1 inline" />
                     {trialDuration}-Day Free Trial (72 Hours)
                   </Badge>
                 )}
-                <span className="flex items-center gap-1 text-xs text-ink-3">
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
                   <Clock className="size-3.5" aria-hidden />
                   {data.durationHours} hours
                 </span>
               </div>
-              <h1 className="mt-2.5 font-serif text-[28px] font-semibold leading-tight tracking-tight text-ink-1">
+              <h1 className="mt-2.5 font-serif text-[28px] font-semibold leading-tight tracking-tight text-heading">
                 {data.title}
               </h1>
-              <p className="mt-2 text-md leading-relaxed text-ink-2">{data.description}</p>
+              <p className="mt-2 text-md leading-relaxed text-muted-foreground">{data.description}</p>
             </div>
           </div>
 
           {/* Pricing & CTA Card */}
-          <div className="w-full md:w-72 shrink-0 p-5 rounded-2xl border border-indigo-500/20 bg-slate-900/80 backdrop-blur-md text-white shadow-xl space-y-4">
+          <div className="w-full md:w-72 shrink-0 p-5 rounded-2xl border border-border bg-card text-foreground shadow-card space-y-4">
             <div className="flex items-baseline justify-between">
               <div>
-                <span className="text-[11px] uppercase tracking-wider text-slate-400 block font-semibold">Course Price</span>
-                <span className="text-3xl font-extrabold text-white">
+                <span className="text-[11px] uppercase tracking-wider text-muted-foreground block font-semibold">Course Price</span>
+                <span className="text-3xl font-extrabold text-heading">
                   ₹{num(courseFee)}
                 </span>
               </div>
               {isTrialAvailable && (
-                <Badge tone="amber" className="text-[10px]">
+                <Badge tone="mustard" className="text-[10px]">
                   {trialDuration}-Day Trial
                 </Badge>
               )}
@@ -154,7 +154,7 @@ export default function CourseDetailPage() {
                   size="md"
                   onClick={handleStartTrial}
                   disabled={startingTrial}
-                  className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold flex items-center justify-center gap-1.5"
+                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold flex items-center justify-center gap-1.5"
                 >
                   <Sparkles className="size-4" />
                   {startingTrial ? 'Starting Trial…' : `Start ${trialDuration}-Day Free Trial`}
@@ -166,7 +166,7 @@ export default function CourseDetailPage() {
                   asChild
                   variant="secondary"
                   size="md"
-                  className="w-full border-slate-700 bg-slate-800 text-white hover:bg-slate-700 flex items-center justify-center gap-1.5"
+                  className="w-full border-border bg-card text-foreground hover:bg-muted flex items-center justify-center gap-1.5"
                 >
                   <Link href={`/student/payments?courseId=${data.id}`}>
                     <CreditCard className="size-4" />
@@ -178,15 +178,15 @@ export default function CourseDetailPage() {
                   asChild
                   variant="secondary"
                   size="md"
-                  className="w-full border-slate-700 bg-slate-800 text-white hover:bg-slate-700 flex items-center justify-center gap-1.5"
+                  className="w-full border-border bg-card text-foreground hover:bg-muted flex items-center justify-center gap-1.5"
                 >
                   <Link href={`/signup`}>Create Account to Enrol</Link>
                 </Button>
               )}
             </div>
 
-            <div className="space-y-1.5 pt-2 text-[11px] text-slate-400 border-t border-slate-800">
-              <div className="flex items-center gap-1.5 text-emerald-400">
+            <div className="space-y-1.5 pt-2 text-[11px] text-muted-foreground border-t border-border">
+              <div className="flex items-center gap-1.5 text-primary">
                 <ShieldCheck className="size-3.5" />
                 <span>UPI ID, QR Code &amp; Gateway accepted</span>
               </div>
@@ -204,39 +204,39 @@ export default function CourseDetailPage() {
           ].map(([label, value]) => (
             <Card key={label}>
               <CardBody className="p-4">
-                <dt className="text-xs text-ink-3">{label}</dt>
-                <dd className="mt-1 text-md font-semibold text-ink-1">{value}</dd>
+                <dt className="text-xs text-muted-foreground">{label}</dt>
+                <dd className="mt-1 text-md font-semibold text-heading">{value}</dd>
               </CardBody>
             </Card>
           ))}
         </dl>
 
-        <h2 className="mt-9 text-lg font-semibold text-ink-1">What you will cover</h2>
+        <h2 className="mt-9 text-lg font-semibold text-heading">What you will cover</h2>
         <div className="mt-3.5 space-y-3">
           {(data.modules ?? []).map((module: any, index: number) => (
             <Card key={module.id}>
               <CardBody className="p-5">
                 <div className="flex items-start gap-3">
-                  <span className="tnum mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-muted text-xs font-bold text-ink-1 border border-line dark:bg-white/10 dark:text-white dark:border-transparent">
+                  <span className="tnum mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold text-heading border border-border">
                     {index + 1}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <h3 className="text-md font-semibold text-ink-1">{module.title}</h3>
+                    <h3 className="text-md font-semibold text-heading">{module.title}</h3>
                     {module.description && (
-                      <p className="mt-1 text-sm leading-relaxed text-ink-2">{module.description}</p>
+                      <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{module.description}</p>
                     )}
                     {module.lessons?.length > 0 && (
                       <ul className="mt-3 space-y-1.5">
                         {module.lessons.map((lesson: any) => (
-                          <li key={lesson.id} className="flex items-center gap-2 text-sm text-ink-2">
+                          <li key={lesson.id} className="flex items-center gap-2 text-sm text-muted-foreground">
                             {lesson.kind === 'video' ? (
-                              <PlayCircle className="size-3.5 shrink-0 text-indigo" aria-hidden />
+                              <PlayCircle className="size-3.5 shrink-0 text-primary" aria-hidden />
                             ) : (
-                              <CheckCircle2 className="size-3.5 shrink-0 text-ink-3" aria-hidden />
+                              <CheckCircle2 className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                             )}
-                            <span className="min-w-0 flex-1 truncate">{lesson.title}</span>
+                            <span className="min-w-0 flex-1 truncate text-foreground">{lesson.title}</span>
                             {lesson.durationSeconds ? (
-                              <span className="tnum shrink-0 text-xs text-ink-3">
+                              <span className="tnum shrink-0 text-xs text-muted-foreground">
                                 {duration(lesson.durationSeconds)}
                               </span>
                             ) : null}
@@ -251,7 +251,7 @@ export default function CourseDetailPage() {
           ))}
           {!data.modules?.length && (
             <Card>
-              <CardBody className="p-5 text-sm text-slate-400">
+              <CardBody className="p-5 text-sm text-muted-foreground">
                 The syllabus for this program is being finalised by the programme office.
               </CardBody>
             </Card>

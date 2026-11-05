@@ -18,7 +18,7 @@ export const PASSWORD_RULES = [
 ];
 
 const LABELS = ['Very weak', 'Weak', 'Fair', 'Strong', 'Very strong'];
-const TONES = ['bg-danger', 'bg-danger', 'bg-amber', 'bg-success', 'bg-success'];
+const TONES = ['bg-destructive/40', 'bg-destructive/70', 'bg-secondary', 'bg-accent', 'bg-primary'];
 
 export function passwordScore(value: string): number {
   if (!value) return 0;
@@ -39,12 +39,12 @@ export function PasswordStrength({ value }: { value: string }) {
               key={index}
               className={cn(
                 'h-1.5 flex-1 rounded-full transition-colors',
-                value && index <= score ? TONES[score] : 'bg-line',
+                value && index <= score ? TONES[score] : 'bg-muted',
               )}
             />
           ))}
         </div>
-        <span className="w-[76px] text-right text-xs font-semibold text-ink-2">
+        <span className="w-[76px] text-right text-xs font-semibold text-muted-foreground">
           {value ? LABELS[score] : ''}
         </span>
       </div>
@@ -58,9 +58,9 @@ export function PasswordStrength({ value }: { value: string }) {
             return (
               <li
                 key={rule.label}
-                className={cn('flex items-center gap-1.5 text-xs truncate', ok ? 'text-success' : 'text-ink-3')}
+                className={cn('flex items-center gap-1.5 text-xs truncate', ok ? 'text-foreground font-semibold' : 'text-muted-foreground')}
               >
-                {ok ? <Check className="size-3" aria-hidden /> : <X className="size-3" aria-hidden />}
+                {ok ? <Check className="size-3 text-primary" aria-hidden /> : <X className="size-3 text-muted-foreground" aria-hidden />}
                 {rule.label}
               </li>
             );

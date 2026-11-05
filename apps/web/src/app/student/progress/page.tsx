@@ -13,7 +13,6 @@ import { AsyncSection } from '@/components/shared/state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardSubtitle, CardTitle } from '@/components/ui/card';
-import { TiltCard } from '@/components/ui/TiltCard';
 import { AnimatedCounter } from '@/components/ui/counter';
 import { Table, TableWrap, Td, Th, Tr } from '@/components/ui/table';
 import { useApi } from '@/hooks/useApi';
@@ -71,287 +70,296 @@ export default function ProgressPage() {
           semesterTracking: Array.isArray(rawData?.semesterTracking) ? rawData.semesterTracking : [],
         };
         return (
-        <>
-          <PageHeader
-            title="My Progress"
-            description="Where you started, where you are, and what moves the number next."
-            actions={
-              <Button variant="secondary" size="sm" loading={requesting} onClick={requestReport}>
-                <Download className="size-3.5" aria-hidden />
-                Download progress report
-              </Button>
-            }
-          />
-
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard
-              label="Readiness score"
-              value={data.readiness.score ?? '—'}
-              outOf={100}
-              icon={<TrendingUp />}
-              delta={data.readiness.delta}
-              deltaLabel={
-                data.readiness.delta
-                  ? `${data.readiness.delta > 0 ? '+' : ''}${data.readiness.delta} since last update`
-                  : undefined
+          <div className="space-y-6">
+            <PageHeader
+              title="My Progress & Analytics"
+              description="Detailed baseline metrics, 7-pillar employability breakdown, and historical skill velocity."
+              actions={
+                <Button variant="secondary" size="sm" loading={requesting} onClick={requestReport} className="flex items-center gap-1.5">
+                  <Download className="size-3.5" aria-hidden />
+                  Download Progress Report
+                </Button>
               }
-              hasData={data.readiness.hasData}
             />
-            <StatCard
-              label="Practice sessions"
-              value={num(data.practiceSessions)}
-              icon={<Target />}
-              tone="teal"
-            />
-            <StatCard
-              label="Current streak"
-              value={`${data.streak.days} days`}
-              icon={<Flame />}
-              tone="amber"
-              deltaLabel={`Last active ${data.streak.lastActiveOn}`}
-            />
-            <StatCard
-              label="Batch rank"
-              value={data.batchRank.rank ? `#${data.batchRank.rank}` : '—'}
-              icon={<Trophy />}
-              tone="purple"
-              deltaLabel={data.batchRank.outOf ? `of ${num(data.batchRank.outOf)} participants` : 'Cohort pending'}
-            />
-          </div>
 
-          {data.semesterTracking.length > 0 && (
-            <TiltCard maxAngle={1.5} glare className="mt-5 p-5 border-line bg-card/90 shadow-card">
-              <div className="flex flex-col gap-1 pb-3 border-b border-line-soft sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <CardTitle>Semester-Wise EEDI Progression</CardTitle>
-                  <CardSubtitle>
-                    Official academic semester tracking across Arya College employability milestones
-                  </CardSubtitle>
-                </div>
-                <Badge tone="indigo" className="self-start sm:self-auto">
-                  8-Semester Track
-                </Badge>
-              </div>
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {data.semesterTracking.map((sem: any) => {
-                  const isCurrent = sem.isCurrent;
-                  const isEvaluated = sem.score !== null && sem.score !== undefined;
-                  const isUpcoming = sem.status === 'UPCOMING';
-
-                  let badgeTone: 'success' | 'info' | 'amber' | 'neutral' = 'neutral';
-                  if (isEvaluated) badgeTone = 'success';
-                  else if (isCurrent) badgeTone = 'info';
-                  else if (isUpcoming) badgeTone = 'neutral';
-
-                  return (
-                    <div
-                      key={sem.semester}
-                      className={cn(
-                        'relative rounded-xl border p-4 transition-all',
-                        isCurrent
-                          ? 'border-indigo-500/40 bg-indigo-500/5 shadow-sm ring-1 ring-indigo-500/20'
-                          : 'border-line/70 bg-card-subtle/50 hover:border-line',
-                      )}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold uppercase tracking-wider text-ink-3">
-                          Semester {sem.semester}
-                        </span>
-                        {isCurrent && (
-                          <span className="rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
-                            Current
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="mt-2.5">
-                        <div className="text-lg font-bold text-ink-1">
-                          {isEvaluated ? (
-                            <span className="text-success">{Number(sem.score).toFixed(1)} EEDI</span>
-                          ) : (
-                            <span className="text-ink-3 font-medium text-sm">
-                              {isCurrent ? 'In Progress' : isUpcoming ? 'Upcoming' : 'Not Evaluated'}
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-1 text-xs text-ink-2 line-clamp-2">{sem.label}</p>
-                      </div>
-
-                      <div className="mt-3 pt-2.5 border-t border-line-soft/60 flex items-center justify-between text-[11px] text-ink-3">
-                        <span>{sem.courseTitle}</span>
-                        <Badge tone={badgeTone} className="text-[10px] py-0 px-1.5">
-                          {sem.status}
-                        </Badge>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </TiltCard>
-          )}
-
-          <div className="mt-5 grid gap-5 xl:grid-cols-[1.4fr_1fr]">
-            <ChartCard
-              title="Readiness over time"
-              subtitle="Recalculated whenever a trainer rating or AI score lands"
-              description={`Readiness trend across ${data.trend.length} recalculations, currently ${data.readiness.score}.`}
-              isEmpty={data.trend.length < 2}
-              emptyLabel="Two recalculations are needed before a trend can be drawn"
-              height={230}
-            >
-              <LineTrend
-                data={data.trend.map((point: any) => ({
-                  label: formatDate(point.at),
-                  score: point.score,
-                }))}
-                xKey="label"
-                series={[{ key: 'score', label: 'Readiness' }]}
-                domain={[0, 100]}
+            {/* KPI Stat Cards */}
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <StatCard
+                label="Readiness score"
+                value={data.readiness.score ?? '—'}
+                outOf={100}
+                icon={<TrendingUp className="text-heading" />}
+                delta={data.readiness.delta}
+                deltaLabel={
+                  data.readiness.delta
+                    ? `${data.readiness.delta > 0 ? '+' : ''}${data.readiness.delta} since last evaluation`
+                    : undefined
+                }
+                hasData={data.readiness.hasData}
+                tone="mustard"
               />
-            </ChartCard>
+              <StatCard
+                label="Practice sessions"
+                value={num(data.practiceSessions)}
+                icon={<Target className="text-heading" />}
+                tone="charcoal"
+              />
+              <StatCard
+                label="Current streak"
+                value={`${data.streak.days} days`}
+                icon={<Flame className="text-accent" />}
+                tone="mustard"
+                deltaLabel={`Last active ${data.streak.lastActiveOn}`}
+              />
+              <StatCard
+                label="Batch rank"
+                value={data.batchRank.rank ? `#${data.batchRank.rank}` : '—'}
+                icon={<Trophy className="text-heading" />}
+                tone="charcoal"
+                deltaLabel={data.batchRank.outOf ? `of ${num(data.batchRank.outOf)} cohort peers` : 'Cohort pending'}
+              />
+            </div>
 
-            <TiltCard maxAngle={2} glare className="p-5 border-line bg-card/90 shadow-card">
-              <div className="pb-3 border-b border-line-soft">
-                <CardTitle>Skill breakdown</CardTitle>
-                <CardSubtitle>Seven employability pillars</CardSubtitle>
-              </div>
-              <div className="mt-4">
-                <SkillBreakdown pillars={data.skillBreakdown} />
-              </div>
-            </TiltCard>
-          </div>
-
-          <div className="mt-5 grid gap-5 lg:grid-cols-2">
-            <TiltCard maxAngle={2} glare className="p-5 border-line bg-card/90 shadow-card">
-              <div className="pb-3 border-b border-line-soft">
-                <CardTitle>Day one vs today</CardTitle>
-                <CardSubtitle>
-                  Baseline taken {formatDate(data.dayOneVsToday.dayOneAt)}
-                </CardSubtitle>
-              </div>
-              <TableWrap className="mt-3">
-                <Table>
-                  <thead>
-                    <Tr>
-                      <Th>Measure</Th>
-                      <Th align="right">Day one</Th>
-                      <Th align="right">Today</Th>
-                      <Th align="right">Change</Th>
-                    </Tr>
-                  </thead>
-                  <tbody>
-                    {data.dayOneVsToday.rows.map((row: any) => {
-                      const change = Number(row.today) - Number(row.dayOne);
-                      return (
-                        <Tr key={row.metric}>
-                          <Td>{row.metric}</Td>
-                          <Td align="right" className="tnum">
-                            {num(row.dayOne, 1)}
-                          </Td>
-                          <Td align="right" className="tnum">
-                            {num(row.today, 1)}
-                          </Td>
-                          <Td align="right" className="tnum">
-                            <span
-                              className={
-                                change > 0 ? 'text-success' : change < 0 ? 'text-danger' : undefined
-                              }
-                            >
-                              {change > 0 ? '+' : ''}
-                              {num(change, 1)}
-                            </span>
-                          </Td>
-                        </Tr>
-                      );
-                    })}
-                  </tbody>
-                </Table>
-              </TableWrap>
-            </TiltCard>
-
-            <div className="space-y-5">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <TiltCard maxAngle={2.5} glare className="p-5 border-success-bg bg-success-bg/40 shadow-card">
-                  <p className="text-xs font-bold uppercase tracking-wider text-success">
-                    Strongest skill
-                  </p>
-                  <p className="mt-1.5 text-md font-semibold text-ink-1">{data.strongestSkill?.label}</p>
-                  <p className="tnum mt-1 text-[22px] font-bold">
-                    <AnimatedCounter value={data.strongestSkill?.score} />
-                  </p>
-                  <p className="mt-0.5 text-xs text-ink-2">{data.strongestSkill?.band}</p>
-                </TiltCard>
-
-                <TiltCard maxAngle={2.5} glare className="p-5 border-amber/40 bg-amber-50/60 shadow-card">
-                  <p className="text-xs font-bold uppercase tracking-wider text-amber-dark">
-                    Focus area
-                  </p>
-                  <p className="mt-1.5 text-md font-semibold text-ink-1">{data.focusArea?.label}</p>
-                  <p className="tnum mt-1 text-[22px] font-bold">
-                    <AnimatedCounter value={data.focusArea?.score} />
-                  </p>
-                  <p className="mt-0.5 text-xs text-ink-2">{data.focusArea?.band}</p>
-                </TiltCard>
-              </div>
-
-              {data.nextRecommendedActivity && (
-                <TiltCard maxAngle={2} glare className="p-5 border-line bg-card/90 shadow-card">
-                  <div className="flex items-center justify-between pb-3 border-b border-line-soft">
-                    <div>
-                      <CardTitle>Recommended next</CardTitle>
-                      <CardSubtitle>
-                        Because {data.nextRecommendedActivity.weakestDimensionLabel} is your lowest
-                        dimension
-                      </CardSubtitle>
-                    </div>
-                    <Sparkles className="size-4 text-amber" aria-hidden />
-                  </div>
-                  <div className="mt-3.5">
-                    <p className="text-md font-semibold text-ink-1">
-                      {data.nextRecommendedActivity.exerciseTitle}
-                    </p>
-                    <p className="mt-1.5 text-sm leading-relaxed text-ink-2">
-                      {data.nextRecommendedActivity.reason}
-                    </p>
-                    <Button asChild variant="primary" size="sm" className="mt-3.5">
-                      <Link href="/student/practice">Start practice</Link>
-                    </Button>
-                  </div>
-                </TiltCard>
-              )}
-
-              <TiltCard maxAngle={2} glare className="p-5 border-line bg-card/90 shadow-card">
-                <div className="flex items-center justify-between pb-3 border-b border-line-soft">
+            {/* Semester Progression Track */}
+            {data.semesterTracking.length > 0 && (
+              <Card className="border-border bg-card shadow-card transition-all duration-300 hover:shadow-card">
+                <CardHeader className="pb-3 border-b border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div>
-                    <CardTitle>Achievements</CardTitle>
-                    <CardSubtitle>
-                      {(data.achievements ?? []).filter((badge: any) => badge.earned).length} earned
+                    <CardTitle className="text-base font-bold font-heading text-heading">Semester EEDI Progression</CardTitle>
+                    <CardSubtitle className="text-xs text-muted-foreground">
+                      Official curriculum milestones tracked across academic semesters
                     </CardSubtitle>
                   </div>
-                  <Button asChild variant="ghost" size="sm">
-                    <Link href="/student/achievements">All</Link>
-                  </Button>
-                </div>
-                <div className="mt-3.5">
-                  <ul className="flex flex-wrap gap-2">
-                    {(data.achievements ?? []).slice(0, 8).map((badge: any) => {
-                      const Icon = iconFor(badge.icon, Award);
+                  <Badge tone="mustard" className="self-start sm:self-auto font-semibold">
+                    8-Semester Track
+                  </Badge>
+                </CardHeader>
+
+                <CardBody className="pt-4">
+                  <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+                    {data.semesterTracking.map((sem: any) => {
+                      const isCurrent = sem.isCurrent;
+                      const isEvaluated = sem.score !== null && sem.score !== undefined;
+                      const isUpcoming = sem.status === 'UPCOMING';
+
                       return (
-                        <li key={badge.code} className="transition-transform hover:scale-105">
-                          <Badge tone={badge.earned ? 'success' : 'neutral'}>
-                            <Icon className="size-3" aria-hidden />
-                            {badge.title}
-                          </Badge>
-                        </li>
+                        <div
+                          key={sem.semester}
+                          className={cn(
+                            'relative rounded-2xl border p-4 transition-all duration-200',
+                            isCurrent
+                              ? 'border-accent bg-accent/20 shadow-xs'
+                              : 'border-border bg-muted/40 hover:bg-card hover:border-accent',
+                          )}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                              Semester {sem.semester}
+                            </span>
+                            {isCurrent && (
+                              <span className="rounded-full bg-accent text-accent-foreground px-2 py-0.5 text-[10px] font-bold">
+                                Current
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="mt-3">
+                            <div className="text-lg font-bold font-mono text-heading">
+                              {isEvaluated ? (
+                                <span>{Number(sem.score).toFixed(1)} EEDI</span>
+                              ) : (
+                                <span className="text-muted-foreground font-medium text-xs">
+                                  {isCurrent ? 'In Progress' : isUpcoming ? 'Upcoming' : 'Not Evaluated'}
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{sem.label}</p>
+                          </div>
+
+                          <div className="mt-3 pt-2.5 border-t border-border flex items-center justify-between text-[11px] text-muted-foreground">
+                            <span className="truncate mr-2">{sem.courseTitle}</span>
+                            <Badge tone={isCurrent ? 'mustard' : isEvaluated ? 'charcoal' : 'neutral'} className="text-[10px] py-0 px-1.5 shrink-0">
+                              {sem.status}
+                            </Badge>
+                          </div>
+                        </div>
                       );
                     })}
-                  </ul>
+                  </div>
+                </CardBody>
+              </Card>
+            )}
+
+            {/* Charts & Breakdown */}
+            <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
+              <ChartCard
+                title="Readiness Velocity"
+                subtitle="Calculated dynamically across faculty ratings and AI assessments"
+                description={`Readiness trend across ${data.trend.length} evaluations, currently score is ${data.readiness.score}.`}
+                isEmpty={data.trend.length < 2}
+                emptyLabel="At least two evaluation milestones required to display trend line"
+                height={230}
+              >
+                <LineTrend
+                  data={data.trend.map((point: any) => ({
+                    label: formatDate(point.at),
+                    score: point.score,
+                  }))}
+                  xKey="label"
+                  series={[{ key: 'score', label: 'Readiness Index' }]}
+                  domain={[0, 100]}
+                />
+              </ChartCard>
+
+              <Card className="border-border bg-card shadow-card">
+                <CardHeader className="pb-3 border-b border-border">
+                  <CardTitle className="text-base font-bold font-heading text-heading">7-Pillar Employability Breakdown</CardTitle>
+                  <CardSubtitle className="text-xs text-muted-foreground">Core capability assessment indices</CardSubtitle>
+                </CardHeader>
+                <CardBody className="pt-4">
+                  <SkillBreakdown pillars={data.skillBreakdown} />
+                </CardBody>
+              </Card>
+            </div>
+
+            {/* Day One vs Today & Actionable Highlights */}
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Card className="border-border bg-card shadow-card">
+                <CardHeader className="pb-3 border-b border-border">
+                  <CardTitle className="text-base font-bold font-heading text-heading">Day One vs Today</CardTitle>
+                  <CardSubtitle className="text-xs text-muted-foreground">
+                    Baseline established {formatDate(data.dayOneVsToday.dayOneAt)}
+                  </CardSubtitle>
+                </CardHeader>
+                <CardBody className="pt-3">
+                  <TableWrap>
+                    <Table>
+                      <thead>
+                        <Tr>
+                          <Th className="text-heading">Pillar Metric</Th>
+                          <Th align="right" className="text-heading">Day One</Th>
+                          <Th align="right" className="text-heading">Today</Th>
+                          <Th align="right" className="text-heading">Delta</Th>
+                        </Tr>
+                      </thead>
+                      <tbody>
+                        {data.dayOneVsToday.rows.map((row: any) => {
+                          const change = Number(row.today) - Number(row.dayOne);
+                          return (
+                            <Tr key={row.metric}>
+                              <Td className="font-semibold text-xs text-heading">{row.metric}</Td>
+                              <Td align="right" className="tnum font-mono text-xs text-muted-foreground">
+                                {num(row.dayOne, 1)}
+                              </Td>
+                              <Td align="right" className="tnum font-mono text-xs font-bold text-heading">
+                                {num(row.today, 1)}
+                              </Td>
+                              <Td align="right" className="tnum font-mono text-xs font-bold">
+                                <span
+                                  className={
+                                    change > 0 ? 'text-heading bg-accent/20 px-1.5 py-0.5 rounded text-accent-foreground' : change < 0 ? 'text-muted-foreground' : undefined
+                                  }
+                                >
+                                  {change > 0 ? '+' : ''}
+                                  {num(change, 1)}
+                                </span>
+                              </Td>
+                            </Tr>
+                          );
+                        })}
+                      </tbody>
+                    </Table>
+                  </TableWrap>
+                </CardBody>
+              </Card>
+
+              <div className="space-y-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Card className="border-border bg-card p-5 shadow-card">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Strongest Pillar
+                    </p>
+                    <p className="mt-1 text-base font-bold font-heading text-heading">{data.strongestSkill?.label || 'Analytical'}</p>
+                    <p className="tnum mt-1 text-2xl font-bold font-mono text-heading">
+                      <AnimatedCounter value={data.strongestSkill?.score ?? 0} />
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{data.strongestSkill?.band || 'Advanced Proficiency'}</p>
+                  </Card>
+
+                  <Card className="border-accent bg-accent/15 p-5 shadow-card">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-heading">
+                      Primary Growth Focus
+                    </p>
+                    <p className="mt-1 text-base font-bold font-heading text-heading">{data.focusArea?.label || 'Verbal Delivery'}</p>
+                    <p className="tnum mt-1 text-2xl font-bold font-mono text-heading">
+                      <AnimatedCounter value={data.focusArea?.score ?? 0} />
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{data.focusArea?.band || 'Focus Area'}</p>
+                  </Card>
                 </div>
-              </TiltCard>
+
+                {data.nextRecommendedActivity && (
+                  <Card className="border-border bg-card shadow-card p-5">
+                    <div className="flex items-center justify-between pb-3 border-b border-border">
+                      <div>
+                        <CardTitle className="text-base font-bold font-heading text-heading">Recommended Activity</CardTitle>
+                        <CardSubtitle className="text-xs text-muted-foreground">
+                          Targeted for {data.nextRecommendedActivity.weakestDimensionLabel}
+                        </CardSubtitle>
+                      </div>
+                      <Sparkles className="size-4 text-accent" aria-hidden />
+                    </div>
+                    <div className="mt-3.5">
+                      <p className="text-sm font-bold text-heading">
+                        {data.nextRecommendedActivity.exerciseTitle}
+                      </p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        {data.nextRecommendedActivity.reason}
+                      </p>
+                      <Button asChild variant="primary" size="sm" className="mt-4">
+                        <Link href="/student/practice">Start Practice</Link>
+                      </Button>
+                    </div>
+                  </Card>
+                )}
+
+                <Card className="border-border bg-card shadow-card p-5">
+                  <div className="flex items-center justify-between pb-3 border-b border-border">
+                    <div>
+                      <CardTitle className="text-base font-bold font-heading text-heading">Achievements</CardTitle>
+                      <CardSubtitle className="text-xs text-muted-foreground">
+                        {(data.achievements ?? []).filter((badge: any) => badge.earned).length} earned milestone badges
+                      </CardSubtitle>
+                    </div>
+                    <Button asChild variant="ghost" size="sm" className="text-xs">
+                      <Link href="/student/achievements">View All</Link>
+                    </Button>
+                  </div>
+                  <div className="mt-3.5">
+                    <ul className="flex flex-wrap gap-2">
+                      {(data.achievements ?? []).slice(0, 8).map((badge: any) => {
+                        const Icon = iconFor(badge.icon, Award);
+                        return (
+                          <li key={badge.code}>
+                            <Badge
+                              tone={badge.earned ? 'mustard' : 'neutral'}
+                              className={cn(
+                                'flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold',
+                                badge.earned ? 'bg-accent text-accent-foreground' : 'bg-muted/40 text-muted-foreground border border-border'
+                              )}
+                            >
+                              <Icon className="size-3" aria-hidden />
+                              {badge.title}
+                            </Badge>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                </Card>
+              </div>
             </div>
           </div>
-        </>
         );
       }}
     </AsyncSection>

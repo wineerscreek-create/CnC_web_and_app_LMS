@@ -38,11 +38,11 @@ function HealthRow({
 }) {
   return (
     <li className="flex flex-wrap items-center gap-3 py-3">
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-app text-ink-2 [&_svg]:size-4">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-muted text-muted-foreground [&_svg]:size-4">
         {icon}
       </span>
       <span className="min-w-0 flex-1 text-base font-semibold">{label}</span>
-      {detail && <span className="text-sm text-ink-2">{detail}</span>}
+      {detail && <span className="text-sm text-muted-foreground">{detail}</span>}
       {ok ? (
         <Badge tone="success">
           <CheckCircle2 className="size-3" aria-hidden />
@@ -212,9 +212,9 @@ export default function AdminSystemPage() {
                       ['Completed', data.queue.completed],
                       ['Retried', data.queue.retried],
                     ].map(([label, value]) => (
-                      <div key={label as string} className="rounded-[8px] bg-app px-2 py-2">
+                      <div key={label as string} className="rounded-[8px] bg-muted px-2 py-2">
                         <dd className="tnum text-md font-bold">{num(value as number)}</dd>
-                        <dt className="text-2xs text-ink-3">{label as string}</dt>
+                        <dt className="text-2xs text-muted-foreground">{label as string}</dt>
                       </div>
                     ))}
                   </dl>
@@ -225,7 +225,7 @@ export default function AdminSystemPage() {
                       need looking at.
                     </p>
                   )}
-                  <p className="mt-3 text-xs text-ink-3">
+                  <p className="mt-3 text-xs text-muted-foreground">
                     Handlers registered: {data.queue.handlers?.length ?? 0} ·{' '}
                     {data.queue.handlers?.join(', ')}
                   </p>
@@ -248,7 +248,7 @@ export default function AdminSystemPage() {
                     <li key={key} className="flex flex-wrap items-center gap-3 py-3">
                       <span className="min-w-0 flex-1">
                         <span className="block text-base font-semibold">{titleCase(key)}</span>
-                        <span className="block text-xs text-ink-3">
+                        <span className="block text-xs text-muted-foreground">
                           configured: {provider.configured}
                           {provider.model ? ` · model ${provider.model}` : ''}
                           {provider.requiresEvidence ? ' · evidence required' : ''}
@@ -258,7 +258,7 @@ export default function AdminSystemPage() {
                         {provider.active}
                       </Badge>
                       {provider.usingDevelopmentFallback && (
-                        <span className="text-sm text-amber-dark">
+                        <span className="text-sm text-gold-text">
                           deterministic fallback in use
                         </span>
                       )}
@@ -314,18 +314,18 @@ export default function AdminSystemPage() {
               </ul>
 
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <div className="rounded-[10px] bg-app px-3.5 py-3">
-                  <p className="text-xs text-ink-3">Errors (24h)</p>
+                <div className="rounded-[10px] bg-muted px-3.5 py-3">
+                  <p className="text-xs text-muted-foreground">Errors (24h)</p>
                   <p className="tnum mt-0.5 text-md font-bold">{num(data.errors24h)}</p>
                 </div>
-                <div className="rounded-[10px] bg-app px-3.5 py-3">
-                  <p className="text-xs text-ink-3">Security events (24h)</p>
+                <div className="rounded-[10px] bg-muted px-3.5 py-3">
+                  <p className="text-xs text-muted-foreground">Security events (24h)</p>
                   <p className="tnum mt-0.5 text-md font-bold">{num(data.securityEvents24h)}</p>
                 </div>
               </div>
 
               {data.database.usingDevelopmentFallback && (
-                <p className="mt-4 flex items-start gap-2 rounded-[10px] bg-amber-50 px-3.5 py-2.5 text-sm text-amber-dark">
+                <p className="mt-4 flex items-start gap-2 rounded-[10px] bg-amber-50 px-3.5 py-2.5 text-sm text-gold-text">
                   <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
                   This instance is running on development fallbacks. Production startup refuses to
                   boot in this configuration.

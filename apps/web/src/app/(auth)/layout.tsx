@@ -1,56 +1,55 @@
 import { CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
-import { GradientOrb } from '@/components/ui/motion-elements';
-import { WinnersCreekLogo } from '@/components/ui/WinnersCreekLogo';
+import { CNCLogo } from '@/components/ui/CNCLogo';
 
 /**
- * Unified auth layout: floating frosted-glass surfaces over the continuous tech-orbit background.
- * One consistent layout for login, signup, verification and reset flow.
+ * Unified auth layout — Ivory / Sage / Gold Theme (SkillSharp)
  */
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-dvh box-border grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+    <div className="min-h-dvh box-border grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] bg-background">
       <div className="flex flex-col justify-between box-border px-6 py-4 sm:px-10 lg:px-12 lg:py-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="shrink-0 mb-2 sm:mb-3">
           <Link
             href="/"
             className="inline-flex items-center transition-transform hover:opacity-90 active:scale-95"
-            aria-label="Winners Creek home"
+            aria-label="SkillSharp home"
           >
-            <WinnersCreekLogo variant="auth" priority />
+            <CNCLogo priority />
           </Link>
         </div>
 
         <main id="main" className="flex flex-1 items-center justify-center py-2 sm:py-4">
-          <div className="w-full max-w-[440px] [&:has([data-auth-wide])]:max-w-[560px] rounded-2xl border border-line [&:has([data-auth-wide])]:border-b-0 bg-card p-6 sm:p-7 shadow-card animate-enter my-auto transition-all duration-200">
+          <div className="w-full max-w-[440px] [&:has([data-auth-wide])]:max-w-[560px] rounded-3xl border border-border bg-card p-6 sm:p-8 shadow-card animate-enter my-auto transition-all duration-200">
             {children}
           </div>
         </main>
 
-        <p className="text-xs text-ink-3 shrink-0 pt-2">
-          By continuing you agree that your institution administers this account.
+        <p className="text-xs text-muted-foreground shrink-0 pt-2 text-center sm:text-left">
+          By signing in you agree that your institutional records are managed in accordance with institutional policy.
         </p>
       </div>
 
-      <aside className="relative hidden lg:flex lg:flex-col lg:justify-center border-l border-slate-200 text-slate-900 dark:border-white/10 dark:text-white px-10 xl:px-14 py-12 lg:sticky lg:top-0 lg:h-dvh lg:overflow-hidden shrink-0">
-        <GradientOrb color="indigo" size={450} className="-left-20 top-10 opacity-30" />
-        <GradientOrb color="amber" size={320} className="-bottom-16 right-0 opacity-20" />
+      <aside className="relative hidden border-l border-border bg-foreground text-background lg:flex lg:flex-col lg:justify-center px-10 xl:px-14 py-12 lg:sticky lg:top-0 lg:h-dvh lg:overflow-hidden shrink-0">
         <div className="relative z-10 max-w-[420px]">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-600 dark:text-amber-400">
-            Practise · Assess · Improve
-          </p>
-          <h2 className="mt-4 font-serif heading-section font-semibold leading-tight text-slate-900 dark:text-white">
-            Learn, Practise and Build the Skills Required for Your Career.
+          <span className="inline-block rounded-full bg-accent px-3 py-1 text-xs font-bold uppercase tracking-wider text-accent-foreground">
+            Campus to Corporate
+          </span>
+          <h2 className="mt-5 font-heading text-3xl font-black leading-tight text-background">
+            Build skills. Practice with confidence. Become career-ready.
           </h2>
-          <ul className="mt-8 space-y-3.5 text-sm sm:text-base text-slate-700 dark:text-slate-100">
+          <p className="mt-3 text-sm text-background/70 leading-relaxed">
+            The integrated employability platform bridging academic foundations and corporate expectations.
+          </p>
+          <ul className="mt-8 space-y-4 text-sm text-background/90">
             {[
-              'Mock interviews and GDs with evidence-backed AI feedback',
-              '95+ trainer-rated parameters across seven pillars',
-              'A readiness score that shows what to fix next',
-              'Your data stays inside your college and department',
+              'Mock interviews and presentations with objective AI diagnostics',
+              '7-Pillar Employability Index (EEDI) tracking your progress',
+              'Deterministic curriculum recommendations targeted to close gaps',
+              'Enterprise-grade multi-tenant data segregation per college',
             ].map((line) => (
               <li key={line} className="flex items-start gap-3">
-                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-accent" aria-hidden />
                 <span>{line}</span>
               </li>
             ))}

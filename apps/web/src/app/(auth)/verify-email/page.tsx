@@ -72,11 +72,11 @@ export default function VerifyEmailPage() {
   if (done) {
     return (
       <div className="text-center">
-        <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-success-bg text-success">
+        <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
           <CheckCircle2 className="size-5" aria-hidden />
         </span>
-        <h1 className="mt-4 font-serif text-[24px] font-semibold tracking-tight">Email verified</h1>
-        <p className="mt-1.5 text-base text-ink-2">
+        <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-heading">Email verified</h1>
+        <p className="mt-1.5 text-base text-muted-foreground">
           Your account is ready. Taking you to sign in…
         </p>
         <Button asChild variant="primary" className="mt-5">
@@ -88,14 +88,14 @@ export default function VerifyEmailPage() {
 
   return (
     <>
-      <span className="flex size-11 items-center justify-center rounded-full bg-indigo-50 text-indigo">
+      <span className="flex size-11 items-center justify-center rounded-full bg-muted text-primary">
         <MailCheck className="size-5" aria-hidden />
       </span>
-      <h1 className="mt-4 font-serif text-[26px] font-semibold tracking-tight">Verify your email</h1>
-      <p className="mt-1.5 text-base text-ink-2">
+      <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-heading">Verify your email</h1>
+      <p className="mt-1.5 text-base text-muted-foreground">
         {email ? (
           <>
-            Enter the 6-digit code we sent to <strong className="font-semibold">{email}</strong>.
+            Enter the 6-digit code we sent to <strong className="font-semibold text-foreground">{email}</strong>.
           </>
         ) : (
           'Enter the 6-digit code from your verification email.'
@@ -104,20 +104,20 @@ export default function VerifyEmailPage() {
 
       <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
         <div>
-          <label htmlFor="otp" className="mb-1.5 block text-sm font-semibold">
+          <label htmlFor="otp" className="mb-1.5 block text-sm font-semibold text-foreground">
             Verification code
           </label>
           <OtpInput value={otp} onChange={setOtp} invalid={Boolean(error)} />
         </div>
 
         {error && (
-          <p role="alert" className="flex items-start gap-2 rounded-[10px] bg-danger-bg px-3.5 py-2.5 text-sm font-semibold text-danger">
+          <p role="alert" className="flex items-start gap-2 rounded-xl bg-destructive/10 border border-destructive/30 px-3.5 py-2.5 text-sm font-semibold text-destructive">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             {error}
           </p>
         )}
         {resent && (
-          <p role="status" className="rounded-[10px] bg-success-bg px-3.5 py-2.5 text-sm font-semibold text-success">
+          <p role="status" className="rounded-xl bg-primary/10 border border-primary/20 px-3.5 py-2.5 text-sm font-semibold text-primary">
             A new code is on its way.
           </p>
         )}
@@ -134,9 +134,9 @@ export default function VerifyEmailPage() {
         </Button>
       </form>
 
-      <p className="mt-5 text-base text-ink-2">
+      <p className="mt-5 text-base text-muted-foreground">
         Didn’t get it?{' '}
-        <button type="button" onClick={resend} className="font-semibold text-indigo hover:underline">
+        <button type="button" onClick={resend} className="font-semibold text-foreground hover:underline">
           Send another code
         </button>
       </p>

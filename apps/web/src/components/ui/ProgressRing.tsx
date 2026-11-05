@@ -2,59 +2,28 @@
 
 import * as React from 'react';
 import { cn } from '@/lib/cn';
-import { motionConfig, usePrefersReducedMotion } from '@/lib/motion-config';
+import { usePrefersReducedMotion } from '@/lib/motion-config';
 
 export interface ProgressRingProps {
   value: number; // 0 to 100
   size?: number; // diameter in px
   strokeWidth?: number; // thickness in px
-  tone?: 'indigo' | 'cyan' | 'teal' | 'amber' | 'purple' | 'emerald';
+  tone?: 'mustard' | 'charcoal' | 'indigo' | 'cyan' | 'teal' | 'amber' | 'purple' | 'emerald';
   label?: string;
   sublabel?: string;
   className?: string;
 }
 
-const toneMap = {
-  indigo: {
-    stroke: '#6366f1',
-    gradient: ['#818cf8', '#4f46e5'],
-    glow: 'rgba(99, 102, 241, 0.35)',
-  },
-  cyan: {
-    stroke: '#06b6d4',
-    gradient: ['#22d3ee', '#0891b2'],
-    glow: 'rgba(6, 182, 212, 0.35)',
-  },
-  teal: {
-    stroke: '#14b8a6',
-    gradient: ['#2dd4bf', '#0d9488'],
-    glow: 'rgba(20, 184, 166, 0.35)',
-  },
-  amber: {
-    stroke: '#f59e0b',
-    gradient: ['#fbbf24', '#d97706'],
-    glow: 'rgba(245, 158, 11, 0.35)',
-  },
-  purple: {
-    stroke: '#a855f7',
-    gradient: ['#c084fc', '#7e22ce'],
-    glow: 'rgba(168, 85, 247, 0.35)',
-  },
-  emerald: {
-    stroke: '#10b981',
-    gradient: ['#34d399', '#059669'],
-    glow: 'rgba(16, 185, 129, 0.35)',
-  },
-};
-
 /**
- * ProgressRing — Premium circular SVG meter with animated dashoffset, glowing gradient, and centered readout.
+ * ProgressRing — Circular Progress Indicator in Ivory / Sage / Gold palette.
+ * Track: hsl(var(--muted))
+ * Arc: hsl(var(--accent)) or hsl(var(--primary))
+ * Centre number: text-heading
  */
 export function ProgressRing({
   value,
   size = 120,
   strokeWidth = 9,
-  tone = 'indigo',
   label,
   sublabel,
   className,
@@ -66,68 +35,61 @@ export function ProgressRing({
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (clampedValue / 100) * circumference;
 
-  const currentTone = toneMap[tone];
-  const gradientId = React.useId();
-
   return (
     <div
-      className={cn('relative inline-flex flex-col items-center justify-center select-none', className)}
+      className={cn('relative inline-flex items-center justify-center select-none', className)}
       style={{ width: size, height: size }}
+      role="progressbar"
+      aria-valuenow={clampedValue}
+      aria-valuemin={0}
+      aria-valuemax={100}
     >
       <svg
         width={size}
         height={size}
-        className="-rotate-90"
-        style={{
-          filter: `drop-shadow(0 0 8px ${currentTone.glow})`,
-        }}
+        className="-rotate-90 transform"
+        style={{ overflow: 'visible' }}
       >
-        <defs>
-          <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor={currentTone.gradient[0]} />
-            <stop offset="100%" stopColor={currentTone.gradient[1]} />
-          </linearGradient>
-        </defs>
-
-        {/* Track circle */}
+        {/* Background track */}
         <circle
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          fill="none"
-          stroke="rgba(255, 255, 255, 0.08)"
+          stroke="hsl(var(--muted))"
           strokeWidth={strokeWidth}
+          fill="transparent"
         />
 
-        {/* Progress indicator */}
+        {/* Foreground progress arc */}
         <circle
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          fill="none"
-          stroke={`url(#${gradientId})`}
+          stroke="hsl(var(--accent))"
           strokeWidth={strokeWidth}
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
+          fill="transparent"
           style={{
-            transition: prefersReducedMotion
-              ? 'none'
-              : `stroke-dashoffset ${motionConfig.durations.spacious}ms ${motionConfig.easings.springSmooth}`,
+            transition: prefersReducedMotion ? 'none' : 'stroke-dashoffset 0.8s cubic-bezier(0.16, 1, 0.3, 1)',
           }}
         />
       </svg>
 
-      {/* Centered Readout */}
+      {/* Centered readout */}
       <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-        <span className="font-bold text-white tracking-tight" style={{ fontSize: `${Math.round(size * 0.24)}px` }}>
-          {label ?? `${Math.round(clampedValue)}%`}
-        </span>
+        {label ? (
+          <span className="font-heading text-2xl font-extrabold tracking-tight text-heading tnum leading-none">
+            {label}
+          </span>
+        ) : (
+          <span className="font-heading text-2xl font-extrabold tracking-tight text-heading tnum leading-none">
+            {Math.round(clampedValue)}%
+          </span>
+        )}
         {sublabel && (
-          <span
-            className="text-white/60 font-medium tracking-wide uppercase"
-            style={{ fontSize: `${Math.max(10, Math.round(size * 0.09))}px` }}
-          >
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mt-0.5">
             {sublabel}
           </span>
         )}
@@ -135,4 +97,3 @@ export function ProgressRing({
     </div>
   );
 }
-

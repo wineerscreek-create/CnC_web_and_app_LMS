@@ -180,14 +180,14 @@ export default function SuperAdminGamesPage() {
 
       {/* Games Table */}
       <Card>
-        <CardHeader className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <CardHeader className="p-4 border-b border-border flex items-center justify-between">
           <CardTitle className="text-sm font-bold">Game Definitions &amp; Playable URLs</CardTitle>
           <Badge tone="indigo">Course Gamification Matrix</Badge>
         </CardHeader>
         <CardBody className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 text-slate-500 uppercase tracking-wider font-semibold">
+              <thead className="bg-slate-50 dark:bg-slate-900 border-b border-border text-muted-foreground uppercase tracking-wider font-semibold">
                 <tr>
                   <th className="px-4 py-3">Code &amp; Title</th>
                   <th className="px-4 py-3">Game Link / URL</th>
@@ -204,7 +204,7 @@ export default function SuperAdminGamesPage() {
                 {games.map((game) => (
                   <tr key={game.code} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
                     <td className="px-4 py-3.5">
-                      <p className="font-semibold text-slate-900 dark:text-white">{game.title}</p>
+                      <p className="font-semibold text-foreground">{game.title}</p>
                       <p className="text-[11px] font-mono text-indigo">{game.code}</p>
                     </td>
                     <td className="px-4 py-3.5">
@@ -219,7 +219,7 @@ export default function SuperAdminGamesPage() {
                           <span className="truncate">{game.gameUrl}</span>
                         </a>
                       ) : (
-                        <span className="text-[11px] text-slate-400 italic">Internal Scenario</span>
+                        <span className="text-[11px] text-muted-foreground italic">Internal Scenario</span>
                       )}
                     </td>
                     <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300">
@@ -243,7 +243,7 @@ export default function SuperAdminGamesPage() {
                     </td>
                     <td className="px-4 py-3.5 text-slate-800 dark:text-slate-200">
                       <span className="font-bold">{num(game.launches || game.totalAttempts)}</span>{' '}
-                      <span className="text-slate-400">({num(game.totalAttempts)} scored)</span>
+                      <span className="text-muted-foreground">({num(game.totalAttempts)} scored)</span>
                     </td>
                     <td className="px-4 py-3.5 font-medium">
                       {game.averageScore > 0 ? `${num(game.averageScore, 1)}%` : '—'}
@@ -275,7 +275,7 @@ export default function SuperAdminGamesPage() {
                       >
                         {game.published ? (
                           <>
-                            <EyeOff className="size-3 mr-1 text-slate-500" />
+                            <EyeOff className="size-3 mr-1 text-muted-foreground" />
                             Unpublish
                           </>
                         ) : (
@@ -316,7 +316,7 @@ export default function SuperAdminGamesPage() {
                   value={formCode}
                   onChange={(e) => setFormCode(e.target.value.toLowerCase())}
                   placeholder="e.g., debug-maze-runner"
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground font-mono"
                 />
               </div>
 
@@ -328,7 +328,7 @@ export default function SuperAdminGamesPage() {
                   type="number"
                   value={formXp}
                   onChange={(e) => setFormXp(Number(e.target.value))}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground"
                 />
               </div>
             </div>
@@ -343,7 +343,7 @@ export default function SuperAdminGamesPage() {
                 value={formTitle}
                 onChange={(e) => setFormTitle(e.target.value)}
                 placeholder="e.g., Syntax Error Maze Runner"
-                className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground"
               />
             </div>
 
@@ -357,9 +357,9 @@ export default function SuperAdminGamesPage() {
                 value={formGameUrl}
                 onChange={(e) => setFormGameUrl(e.target.value)}
                 placeholder="https://games.winnerscreek.com/maze-game or https://example.com/play"
-                className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
+                className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground font-mono"
               />
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[11px] text-muted-foreground">
                 If specified, participants can click Play to launch this game directly with telemetry tracking.
               </p>
             </div>
@@ -372,7 +372,7 @@ export default function SuperAdminGamesPage() {
                 <select
                   value={formCourseId}
                   onChange={(e) => setFormCourseId(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground"
                 >
                   <option value="">Platform-Wide (All Courses)</option>
                   {courses.map((c) => (
@@ -391,7 +391,7 @@ export default function SuperAdminGamesPage() {
                   type="number"
                   value={formDuration}
                   onChange={(e) => setFormDuration(Number(e.target.value))}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground"
                 />
               </div>
             </div>
@@ -404,7 +404,7 @@ export default function SuperAdminGamesPage() {
                 <select
                   value={formCategory}
                   onChange={(e) => setFormCategory(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground"
                 >
                   <option value="Technical">Technical</option>
                   <option value="Problem Solving">Problem Solving</option>
@@ -421,7 +421,7 @@ export default function SuperAdminGamesPage() {
                 <select
                   value={formDifficulty}
                   onChange={(e) => setFormDifficulty(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground"
                 >
                   <option value="Beginner">Beginner</option>
                   <option value="Intermediate">Intermediate</option>
@@ -439,7 +439,7 @@ export default function SuperAdminGamesPage() {
                 onChange={(e) => setFormDesc(e.target.value)}
                 rows={2}
                 placeholder="Explain the rules, scenario context, and skills evaluated."
-                className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground"
               />
             </div>
 

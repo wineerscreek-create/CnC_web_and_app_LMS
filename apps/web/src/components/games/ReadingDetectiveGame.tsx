@@ -396,7 +396,7 @@ export function ReadingDetectiveGame({
                     disabled={selectedOption === null || isSubmitting}
                     loading={isSubmitting}
                     onClick={handleSubmitDeduction}
-                    className="bg-purple-600 hover:bg-purple-500 text-white font-bold shadow-md shadow-purple-600/20 px-5"
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-sm px-5"
                   >
                     Confirm Deduction
                   </Button>
@@ -415,7 +415,7 @@ export function ReadingDetectiveGame({
               variant="primary"
               size="lg"
               onClick={onFinishGame}
-              className="bg-purple-600 hover:bg-purple-500 text-white font-bold"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold"
             >
               Close Case & View EEDI Report
             </Button>

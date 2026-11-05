@@ -119,7 +119,7 @@ export function UploadEbookModal({ open, onClose, onSuccess, uploaderRole }: Upl
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-[2px] p-4 overflow-y-auto">
-      <div className="w-full max-w-xl rounded-2xl border border-white/15 bg-slate-900 p-6 sm:p-8 text-white shadow-2xl animate-enter my-8">
+      <div className="w-full max-w-xl rounded-2xl border border-border bg-card p-6 sm:p-8 text-foreground shadow-xl animate-enter my-8">
         <div className="flex items-center justify-between border-b border-white/10 pb-4">
           <div>
             <h3 className="text-lg font-bold">Upload PDF eBook</h3>
@@ -130,7 +130,7 @@ export function UploadEbookModal({ open, onClose, onSuccess, uploaderRole }: Upl
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1.5 text-slate-400 hover:text-white"
+            className="rounded p-1.5 text-muted-foreground hover:text-foreground"
           >
             <X className="size-5" />
           </button>
@@ -182,7 +182,7 @@ export function UploadEbookModal({ open, onClose, onSuccess, uploaderRole }: Upl
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. Master Tech Interview STAR Stories"
-                className="w-full rounded-lg border border-white/15 bg-slate-800 p-2.5 text-white"
+                className="w-full rounded-lg border border-border bg-muted p-2.5 text-foreground"
               />
             </div>
             <div>
@@ -192,7 +192,7 @@ export function UploadEbookModal({ open, onClose, onSuccess, uploaderRole }: Upl
                 value={author}
                 onChange={(e) => setAuthor(e.target.value)}
                 placeholder="Defaults to your name"
-                className="w-full rounded-lg border border-white/15 bg-slate-800 p-2.5 text-white"
+                className="w-full rounded-lg border border-border bg-muted p-2.5 text-foreground"
               />
             </div>
           </div>
@@ -204,7 +204,7 @@ export function UploadEbookModal({ open, onClose, onSuccess, uploaderRole }: Upl
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                className="w-full rounded-lg border border-white/15 bg-slate-800 p-2 text-white"
+                className="w-full rounded-lg border border-border bg-muted p-2 text-foreground"
               >
                 {CATEGORIES.map((c) => (
                   <option key={c} value={c}>
@@ -220,7 +220,7 @@ export function UploadEbookModal({ open, onClose, onSuccess, uploaderRole }: Upl
                 value={tags}
                 onChange={(e) => setTags(e.target.value)}
                 placeholder="e.g. python, dsa, placement"
-                className="w-full rounded-lg border border-white/15 bg-slate-800 p-2.5 text-white"
+                className="w-full rounded-lg border border-border bg-muted p-2.5 text-foreground"
               />
             </div>
           </div>
@@ -234,7 +234,7 @@ export function UploadEbookModal({ open, onClose, onSuccess, uploaderRole }: Upl
               type="file"
               accept="image/jpeg,image/png,image/webp"
               onChange={(e) => setCover(e.target.files?.[0] || null)}
-              className="w-full text-xs text-slate-400 file:mr-3 file:rounded-md file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-slate-600"
+              className="w-full text-xs text-slate-400 file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary/90"
             />
           </div>
 
@@ -246,7 +246,7 @@ export function UploadEbookModal({ open, onClose, onSuccess, uploaderRole }: Upl
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Outline what learners will master with this handbook…"
-              className="w-full rounded-lg border border-white/15 bg-slate-800 p-2.5 text-white"
+              className="w-full rounded-lg border border-border bg-muted p-2.5 text-foreground"
             />
           </div>
 

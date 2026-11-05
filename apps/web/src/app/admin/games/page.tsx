@@ -136,7 +136,7 @@ export default function AdminGamesPage() {
               key={game.code}
               className={cn(
                 'flex flex-col justify-between transition-all',
-                !game.availableInCollege && 'opacity-70 bg-slate-50/70 dark:bg-slate-900/40'
+                !game.availableInCollege && 'opacity-70 bg-muted/40'
               )}
             >
               <CardBody className="p-5 flex flex-col justify-between h-full space-y-4">
@@ -147,7 +147,7 @@ export default function AdminGamesPage() {
                         'p-2.5 rounded-xl inline-block',
                         game.availableInCollege
                           ? 'bg-indigo/10 text-indigo'
-                          : 'bg-slate-200 dark:bg-slate-800 text-slate-400'
+                          : 'bg-muted text-muted-foreground'
                       )}
                     >
                       <Gamepad2 className="size-5" />
@@ -157,10 +157,10 @@ export default function AdminGamesPage() {
                     </Badge>
                   </div>
 
-                  <h3 className="font-bold text-base text-slate-900 dark:text-white mt-3">
+                  <h3 className="font-bold text-base text-foreground mt-3">
                     {game.title}
                   </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mt-1">
+                  <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
                     {game.description}
                   </p>
 
@@ -171,31 +171,31 @@ export default function AdminGamesPage() {
                     {(game.skillsTrained || []).slice(0, 2).map((s) => (
                       <span
                         key={s}
-                        className="px-1.5 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500"
+                        className="px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground"
                       >
                         {s}
                       </span>
                     ))}
                   </div>
 
-                  <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-2 text-center text-xs">
-                    <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
-                      <p className="font-bold text-slate-800 dark:text-slate-200">
+                  <div className="mt-4 pt-3 border-t border-border grid grid-cols-2 gap-2 text-center text-xs">
+                    <div className="p-2 rounded-lg bg-muted/50">
+                      <p className="font-bold text-foreground">
                         {game.collegePlays}
                       </p>
-                      <p className="text-[10px] text-slate-400">Campus Plays</p>
+                      <p className="text-[10px] text-muted-foreground">Campus Plays</p>
                     </div>
-                    <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
-                      <p className="font-bold text-slate-800 dark:text-slate-200">
+                    <div className="p-2 rounded-lg bg-muted/50">
+                      <p className="font-bold text-foreground">
                         {game.collegeAvgScore ? `${num(game.collegeAvgScore, 1)}%` : '—'}
                       </p>
-                      <p className="text-[10px] text-slate-400">Avg Score</p>
+                      <p className="text-[10px] text-muted-foreground">Avg Score</p>
                     </div>
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                  <span className="text-[11px] font-mono text-slate-400">{game.code}</span>
+                <div className="pt-3 border-t border-border flex items-center justify-between">
+                  <span className="text-[11px] font-mono text-muted-foreground">{game.code}</span>
                   <Button
                     size="sm"
                     variant={game.availableInCollege ? 'secondary' : 'primary'}

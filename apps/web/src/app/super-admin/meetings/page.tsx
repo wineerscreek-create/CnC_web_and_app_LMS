@@ -107,17 +107,17 @@ export default function SuperAdminMeetingsPage() {
               <Lock className="size-3.5 text-purple-500 dark:text-purple-400" />
               Super Admin Executive Suite
             </div>
-            <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-ink-1 sm:text-3xl">
+            <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
               Trainer Meetings & Administrative Sync
             </h1>
-            <p className="mt-1 text-sm text-ink-2">
+            <p className="mt-1 text-sm text-muted-foreground">
               Private administrative sessions with certified trainers. Strictly isolated from student and departmental visibility.
             </p>
           </div>
 
           <button
             onClick={() => setModalOpen(true)}
-            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-110"
+            className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
           >
             <Plus className="size-4" />
             Schedule Trainer Meeting
@@ -128,13 +128,13 @@ export default function SuperAdminMeetingsPage() {
         {loading ? (
           <div className="flex flex-col items-center justify-center py-16">
             <div className="size-10 animate-spin rounded-full border-4 border-indigo-500 border-t-transparent" />
-            <p className="mt-4 text-xs font-medium text-ink-3">Loading trainer meetings...</p>
+            <p className="mt-4 text-xs font-medium text-muted-foreground">Loading trainer meetings...</p>
           </div>
         ) : meetings.length === 0 ? (
-          <div className="rounded-3xl border border-line bg-card p-12 text-center shadow-card backdrop-blur-md dark:border-white/10 dark:bg-slate-900/50">
-            <Video className="mx-auto size-12 text-ink-3" />
-            <h3 className="mt-3 text-base font-semibold text-ink-1">No Private Trainer Meetings</h3>
-            <p className="mt-1 text-xs text-ink-3">
+          <div className="rounded-3xl border border-border bg-card p-12 text-center shadow-card backdrop-blur-md dark:border-white/10 dark:bg-slate-900/50">
+            <Video className="mx-auto size-12 text-muted-foreground" />
+            <h3 className="mt-3 text-base font-semibold text-foreground">No Private Trainer Meetings</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
               Schedule your first administrative meeting with platform trainers.
             </p>
           </div>
@@ -167,30 +167,30 @@ export default function SuperAdminMeetingsPage() {
                       )}
                     </div>
 
-                    <h3 className="text-base font-bold text-ink-1">{m.title}</h3>
+                    <h3 className="text-base font-bold text-foreground">{m.title}</h3>
                     {m.description && (
-                      <p className="text-xs text-ink-2 line-clamp-2">{m.description}</p>
+                      <p className="text-xs text-muted-foreground line-clamp-2">{m.description}</p>
                     )}
 
-                    <div className="space-y-1.5 rounded-xl border border-line bg-surface-muted p-3 text-xs text-ink-2 dark:border-white/10 dark:bg-slate-950/60 dark:text-slate-200">
+                    <div className="space-y-1.5 rounded-xl border border-border bg-surface-muted p-3 text-xs text-muted-foreground dark:border-white/10 dark:bg-slate-950/60 dark:text-slate-200">
                       <div className="flex items-center justify-between">
-                        <span className="text-ink-3">Platform</span>
-                        <span className="font-semibold text-ink-1">{m.provider}</span>
+                        <span className="text-muted-foreground">Platform</span>
+                        <span className="font-semibold text-foreground">{m.provider}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-ink-3">Date</span>
-                        <span className="text-ink-1">{formatDate(m.startsAt)}</span>
+                        <span className="text-muted-foreground">Date</span>
+                        <span className="text-foreground">{formatDate(m.startsAt)}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-ink-3">Time</span>
-                        <span className="text-ink-1">
+                        <span className="text-muted-foreground">Time</span>
+                        <span className="text-foreground">
                           {formatTime(m.startsAt)} – {formatTime(m.endsAt)}
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="mt-5 pt-4 border-t border-line">
+                  <div className="mt-5 pt-4 border-t border-border">
                     <InteractiveArrowButton
                       href={joinUrl}
                       target={m.provider === 'WINNERS_CREEK' ? '_self' : '_blank'}
@@ -208,66 +208,66 @@ export default function SuperAdminMeetingsPage() {
 
         {/* Schedule Meeting Modal */}
         {modalOpen && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-            <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-line bg-card p-6 sm:p-7 shadow-2xl backdrop-blur-2xl text-ink-1 dark:border-white/15 dark:bg-slate-900/95 dark:text-white">
-              <h2 className="text-xl font-bold text-ink-1">Schedule Private Trainer Meeting</h2>
-              <p className="mt-1 text-sm text-ink-2">
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
+            <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-border bg-card p-6 sm:p-7 shadow-lg backdrop-blur-2xl text-foreground">
+              <h2 className="text-xl font-bold text-foreground">Schedule Private Trainer Meeting</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
                 This meeting is strictly confidential and visible only to invited trainers and Super Admins.
               </p>
 
               <form onSubmit={handleCreateMeeting} className="mt-5 space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-ink-1">Meeting Title *</label>
+                  <label className="block text-xs font-semibold text-foreground">Meeting Title *</label>
                   <input
                     type="text"
                     required
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="e.g. Q3 Pedagogy & Curriculum Sync"
-                    className="mt-1.5 w-full rounded-xl border border-input-border bg-input px-3.5 py-2.5 text-sm text-ink-1 placeholder:text-ink-3 focus:border-brand-primary focus:outline-none"
+                    className="mt-1.5 w-full rounded-xl border border-input-border bg-input px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-brand-primary focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-ink-1">Description</label>
+                  <label className="block text-xs font-semibold text-foreground">Description</label>
                   <textarea
                     rows={3}
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     placeholder="Agenda, objectives, and discussion points..."
-                    className="mt-1.5 w-full rounded-xl border border-input-border bg-input px-3.5 py-2.5 text-sm text-ink-1 placeholder:text-ink-3 focus:border-brand-primary focus:outline-none"
+                    className="mt-1.5 w-full rounded-xl border border-input-border bg-input px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-brand-primary focus:outline-none"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-ink-1">Starts At *</label>
+                    <label className="block text-xs font-semibold text-foreground">Starts At *</label>
                     <input
                       type="datetime-local"
                       required
                       value={startsAt}
                       onChange={(e) => setStartsAt(e.target.value)}
-                      className="mt-1.5 w-full rounded-xl border border-input-border bg-input px-3 py-2 text-sm text-ink-1 focus:border-brand-primary focus:outline-none"
+                      className="mt-1.5 w-full rounded-xl border border-input-border bg-input px-3 py-2 text-sm text-foreground focus:border-brand-primary focus:outline-none"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-ink-1">Ends At *</label>
+                    <label className="block text-xs font-semibold text-foreground">Ends At *</label>
                     <input
                       type="datetime-local"
                       required
                       value={endsAt}
                       onChange={(e) => setEndsAt(e.target.value)}
-                      className="mt-1.5 w-full rounded-xl border border-input-border bg-input px-3 py-2 text-sm text-ink-1 focus:border-brand-primary focus:outline-none"
+                      className="mt-1.5 w-full rounded-xl border border-input-border bg-input px-3 py-2 text-sm text-foreground focus:border-brand-primary focus:outline-none"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-ink-1">Provider</label>
+                  <label className="block text-xs font-semibold text-foreground">Provider</label>
                   <select
                     value={provider}
                     onChange={(e) => setProvider(e.target.value as any)}
-                    className="mt-1.5 w-full rounded-xl border border-input-border bg-input px-3 py-2 text-sm text-ink-1 focus:border-brand-primary focus:outline-none"
+                    className="mt-1.5 w-full rounded-xl border border-input-border bg-input px-3 py-2 text-sm text-foreground focus:border-brand-primary focus:outline-none"
                   >
                     <option value="WINNERS_CREEK">Winners Creek Native Classroom</option>
                     <option value="GOOGLE_MEET">Google Meet</option>
@@ -277,25 +277,25 @@ export default function SuperAdminMeetingsPage() {
 
                 {provider !== 'WINNERS_CREEK' && (
                   <div>
-                    <label className="block text-xs font-semibold text-ink-1">Meeting URL *</label>
+                    <label className="block text-xs font-semibold text-foreground">Meeting URL *</label>
                     <input
                       type="url"
                       required
                       value={meetingUrl}
                       onChange={(e) => setMeetingUrl(e.target.value)}
                       placeholder="https://meet.google.com/xyz-abc or Zoom link"
-                      className="mt-1.5 w-full rounded-xl border border-input-border bg-input px-3.5 py-2.5 text-sm text-ink-1 placeholder:text-ink-3 focus:border-brand-primary focus:outline-none"
+                      className="mt-1.5 w-full rounded-xl border border-input-border bg-input px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-brand-primary focus:outline-none"
                     />
                   </div>
                 )}
 
                 <div>
-                  <label className="block text-xs font-semibold text-ink-1 mb-1.5">
+                  <label className="block text-xs font-semibold text-foreground mb-1.5">
                     Invited Trainers ({selectedTrainerIds.length} selected)
                   </label>
-                  <div className="max-h-36 overflow-y-auto space-y-1.5 rounded-xl border border-line bg-surface-muted p-2.5 dark:border-white/15 dark:bg-slate-950/80">
+                  <div className="max-h-36 overflow-y-auto space-y-1.5 rounded-xl border border-border bg-surface-muted p-2.5 dark:border-white/15 dark:bg-slate-950/80">
                     {trainers.length === 0 ? (
-                      <p className="text-xs text-ink-3">All registered trainers will be eligible.</p>
+                      <p className="text-xs text-muted-foreground">All registered trainers will be eligible.</p>
                     ) : (
                       trainers.map((t) => {
                         const selected = selectedTrainerIds.includes(t.id);
@@ -304,7 +304,7 @@ export default function SuperAdminMeetingsPage() {
                             key={t.id}
                             onClick={() => toggleTrainer(t.id)}
                             className={`flex cursor-pointer items-center justify-between rounded-lg p-2 text-xs transition ${
-                              selected ? 'bg-indigo-600/40 text-white font-medium' : 'hover:bg-surface-hover text-ink-2 dark:text-slate-200 dark:hover:bg-white/10'
+                              selected ? 'bg-primary text-primary-foreground font-medium' : 'hover:bg-muted text-muted-foreground'
                             }`}
                           >
                             <span>{t.name || t.email}</span>
@@ -316,18 +316,18 @@ export default function SuperAdminMeetingsPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-end gap-3 pt-4 border-t border-line">
+                <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
                   <button
                     type="button"
                     onClick={() => setModalOpen(false)}
-                    className="rounded-xl px-4 py-2 text-sm font-medium text-ink-3 hover:text-ink-1 hover:bg-surface-hover transition-colors"
+                    className="rounded-xl px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 px-5 py-2 text-sm font-semibold text-white shadow-lg transition hover:brightness-110 disabled:opacity-50"
+                    className="rounded-xl bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
                   >
                     {submitting ? 'Scheduling...' : 'Schedule Meeting'}
                   </button>

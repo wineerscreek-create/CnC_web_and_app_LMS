@@ -11,7 +11,7 @@ export default function GamePlayPage() {
   if (!gameId) {
     return (
       <div className="min-h-[400px] flex items-center justify-center p-8 text-center">
-        <p className="text-sm font-semibold text-slate-400">Loading game session...</p>
+        <p className="text-sm font-semibold text-muted-foreground">Loading game session...</p>
       </div>
     );
   }

@@ -118,7 +118,7 @@ export default function NewEvaluationPage() {
                     className={cn(
                       'flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm',
                       studentUserId === row.userId
-                        ? 'bg-indigo-50 font-semibold text-indigo-600'
+                        ? 'bg-primary-50 font-semibold text-primary-600'
                         : 'hover:bg-app',
                     )}
                   >

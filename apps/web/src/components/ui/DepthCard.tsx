@@ -70,7 +70,7 @@ export function DepthCard({
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
       className={cn(
-        'relative rounded-2xl border border-line bg-card p-6 shadow-card dark:border-white/10 dark:bg-slate-900/60 dark:backdrop-blur-xl',
+        'relative rounded-2xl border border-border bg-card p-6 shadow-card',
         isPointerFine && !prefersReducedMotion && 'preserve-3d will-change-transform',
         className
       )}

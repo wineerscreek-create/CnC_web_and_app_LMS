@@ -22,10 +22,10 @@ import { cn } from '@/lib/cn';
 import { formatDate } from '@/lib/format';
 
 const STATUS_TONE: Record<string, string> = {
-  present: 'bg-success text-white border-success',
-  absent: 'bg-danger text-white border-danger',
-  late: 'bg-amber text-white border-amber',
-  leave: 'bg-info text-white border-info',
+  present: 'bg-primary text-primary-foreground border-primary',
+  absent: 'bg-destructive text-destructive-foreground border-destructive',
+  late: 'bg-accent text-accent-foreground border-accent',
+  leave: 'bg-secondary text-secondary-foreground border-secondary',
 };
 
 export default function MarkAttendancePage() {
@@ -203,7 +203,7 @@ export default function MarkAttendancePage() {
                                     'rounded-full border px-2.5 py-1 text-xs font-semibold capitalize transition-colors',
                                     active
                                       ? STATUS_TONE[status]
-                                      : 'border-line bg-white text-ink-2 hover:bg-app',
+                                      : 'border-border bg-card text-muted-foreground hover:bg-muted',
                                   )}
                                 >
                                   {active && <Check className="mr-1 inline size-3" aria-hidden />}

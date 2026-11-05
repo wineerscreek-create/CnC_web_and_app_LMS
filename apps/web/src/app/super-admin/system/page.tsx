@@ -109,7 +109,7 @@ export default function SuperAdminSystemPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Component Status */}
             <Card>
-              <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800">
+              <CardHeader className="p-5 border-b border-border">
                 <CardTitle className="text-base">Infrastructure Stack Health</CardTitle>
               </CardHeader>
               <CardBody className="p-5 space-y-4">
@@ -117,10 +117,10 @@ export default function SuperAdminSystemPage() {
                   <div className="flex items-center gap-3">
                     <Database className="size-5 text-indigo" />
                     <div>
-                      <p className="font-semibold text-sm text-slate-900 dark:text-white">
+                      <p className="font-semibold text-sm text-foreground">
                         Database Engine
                       </p>
-                      <p className="text-xs text-slate-400">{data.dbEngine}</p>
+                      <p className="text-xs text-muted-foreground">{data.dbEngine}</p>
                     </div>
                   </div>
                   <Badge tone="success">Active</Badge>
@@ -130,10 +130,10 @@ export default function SuperAdminSystemPage() {
                   <div className="flex items-center gap-3">
                     <Activity className="size-5 text-emerald-500" />
                     <div>
-                      <p className="font-semibold text-sm text-slate-900 dark:text-white">
+                      <p className="font-semibold text-sm text-foreground">
                         Redis Cache / In-Memory State
                       </p>
-                      <p className="text-xs text-slate-400">{data.redis}</p>
+                      <p className="text-xs text-muted-foreground">{data.redis}</p>
                     </div>
                   </div>
                   <Badge tone="success">Connected</Badge>
@@ -143,10 +143,10 @@ export default function SuperAdminSystemPage() {
                   <div className="flex items-center gap-3">
                     <Cpu className="size-5 text-amber-500" />
                     <div>
-                      <p className="font-semibold text-sm text-slate-900 dark:text-white">
+                      <p className="font-semibold text-sm text-foreground">
                         AI Model Provider
                       </p>
-                      <p className="text-xs text-slate-400">Gemini 1.5 / Fallback Provider</p>
+                      <p className="text-xs text-muted-foreground">Gemini 1.5 / Fallback Provider</p>
                     </div>
                   </div>
                   <Badge tone="success">Operational</Badge>
@@ -156,10 +156,10 @@ export default function SuperAdminSystemPage() {
                   <div className="flex items-center gap-3">
                     <HardDrive className="size-5 text-sky-500" />
                     <div>
-                      <p className="font-semibold text-sm text-slate-900 dark:text-white">
+                      <p className="font-semibold text-sm text-foreground">
                         Object Storage Service
                       </p>
-                      <p className="text-xs text-slate-400">AWS S3 / Signed Local Provider</p>
+                      <p className="text-xs text-muted-foreground">AWS S3 / Signed Local Provider</p>
                     </div>
                   </div>
                   <Badge tone="success">Healthy</Badge>
@@ -169,16 +169,16 @@ export default function SuperAdminSystemPage() {
 
             {/* Recent System Activity */}
             <Card>
-              <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <CardHeader className="p-5 border-b border-border flex items-center justify-between">
                 <div>
                   <CardTitle className="text-base">System Operations &amp; Telemetry</CardTitle>
-                  <p className="text-xs text-slate-500 mt-0.5">Automated runtime events and engine health</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Automated runtime events and engine health</p>
                 </div>
                 <ShieldAlert className="size-4 text-indigo" />
               </CardHeader>
               <CardBody className="p-5">
                 {(!data.recentEvents || data.recentEvents.length === 0) ? (
-                  <div className="py-8 text-center text-xs text-slate-400">
+                  <div className="py-8 text-center text-xs text-muted-foreground">
                     No security anomalies or system alerts logged.
                   </div>
                 ) : (
@@ -189,11 +189,11 @@ export default function SuperAdminSystemPage() {
                           <span className="font-semibold text-slate-800 dark:text-slate-200">
                             {evt.action ?? 'System Event'}
                           </span>
-                          <span className="text-[10px] text-slate-400">
+                          <span className="text-[10px] text-muted-foreground">
                             {evt.at ? formatDate(evt.at) : 'Just now'}
                           </span>
                         </div>
-                        <p className="text-slate-500 truncate mt-0.5">{evt.detail ?? evt.entityType}</p>
+                        <p className="text-muted-foreground truncate mt-0.5">{evt.detail ?? evt.entityType}</p>
                       </div>
                     ))}
                   </div>

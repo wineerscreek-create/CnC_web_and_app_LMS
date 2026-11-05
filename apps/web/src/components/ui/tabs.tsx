@@ -14,7 +14,7 @@ export const TabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      'table-scroll scroll-thin flex gap-6 border-b border-line-soft',
+      'table-scroll scroll-thin flex gap-6 border-b border-border',
       className,
     )}
     {...props}
@@ -29,9 +29,9 @@ export const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      'whitespace-nowrap border-b-2 border-transparent pb-2.5 text-md font-semibold text-ink-2',
-      'transition-colors hover:text-ink-1 data-[state=active]:border-indigo',
-      'data-[state=active]:text-ink-1',
+      'whitespace-nowrap border-b-2 border-transparent pb-2.5 text-md font-semibold text-muted-foreground',
+      'transition-colors hover:text-foreground data-[state=active]:border-accent',
+      'data-[state=active]:text-foreground',
       className,
     )}
     {...props}

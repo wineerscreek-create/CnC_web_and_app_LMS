@@ -44,11 +44,11 @@ export default function LoginPage() {
 
   return (
     <>
-      <h1 className="font-serif text-2xl sm:text-[28px] font-semibold tracking-tight text-ink-1">Sign in</h1>
-      <p className="mt-1.5 text-sm sm:text-base text-ink-2">
+      <h1 className="font-heading text-2xl font-bold tracking-tight text-heading">Sign In</h1>
+      <p className="mt-1.5 text-xs text-muted-foreground">
         {hintedRole
-          ? `${ROLE_LABEL[hintedRole] ?? 'Portal'} access — use your institution email or ID.`
-          : 'Use your institution email address or your institution ID.'}
+          ? `${ROLE_LABEL[hintedRole] ?? 'Portal'} access — use your college email or institution ID.`
+          : 'Enter your institutional email address or student roll ID.'}
       </p>
 
       <form onSubmit={submit} className="mt-4 sm:mt-5 space-y-3.5" noValidate>
@@ -60,14 +60,15 @@ export default function LoginPage() {
             required
             value={identifier}
             onChange={(event) => setIdentifier(event.target.value)}
-            placeholder="you@college.edu or CSE21042"
+            placeholder="you@college.edu or Roll ID"
+            className="rounded-xl text-sm"
           />
         </Field>
 
         <div>
           <div className="mb-1.5 flex items-center justify-between">
             <Label htmlFor="password">Password</Label>
-            <Link href="/forgot-password" className="text-sm font-semibold text-indigo-400 hover:text-indigo-300 hover:underline">
+            <Link href="/forgot-password" className="text-xs font-semibold text-foreground hover:underline">
               Forgot password?
             </Link>
           </div>
@@ -80,39 +81,39 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="pr-10"
+              className="pr-10 rounded-xl text-sm"
             />
             <button
               type="button"
               onClick={() => setReveal((value) => !value)}
               aria-label={reveal ? 'Hide password' : 'Show password'}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
             >
               {reveal ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
             </button>
           </div>
         </div>
 
-        <label className="flex items-center gap-2.5 text-sm text-ink-2 hover:text-ink-1 transition-colors cursor-pointer">
+        <label className="flex items-center gap-2.5 text-xs font-medium text-foreground cursor-pointer">
           <Checkbox checked={remember} onCheckedChange={(value) => setRemember(Boolean(value))} />
           Keep me signed in on this device
         </label>
 
         {error && (
-          <p role="alert" className="flex items-start gap-2 rounded-xl bg-rose-500/15 border border-rose-500/30 px-3.5 py-2.5 text-sm font-semibold text-rose-300">
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-rose-400" aria-hidden />
+          <p role="alert" className="flex items-start gap-2 rounded-xl bg-destructive/10 border border-destructive/30 p-3 text-xs font-medium text-destructive">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
             {error}
           </p>
         )}
 
-        <Button type="submit" variant="gradient" size="lg" className="w-full" loading={signingIn}>
-          Sign in
+        <Button type="submit" variant="primary" size="lg" className="w-full mt-2 font-bold" loading={signingIn}>
+          Sign In
         </Button>
       </form>
 
-      <p className="mt-4 text-sm text-ink-2">
+      <p className="mt-5 text-center text-xs text-muted-foreground">
         Don’t have an account?{' '}
-        <Link href="/signup" className="font-semibold text-indigo-400 hover:text-indigo-300 hover:underline">
+        <Link href="/signup" className="font-bold text-foreground hover:underline">
           Create one
         </Link>
       </p>

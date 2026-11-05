@@ -65,7 +65,7 @@ function ReassignmentDialog({
           <DialogTitle>Request reassignment — {trainer?.name}</DialogTitle>
         </DialogHeader>
         <DialogBody>
-          <p className="text-sm leading-relaxed text-ink-2">
+          <p className="text-sm leading-relaxed text-muted-foreground">
             Module assignments are changed by the institution administrator. This sends them a
             request with your reason attached; nothing changes until they act on it.
           </p>
@@ -174,7 +174,7 @@ export default function HodTrainersPage() {
                     <Tr key={row.trainerUserId}>
                       <Td>
                         <span className="block font-semibold">{row.name}</span>
-                        <span className="block text-xs text-ink-3">{row.designation}</span>
+                        <span className="block text-xs text-muted-foreground">{row.designation}</span>
                       </Td>
                       <Td hideBelow="md">
                         <div className="flex flex-wrap gap-1.5">
@@ -184,7 +184,7 @@ export default function HodTrainersPage() {
                             </Badge>
                           ))}
                           {row.modulesAssigned.length === 0 && (
-                            <span className="text-sm text-ink-3">None</span>
+                            <span className="text-sm text-muted-foreground">None</span>
                           )}
                         </div>
                       </Td>
@@ -195,15 +195,15 @@ export default function HodTrainersPage() {
                         {row.averageFeedback != null ? (
                           <>
                             {row.averageFeedback}
-                            <span className="text-xs font-normal text-ink-3">
+                            <span className="text-xs font-normal text-muted-foreground">
                               /5 ({num(row.feedbackEntries)})
                             </span>
                           </>
                         ) : (
-                          <span className="text-ink-3">—</span>
+                          <span className="text-muted-foreground">—</span>
                         )}
                       </Td>
-                      <Td align="right" hideBelow="lg" className="tnum text-ink-2">
+                      <Td align="right" hideBelow="lg" className="tnum text-muted-foreground">
                         {num(row.workloadHoursPerWeek, 1)} h/wk
                       </Td>
                       <Td align="right">

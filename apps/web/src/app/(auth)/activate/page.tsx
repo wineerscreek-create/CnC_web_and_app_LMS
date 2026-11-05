@@ -90,8 +90,8 @@ export default function AccountActivationPage() {
   if (loadingToken) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
-        <Loader2 className="size-8 text-indigo animate-spin mb-3" />
-        <p className="text-sm text-slate-500 font-medium">Validating activation link…</p>
+        <Loader2 className="size-8 text-primary animate-spin mb-3" />
+        <p className="text-sm text-muted-foreground font-medium">Validating activation link…</p>
       </div>
     );
   }
@@ -100,11 +100,11 @@ export default function AccountActivationPage() {
     return (
       <Card className="max-w-md mx-auto">
         <CardBody className="p-8 text-center space-y-4">
-          <div className="size-12 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mx-auto">
+          <div className="size-12 rounded-full bg-destructive/10 text-destructive flex items-center justify-center mx-auto border border-destructive/20">
             <AlertTriangle className="size-6" />
           </div>
-          <h2 className="text-lg font-bold text-slate-900">Activation Link Invalid or Expired</h2>
-          <p className="text-xs text-slate-500 leading-relaxed">
+          <h2 className="text-lg font-bold text-heading">Activation Link Invalid or Expired</h2>
+          <p className="text-xs text-muted-foreground leading-relaxed">
             {tokenError || 'The activation link you followed is invalid or has expired (validity: 7 days).'}
           </p>
           <div className="pt-2">
@@ -121,11 +121,11 @@ export default function AccountActivationPage() {
     return (
       <Card className="max-w-md mx-auto">
         <CardBody className="p-8 text-center space-y-4">
-          <div className="size-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
+          <div className="size-12 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto border border-primary/20">
             <CheckCircle2 className="size-6" />
           </div>
-          <h2 className="text-lg font-bold text-slate-900">Account Successfully Activated!</h2>
-          <p className="text-xs text-slate-500 leading-relaxed">
+          <h2 className="text-lg font-bold text-heading">Account Successfully Activated!</h2>
+          <p className="text-xs text-muted-foreground leading-relaxed">
             Your permanent password has been set. Redirecting to sign in…
           </p>
           <div className="pt-2">
@@ -145,19 +145,19 @@ export default function AccountActivationPage() {
           <Badge tone="indigo">{tokenInfo.roleLabel}</Badge>
           <Badge tone="success">Verified Invitation</Badge>
         </div>
-        <h1 className="font-serif text-[24px] font-bold text-slate-900">
+        <h1 className="font-heading text-2xl font-bold text-heading">
           Activate Your Account
         </h1>
-        <p className="text-xs text-slate-500 leading-relaxed">
-          Welcome, <strong className="text-slate-700">{tokenInfo.name}</strong> ({tokenInfo.email})! You have been provisioned as {tokenInfo.roleLabel} for <strong className="text-slate-700">{tokenInfo.collegeName}</strong>.
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Welcome, <strong className="text-foreground">{tokenInfo.name}</strong> ({tokenInfo.email})! You have been provisioned as {tokenInfo.roleLabel} for <strong className="text-foreground">{tokenInfo.collegeName}</strong>.
           Please set your permanent password to complete account setup.
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
         {error && (
-          <div className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700 flex items-center gap-2">
-            <AlertTriangle className="size-4 shrink-0 text-rose-500" />
+          <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive flex items-center gap-2">
+            <AlertTriangle className="size-4 shrink-0 text-destructive" />
             <span>{error}</span>
           </div>
         )}
@@ -188,8 +188,8 @@ export default function AccountActivationPage() {
           />
         </Field>
 
-        <div className="rounded-lg bg-slate-50 p-3 border border-slate-200 text-[11px] text-slate-500 flex items-start gap-2">
-          <ShieldCheck className="size-4 shrink-0 text-emerald-600 mt-0.5" />
+        <div className="rounded-xl bg-muted p-3 border border-border text-[11px] text-muted-foreground flex items-start gap-2">
+          <ShieldCheck className="size-4 shrink-0 text-primary mt-0.5" />
           <span>
             Your account credentials are encrypted and stored in compliance with institutional security standards. Single-use token will be consumed immediately upon submission.
           </span>

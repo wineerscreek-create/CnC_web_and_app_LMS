@@ -189,7 +189,7 @@ export default function SuperAdminPaymentsPage() {
           className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 ${
             activeTab === 'ledger'
               ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
+              : 'border-transparent text-muted-foreground hover:text-slate-700'
           }`}
         >
           <FileSpreadsheet className="size-4" />
@@ -202,7 +202,7 @@ export default function SuperAdminPaymentsPage() {
           className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 ${
             activeTab === 'queue'
               ? 'border-amber-500 text-amber-600 dark:text-amber-400'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
+              : 'border-transparent text-muted-foreground hover:text-slate-700'
           }`}
         >
           <Clock className="size-4" />
@@ -218,41 +218,41 @@ export default function SuperAdminPaymentsPage() {
       {/* Active Tab Content */}
       {activeTab === 'queue' ? (
         <Card>
-          <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800">
+          <CardHeader className="p-5 border-b border-border">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Clock className="size-4 text-amber-500" />
                   Offline & Direct Payment Verification Queue
                 </CardTitle>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   Transactions pending admin verification. Approving activates participant course access immediately server-side.
                 </p>
               </div>
 
               <div className="relative max-w-xs w-full">
-                <Search className="size-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search className="size-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search participant, course, txn ID…"
-                  className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900"
+                  className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-border bg-card"
                 />
               </div>
             </div>
           </CardHeader>
           <CardBody className="p-0">
             {filteredQueue.length === 0 ? (
-              <div className="p-12 text-center text-slate-500 text-xs">
+              <div className="p-12 text-center text-muted-foreground text-xs">
                 <CheckCircle2 className="size-8 text-emerald-500 mx-auto mb-2" />
                 <p className="font-semibold text-slate-700 dark:text-slate-300">All caught up!</p>
-                <p className="text-slate-400 mt-0.5">No transactions currently pending verification.</p>
+                <p className="text-muted-foreground mt-0.5">No transactions currently pending verification.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 text-slate-500 uppercase tracking-wider font-semibold">
+                  <thead className="bg-card border-b border-border text-muted-foreground uppercase tracking-wider font-semibold">
                     <tr>
                       <th className="px-5 py-3">Txn ID</th>
                       <th className="px-5 py-3">Participant</th>
@@ -270,9 +270,9 @@ export default function SuperAdminPaymentsPage() {
                           {p.transactionId}
                         </td>
                         <td className="px-5 py-3.5">
-                          <p className="font-semibold text-slate-900 dark:text-white">{p.studentName}</p>
+                          <p className="font-semibold text-foreground">{p.studentName}</p>
                           {p.studentEmail && (
-                            <p className="text-[11px] text-slate-400">{p.studentEmail}</p>
+                            <p className="text-[11px] text-muted-foreground">{p.studentEmail}</p>
                           )}
                         </td>
                         <td className="px-5 py-3.5 font-medium text-slate-800 dark:text-slate-200">
@@ -283,10 +283,10 @@ export default function SuperAdminPaymentsPage() {
                             {p.courseMode === 'OFFLINE' ? 'Offline (College)' : 'Online (Direct)'}
                           </Badge>
                         </td>
-                        <td className="px-5 py-3.5 font-bold text-slate-900 dark:text-white">
+                        <td className="px-5 py-3.5 font-bold text-foreground">
                           ₹{num(p.amount)}
                         </td>
-                        <td className="px-5 py-3.5 text-slate-500">
+                        <td className="px-5 py-3.5 text-muted-foreground">
                           {p.createdAt ? formatDate(p.createdAt) : '—'}
                         </td>
                         <td className="px-5 py-3.5 text-right">
@@ -310,7 +310,7 @@ export default function SuperAdminPaymentsPage() {
                               size="sm"
                               onClick={() => handleVerify(p.id)}
                               disabled={processingAction}
-                              className="h-7 px-2.5 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white"
+                              className="h-7 px-2.5 text-[11px] bg-primary hover:bg-primary/90 text-primary-foreground"
                             >
                               <Check className="size-3 mr-1" />
                               Verify & Activate
@@ -327,36 +327,36 @@ export default function SuperAdminPaymentsPage() {
         </Card>
       ) : (
         <Card>
-          <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800">
+          <CardHeader className="p-5 border-b border-border">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <CardTitle className="text-base">Global Transaction Ledger</CardTitle>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   Every transaction logged across colleges and direct online learners with course mode isolation
                 </p>
               </div>
 
               <div className="relative max-w-xs w-full">
-                <Search className="size-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search className="size-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search college, participant, course…"
-                  className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900"
+                  className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-border bg-card"
                 />
               </div>
             </div>
           </CardHeader>
           <CardBody className="p-0">
             {filtered.length === 0 ? (
-              <div className="p-12 text-center text-slate-500 text-xs">
+              <div className="p-12 text-center text-muted-foreground text-xs">
                 No transactions recorded yet.
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 text-slate-500 uppercase tracking-wider font-semibold">
+                  <thead className="bg-card border-b border-border text-muted-foreground uppercase tracking-wider font-semibold">
                     <tr>
                       <th className="px-5 py-3">Txn ID</th>
                       <th className="px-5 py-3">Institution / Platform</th>
@@ -378,7 +378,7 @@ export default function SuperAdminPaymentsPage() {
                         <td className="px-5 py-3.5 font-semibold text-slate-800 dark:text-slate-200">
                           {p.collegeName}
                         </td>
-                        <td className="px-5 py-3.5 text-slate-900 dark:text-white font-medium">
+                        <td className="px-5 py-3.5 text-foreground font-medium">
                           {p.studentName}
                         </td>
                         <td className="px-5 py-3.5 text-slate-600 dark:text-slate-300 max-w-xs truncate">
@@ -389,11 +389,11 @@ export default function SuperAdminPaymentsPage() {
                             {p.courseMode === 'OFFLINE' ? 'Offline' : 'Online'}
                           </Badge>
                         </td>
-                        <td className="px-5 py-3.5 font-bold text-slate-900 dark:text-white">
+                        <td className="px-5 py-3.5 font-bold text-foreground">
                           ₹{num(p.amount)}
                         </td>
-                        <td className="px-5 py-3.5 text-slate-500">{p.paymentMethod}</td>
-                        <td className="px-5 py-3.5 text-slate-500">
+                        <td className="px-5 py-3.5 text-muted-foreground">{p.paymentMethod}</td>
+                        <td className="px-5 py-3.5 text-muted-foreground">
                           {p.createdAt ? formatDate(p.createdAt) : '—'}
                         </td>
                         <td className="px-5 py-3.5">

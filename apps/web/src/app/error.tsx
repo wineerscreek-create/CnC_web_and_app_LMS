@@ -17,11 +17,11 @@ export default function GlobalError({ reset }: { error: Error; reset: () => void
         <div className="mb-5 flex justify-center">
           <WinnersCreekLogo variant="full" />
         </div>
-        <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-danger-bg text-danger">
+        <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-destructive/10 text-destructive">
           <AlertTriangle className="size-5" aria-hidden />
         </span>
-        <h1 className="mt-4 text-[17px] font-semibold">Something went wrong</h1>
-        <p className="mt-1.5 text-sm text-ink-2">
+        <h1 className="mt-4 text-[17px] font-semibold text-heading">Something went wrong</h1>
+        <p className="mt-1.5 text-sm text-muted-foreground">
           The page could not be displayed. You can try again — if it keeps happening, please
           contact your institution&apos;s administrator.
         </p>

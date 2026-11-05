@@ -102,12 +102,12 @@ export default function HodReportsPage() {
                 className={cn(
                   'rounded-[10px] border p-3.5 text-left transition-colors',
                   reportType === family.code
-                    ? 'border-indigo bg-indigo-50'
-                    : 'border-line bg-white hover:bg-app',
+                    ? 'border-primary bg-primary/10'
+                    : 'border-border bg-card hover:bg-muted',
                 )}
               >
                 <span className="block text-base font-semibold">{family.label}</span>
-                <span className="mt-0.5 block text-sm leading-relaxed text-ink-2">
+                <span className="mt-0.5 block text-sm leading-relaxed text-muted-foreground">
                   {family.description}
                 </span>
                 {family.signals?.length > 0 && (
@@ -189,7 +189,7 @@ export default function HodReportsPage() {
           </Button>
 
           {query.data?.meta?.asyncNotice && (
-            <p className="mt-3.5 flex items-start gap-2 text-sm text-ink-2">
+            <p className="mt-3.5 flex items-start gap-2 text-sm text-muted-foreground">
               <Info className="mt-0.5 size-3.5 shrink-0 text-info" aria-hidden />
               {query.data.meta.asyncNotice} (Threshold:{' '}
               {num(query.data.meta.asyncRowThreshold)} rows.)

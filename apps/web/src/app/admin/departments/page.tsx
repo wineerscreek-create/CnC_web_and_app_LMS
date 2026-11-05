@@ -123,7 +123,7 @@ function CreateDepartmentDialog({
                 ))}
               </SelectContent>
             </Select>
-            <p className="mt-1.5 text-sm text-ink-3">
+            <p className="mt-1.5 text-sm text-muted-foreground">
               Assigning a SPOC moves their scope to this department and signs them out of any live
               session.
             </p>
@@ -316,7 +316,7 @@ export default function AdminDepartmentsPage() {
       render: (row) => (
         <>
           <span className="block font-semibold">{row.name}</span>
-          <span className="block text-xs text-ink-3">{row.code}</span>
+          <span className="block text-xs text-muted-foreground">{row.code}</span>
         </>
       ),
     },
@@ -334,7 +334,7 @@ export default function AdminDepartmentsPage() {
       render: (row) => (
         <span className="tnum">
           {num(row.students)}
-          <span className="text-xs text-ink-3">/{num(row.capacity)}</span>
+          <span className="text-xs text-muted-foreground">/{num(row.capacity)}</span>
         </span>
       ),
     },
@@ -345,7 +345,7 @@ export default function AdminDepartmentsPage() {
       render: (row) => (
         <div className="min-w-[110px]">
           <ProgressBar value={row.utilisationPercent} showValue={false} thin />
-          <span className="tnum mt-1 block text-xs text-ink-3">
+          <span className="tnum mt-1 block text-xs text-muted-foreground">
             {pct(row.utilisationPercent, 1)}
           </span>
         </div>
@@ -415,28 +415,28 @@ export default function AdminDepartmentsPage() {
                       <StatusBadge status={department.status} />
                     </CardHeader>
                     <CardBody>
-                      <p className="text-sm text-ink-2">
+                      <p className="text-sm text-muted-foreground">
                         SPOC:{' '}
                         {department.hodName ? (
-                          <span className="font-semibold text-ink-1">{department.hodName}</span>
+                          <span className="font-semibold text-foreground">{department.hodName}</span>
                         ) : (
                           <Badge tone="amber">Not assigned</Badge>
                         )}
                       </p>
                       <dl className="tnum mt-3.5 grid grid-cols-3 gap-2 text-center">
-                        <div className="rounded-[8px] bg-app px-2 py-2">
+                        <div className="rounded-[8px] bg-muted px-2 py-2">
                           <dd className="text-md font-bold">{num(department.students)}</dd>
-                          <dt className="text-2xs text-ink-3">Participants</dt>
+                          <dt className="text-2xs text-muted-foreground">Participants</dt>
                         </div>
-                        <div className="rounded-[8px] bg-app px-2 py-2">
+                        <div className="rounded-[8px] bg-muted px-2 py-2">
                           <dd className="text-md font-bold">{num(department.activeBatches)}</dd>
-                          <dt className="text-2xs text-ink-3">Batches</dt>
+                          <dt className="text-2xs text-muted-foreground">Batches</dt>
                         </div>
-                        <div className="rounded-[8px] bg-app px-2 py-2">
+                        <div className="rounded-[8px] bg-muted px-2 py-2">
                           <dd className="text-md font-bold">
                             {num(department.trainersAssigned)}
                           </dd>
-                          <dt className="text-2xs text-ink-3">Trainers</dt>
+                          <dt className="text-2xs text-muted-foreground">Trainers</dt>
                         </div>
                       </dl>
                       <Button asChild variant="secondary" size="sm" className="mt-4 w-full">
@@ -467,7 +467,7 @@ export default function AdminDepartmentsPage() {
               caption="Batches across the institution"
               empty={
                 <div className="px-6 py-12 text-center">
-                  <Layers className="mx-auto size-6 text-ink-3" aria-hidden />
+                  <Layers className="mx-auto size-6 text-muted-foreground" aria-hidden />
                   <p className="mt-3 text-md font-bold">No batches yet</p>
                   <Button
                     variant="primary"

@@ -21,71 +21,46 @@ export interface InteractiveArrowButtonProps {
 }
 
 const variantStyles: Record<string, string> = {
-  gradient:
-    'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/35 border border-white/20 hover:brightness-105',
-  glass:
-    'backdrop-blur-md bg-white/15 hover:bg-white/25 text-white border border-white/25 shadow-md hover:border-white/40',
-  light:
-    'bg-white/95 text-slate-900 border border-slate-200/90 hover:bg-white shadow-md hover:shadow-lg',
-  dark:
-    'bg-slate-900/90 text-white border border-white/20 hover:bg-slate-800 shadow-lg',
   primary:
-    'bg-indigo-600 text-white hover:bg-indigo-700 shadow-md border border-indigo-500',
+    'bg-primary text-primary-foreground hover:bg-primary/90 font-semibold shadow-xs',
+  gradient:
+    'bg-primary text-primary-foreground hover:bg-primary/90 font-semibold shadow-xs',
   secondary:
-    'bg-slate-800/90 text-white border border-white/15 hover:bg-slate-700/90 hover:border-white/25 shadow-xs',
+    'bg-card text-foreground border border-border hover:bg-muted shadow-xs',
+  light:
+    'bg-card text-foreground border border-border hover:bg-muted shadow-xs',
+  dark:
+    'bg-foreground text-background hover:bg-foreground/90 border border-foreground shadow-xs',
+  glass:
+    'bg-card/90 backdrop-blur-md text-foreground border border-border hover:bg-card shadow-xs',
   ghost:
-    'text-slate-200 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/15',
+    'text-foreground hover:bg-muted',
   link:
-    'text-indigo-400 hover:text-indigo-300 p-0 shadow-none border-none hover:bg-transparent',
+    'text-foreground hover:text-accent underline-offset-4 hover:underline p-0 border-none bg-transparent',
 };
 
 const sizeStyles: Record<string, string> = {
-  sm: 'h-9 px-3.5 text-xs gap-2.5',
-  md: 'h-11 px-5 text-sm gap-3.5',
-  lg: 'h-13 px-6 text-base gap-4',
-};
-
-const bubbleSizeStyles: Record<string, string> = {
-  sm: 'size-8',
-  md: 'size-9',
-  lg: 'size-10',
+  sm: 'h-9 px-3.5 text-xs gap-2',
+  md: 'h-10 px-4 text-sm gap-2.5',
+  lg: 'h-12 px-6 text-sm sm:text-base gap-3',
 };
 
 const bubbleVariantStyles: Record<string, string> = {
-  gradient:
-    'bg-white/25 border-white/40 text-white group-hover:bg-white/40 group-hover:border-white/70 shadow-inner',
-  glass:
-    'bg-white/25 border-white/35 text-white group-hover:bg-white/40 group-hover:border-white/60 shadow-sm',
-  light:
-    'bg-slate-900/15 border-slate-900/20 text-slate-900 group-hover:bg-slate-900/25 group-hover:border-slate-900/40 shadow-sm',
-  dark:
-    'bg-white/20 border-white/30 text-white group-hover:bg-white/35 group-hover:border-white/50 shadow-inner',
-  primary:
-    'bg-white/25 border-white/40 text-white group-hover:bg-white/40 group-hover:border-white/60 shadow-inner',
-  secondary:
-    'bg-slate-900/15 border-slate-900/20 text-slate-900 dark:bg-white/20 dark:border-white/30 dark:text-white group-hover:bg-slate-900/25 dark:group-hover:bg-white/35 shadow-sm',
-  ghost:
-    'bg-white/20 border-white/25 text-white group-hover:bg-white/30',
-  link:
-    'bg-indigo-500/25 border-indigo-500/35 text-indigo-400 group-hover:bg-indigo-500/35 shadow-sm',
+  primary: 'bg-primary-foreground/20 text-primary-foreground',
+  gradient: 'bg-primary-foreground/20 text-primary-foreground',
+  secondary: 'bg-muted text-foreground border border-border',
+  light: 'bg-muted text-foreground border border-border',
+  dark: 'bg-background/20 text-background border border-background/30',
+  glass: 'bg-muted text-foreground border border-border',
+  ghost: 'bg-muted text-foreground',
+  link: 'bg-transparent text-current',
 };
 
-const iconSizeStyles: Record<string, string> = {
-  sm: 'size-3.5',
-  md: 'size-4',
-  lg: 'size-5',
-};
-
-/**
- * InteractiveArrowButton — Premium interactive action button/link featuring
- * an explicitly visible circular bubble that smoothly expands and glows on hover
- * while the arrow glyph glides forward.
- */
 export function InteractiveArrowButton({
   children,
   href,
   onClick,
-  variant = 'gradient',
+  variant = 'primary',
   size = 'md',
   icon = 'right',
   className,
@@ -99,46 +74,37 @@ export function InteractiveArrowButton({
 
   const content = (
     <>
-      {children && <span className="font-semibold tracking-wide">{children}</span>}
+      <span className="font-semibold tracking-tight">{children}</span>
       <span
-        className={cn(
-          'relative inline-flex shrink-0 items-center justify-center rounded-full border transition-all duration-300 ease-out',
-          'group-hover:scale-115 group-hover:shadow-md ring-1 ring-white/20',
-          bubbleSizeStyles[size],
-          bubbleVariantStyles[variant],
-        )}
         aria-hidden
+        className={cn(
+          'relative flex items-center justify-center rounded-full transition-transform duration-300 ease-out group-hover:translate-x-0.5',
+          size === 'sm' ? 'size-5' : size === 'lg' ? 'size-7' : 'size-6',
+          bubbleVariantStyles[variant] || bubbleVariantStyles.primary,
+        )}
       >
         <IconComponent
           className={cn(
-            'transition-transform duration-300 ease-out group-hover:translate-x-1',
-            iconSizeStyles[size],
+            'transition-transform duration-300 ease-out group-hover:scale-110',
+            size === 'sm' ? 'size-3' : size === 'lg' ? 'size-4' : 'size-3.5',
           )}
-          aria-hidden
         />
       </span>
     </>
   );
 
-  const baseClasses = cn(
-    'group relative inline-flex items-center justify-center rounded-2xl font-medium select-none cursor-pointer',
-    'transition-all duration-200 active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2',
-    variantStyles[variant],
-    sizeStyles[size],
-    disabled && 'opacity-50 pointer-events-none cursor-not-allowed',
+  const combinedClassName = cn(
+    'group relative inline-flex items-center justify-center rounded-xl select-none transition-all duration-200 active:scale-[0.98]',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+    disabled && 'pointer-events-none opacity-50 cursor-not-allowed',
+    variantStyles[variant] || variantStyles.primary,
+    sizeStyles[size] || sizeStyles.md,
     className,
   );
 
-  if (href) {
+  if (href && !disabled) {
     return (
-      <Link
-        href={href}
-        className={baseClasses}
-        aria-label={ariaLabel}
-        onClick={onClick}
-        target={target}
-        rel={target === '_blank' ? rel || 'noopener noreferrer' : rel}
-      >
+      <Link href={href} className={combinedClassName} aria-label={ariaLabel} target={target} rel={rel}>
         {content}
       </Link>
     );
@@ -149,7 +115,7 @@ export function InteractiveArrowButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={baseClasses}
+      className={combinedClassName}
       aria-label={ariaLabel}
     >
       {content}

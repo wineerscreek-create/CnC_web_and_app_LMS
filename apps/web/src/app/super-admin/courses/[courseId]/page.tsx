@@ -223,13 +223,13 @@ export default function SuperAdminCourseControlCenterPage() {
         </Button>
 
         {/* Tab Switcher */}
-        <div className="flex items-center rounded-xl bg-slate-100 dark:bg-slate-800/80 p-1 border border-slate-200 dark:border-slate-700/60 text-xs">
+        <div className="flex items-center rounded-xl bg-slate-100 dark:bg-slate-800/80 p-1 border border-border/60 text-xs">
           <button
             onClick={() => setActiveTab('overview')}
             className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
               activeTab === 'overview'
-                ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400 font-bold'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ? 'bg-accent text-accent-foreground shadow-sm font-bold'
+                : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             Overview & Hierarchy
@@ -238,8 +238,8 @@ export default function SuperAdminCourseControlCenterPage() {
             onClick={() => setActiveTab('payment_config')}
             className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
               activeTab === 'payment_config'
-                ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400 font-bold'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ? 'bg-accent text-accent-foreground shadow-sm font-bold'
+                : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             Payment & 3-Day Trial Config
@@ -248,8 +248,8 @@ export default function SuperAdminCourseControlCenterPage() {
             onClick={() => setActiveTab('revenue')}
             className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
               activeTab === 'revenue'
-                ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400 font-bold'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ? 'bg-accent text-accent-foreground shadow-sm font-bold'
+                : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             Revenue & Financials
@@ -258,8 +258,8 @@ export default function SuperAdminCourseControlCenterPage() {
             onClick={() => setActiveTab('trainers')}
             className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
               activeTab === 'trainers'
-                ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400 font-bold'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ? 'bg-accent text-accent-foreground shadow-sm font-bold'
+                : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             Assigned Trainers
@@ -275,7 +275,7 @@ export default function SuperAdminCourseControlCenterPage() {
           return (
             <div className="space-y-6">
               {/* Visual Course Header with 3D Depth */}
-              <div className="relative overflow-hidden rounded-2xl border border-indigo-500/20 bg-gradient-to-r from-navy-950 via-slate-900 to-indigo-950 p-6 sm:p-8 text-white shadow-xl">
+              <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-6 sm:p-8 text-foreground shadow-sm">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                   <div className="space-y-2 max-w-2xl">
                     <div className="flex flex-wrap items-center gap-2">
@@ -301,7 +301,7 @@ export default function SuperAdminCourseControlCenterPage() {
                         </Badge>
                       )}
                     </div>
-                    <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+                    <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-heading">
                       {course.title}
                     </h1>
                     <p className="text-xs text-slate-300 font-mono">
@@ -310,9 +310,9 @@ export default function SuperAdminCourseControlCenterPage() {
                   </div>
 
                   <div className="flex flex-col sm:flex-row items-end sm:items-center gap-4">
-                    <div className="text-right space-y-1 bg-white/10 px-4 py-3 rounded-xl border border-white/10 backdrop-blur-md">
+                    <div className="text-right space-y-1 bg-muted/60 px-4 py-3 rounded-xl border border-border backdrop-blur-md">
                       <p className="text-xs text-slate-300 uppercase tracking-wider font-semibold">Course Revenue</p>
-                      <p className="text-2xl font-bold text-white">₹{num(analytics.totalRevenue)}</p>
+                      <p className="text-2xl font-bold text-foreground">₹{num(analytics.totalRevenue)}</p>
                       <span className="text-[11px] text-emerald-400 font-medium">
                         {analytics.verifiedPayments} Settled Payments
                       </span>
@@ -422,12 +422,12 @@ export default function SuperAdminCourseControlCenterPage() {
 
                   {/* Course Hierarchy */}
                   <Card>
-                    <CardHeader className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <CardHeader className="p-4 border-b border-border flex items-center justify-between">
                       <div>
                         <CardTitle className="text-sm font-bold">
                           Participating College &amp; Institutional Hierarchy
                         </CardTitle>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-muted-foreground">
                           Multi-tenant operational breakdown for offline campus cohorts enrolled in this course.
                         </p>
                       </div>
@@ -437,13 +437,13 @@ export default function SuperAdminCourseControlCenterPage() {
                     </CardHeader>
                     <CardBody className="p-0">
                       {hierarchy && hierarchy.length > 0 ? (
-                        <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                        <div className="divide-y divide-border text-xs">
                           {hierarchy.map((col: any) => (
                             <div key={col.collegeId} className="p-4 space-y-2 hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                   <Building2 className="size-4 text-indigo-500" />
-                                  <span className="font-bold text-slate-900 dark:text-white text-sm">
+                                  <span className="font-bold text-foreground text-sm">
                                     {col.collegeName}
                                   </span>
                                 </div>
@@ -451,17 +451,17 @@ export default function SuperAdminCourseControlCenterPage() {
                                   {col.studentCount} Students
                                 </Badge>
                               </div>
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px] text-slate-600 dark:text-slate-300">
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px] text-muted-foreground dark:text-slate-300">
                                 <div>
-                                  <span className="text-slate-400 font-medium">Campus Admin:</span>{' '}
+                                  <span className="text-muted-foreground font-medium">Campus Admin:</span>{' '}
                                   <strong>{col.admin}</strong>
                                 </div>
                                 <div>
-                                  <span className="text-slate-400 font-medium">Department HODs:</span>{' '}
+                                  <span className="text-muted-foreground font-medium">Department HODs:</span>{' '}
                                   <strong>{col.hods?.join(', ') || 'None assigned'}</strong>
                                 </div>
                                 <div>
-                                  <span className="text-slate-400 font-medium">Assigned Trainers:</span>{' '}
+                                  <span className="text-muted-foreground font-medium">Assigned Trainers:</span>{' '}
                                   <strong>{col.trainers?.join(', ') || 'None assigned'}</strong>
                                 </div>
                               </div>
@@ -469,7 +469,7 @@ export default function SuperAdminCourseControlCenterPage() {
                           ))}
                         </div>
                       ) : (
-                        <div className="p-8 text-center text-xs text-slate-500">
+                        <div className="p-8 text-center text-xs text-muted-foreground">
                           No institutional campus cohorts currently attached. This course is operating in direct online mode.
                         </div>
                       )}
@@ -478,10 +478,10 @@ export default function SuperAdminCourseControlCenterPage() {
 
                   {/* Contextual Games */}
                   <Card>
-                    <CardHeader className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <CardHeader className="p-4 border-b border-border flex items-center justify-between">
                       <div>
                         <CardTitle className="text-sm font-bold">Contextual Games &amp; Simulations</CardTitle>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-muted-foreground">
                           Skill challenges connected contextually to this course curriculum.
                         </p>
                       </div>
@@ -496,16 +496,16 @@ export default function SuperAdminCourseControlCenterPage() {
                       {attachedGames && attachedGames.length > 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           {attachedGames.map((g: any) => (
-                            <div key={g.id || g.title} className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between">
+                            <div key={g.id || g.title} className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-card flex items-center justify-between">
                               <div>
-                                <p className="font-semibold text-xs text-slate-900 dark:text-white">{g.title}</p>
-                                <p className="text-[10px] text-slate-400 font-mono">Status: {g.status}</p>
+                                <p className="font-semibold text-xs text-foreground">{g.title}</p>
+                                <p className="text-[10px] text-muted-foreground font-mono">Status: {g.status}</p>
                               </div>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-xs text-slate-500 text-center py-4">
+                        <p className="text-xs text-muted-foreground text-center py-4">
                           No games attached yet.
                         </p>
                       )}
@@ -517,12 +517,12 @@ export default function SuperAdminCourseControlCenterPage() {
               {/* TAB 2: COURSE PAYMENT & 3-DAY FREE TRIAL CONFIG */}
               {activeTab === 'payment_config' && (
                 <Card>
-                  <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800">
+                  <CardHeader className="p-5 border-b border-border">
                     <CardTitle className="text-base flex items-center gap-2">
                       <CreditCard className="size-4 text-indigo-500" />
                       Course-Specific Payment &amp; Free Trial Configuration (Phases 2 &amp; 3)
                     </CardTitle>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-muted-foreground">
                       Configure independent pricing, 3-day (72-hour) free trial entitlement, UPI payment details, QR code, and refund policies.
                     </p>
                   </CardHeader>
@@ -540,11 +540,11 @@ export default function SuperAdminCourseControlCenterPage() {
                             step="1"
                             value={fee}
                             onChange={(e) => setFee(Number(e.target.value))}
-                            className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                             placeholder="e.g. 2499"
                             required
                           />
-                          <p className="text-[11px] text-slate-400">Set 0 for completely free courses.</p>
+                          <p className="text-[11px] text-muted-foreground">Set 0 for completely free courses.</p>
                         </div>
 
                         {/* Free Trial Duration */}
@@ -558,11 +558,11 @@ export default function SuperAdminCourseControlCenterPage() {
                             max="30"
                             value={trialDays}
                             onChange={(e) => setTrialDays(Number(e.target.value))}
-                            className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                             placeholder="3"
                             required
                           />
-                          <p className="text-[11px] text-slate-400">Default: 3 days (exactly 72 hours server-side).</p>
+                          <p className="text-[11px] text-muted-foreground">Default: 3 days (exactly 72 hours server-side).</p>
                         </div>
 
                         {/* Free Trial Enabled */}
@@ -578,9 +578,9 @@ export default function SuperAdminCourseControlCenterPage() {
                                 onChange={(e) => setTrialEnabled(e.target.checked)}
                                 className="sr-only peer"
                               />
-                              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-primary-foreground after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-primary-foreground after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
                             </label>
-                            <span className="text-xs text-slate-600 dark:text-slate-300 font-medium">
+                            <span className="text-xs text-muted-foreground dark:text-slate-300 font-medium">
                               {trialEnabled ? 'Enabled for new learners' : 'Disabled (Direct Pay Only)'}
                             </span>
                           </div>
@@ -597,10 +597,10 @@ export default function SuperAdminCourseControlCenterPage() {
                             type="text"
                             value={upiId}
                             onChange={(e) => setUpiId(e.target.value)}
-                            className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-mono"
                             placeholder="e.g. winnerscreek@icici"
                           />
-                          <p className="text-[11px] text-slate-400">Used for direct peer-to-peer UPI transfer.</p>
+                          <p className="text-[11px] text-muted-foreground">Used for direct peer-to-peer UPI transfer.</p>
                         </div>
 
                         {/* Payee Name */}
@@ -612,7 +612,7 @@ export default function SuperAdminCourseControlCenterPage() {
                             type="text"
                             value={merchantName}
                             onChange={(e) => setMerchantName(e.target.value)}
-                            className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                             placeholder="e.g. Winners Creek Education Pvt Ltd"
                           />
                         </div>
@@ -628,11 +628,11 @@ export default function SuperAdminCourseControlCenterPage() {
                             type="text"
                             value={qrCodeUrl}
                             onChange={(e) => setQrCodeUrl(e.target.value)}
-                            className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="flex-1 rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                             placeholder="https://... or leave empty to auto-generate from UPI ID & fee"
                           />
                         </div>
-                        <p className="text-[11px] text-slate-400">
+                        <p className="text-[11px] text-muted-foreground">
                           If empty, a dynamic UPI QR code (`upi://pay?pa=...&pn=...&am=...`) will be generated automatically for participants.
                         </p>
                       </div>
@@ -646,7 +646,7 @@ export default function SuperAdminCourseControlCenterPage() {
                           rows={2}
                           value={paymentInstructions}
                           onChange={(e) => setPaymentInstructions(e.target.value)}
-                          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                           placeholder="Scan the QR code or pay to the UPI ID. Once completed, enter your 12-digit transaction reference number (UTR) to activate your course access."
                         />
                       </div>
@@ -660,7 +660,7 @@ export default function SuperAdminCourseControlCenterPage() {
                           rows={2}
                           value={refundPolicy}
                           onChange={(e) => setRefundPolicy(e.target.value)}
-                          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                           placeholder="Refunds permitted within 7 days of purchase upon administrative review if less than 20% course completed."
                         />
                       </div>
@@ -672,14 +672,14 @@ export default function SuperAdminCourseControlCenterPage() {
                           id="enrollmentOpen"
                           checked={enrollmentOpen}
                           onChange={(e) => setEnrollmentOpen(e.target.checked)}
-                          className="size-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                          className="size-4 text-indigo-600 rounded border-slate-300 focus:ring-ring"
                         />
                         <label htmlFor="enrollmentOpen" className="text-xs font-medium text-slate-700 dark:text-slate-300">
                           Enrollment is Open (Students can initiate trials and purchases)
                         </label>
                       </div>
 
-                      <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                      <div className="pt-4 border-t border-border flex justify-end">
                         <Button
                           type="submit"
                           variant="primary"
@@ -732,10 +732,10 @@ export default function SuperAdminCourseControlCenterPage() {
 
                   {/* Transaction Ledger */}
                   <Card>
-                    <CardHeader className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <CardHeader className="p-4 border-b border-border flex items-center justify-between">
                       <div>
                         <CardTitle className="text-sm font-bold">Course Transaction Ledger</CardTitle>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-muted-foreground">
                           Real-time audit log of all participant transactions for this course. Verify, reject, or refund payments with instant access reconciliation.
                         </p>
                       </div>
@@ -747,7 +747,7 @@ export default function SuperAdminCourseControlCenterPage() {
                       {txQuery.data && txQuery.data.length > 0 ? (
                         <div className="overflow-x-auto">
                           <table className="w-full text-xs text-left">
-                            <thead className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 font-semibold text-slate-600 dark:text-slate-300">
+                            <thead className="border-b border-border bg-slate-50/50 dark:bg-slate-800/40 font-semibold text-muted-foreground dark:text-slate-300">
                               <tr>
                                 <th className="p-3">Participant</th>
                                 <th className="p-3">Institution</th>
@@ -758,16 +758,16 @@ export default function SuperAdminCourseControlCenterPage() {
                                 <th className="p-3 text-right">Actions</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                            <tbody className="divide-y divide-border">
                               {txQuery.data.map((tx: any) => (
                                 <tr key={tx.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                                  <td className="p-3 font-medium text-slate-900 dark:text-white">
+                                  <td className="p-3 font-medium text-foreground">
                                     <div>{tx.studentName}</div>
-                                    <div className="text-[10px] text-slate-400 font-normal">{tx.studentEmail}</div>
+                                    <div className="text-[10px] text-muted-foreground font-normal">{tx.studentEmail}</div>
                                   </td>
-                                  <td className="p-3 text-slate-500">{tx.institutionName || 'Direct Online'}</td>
-                                  <td className="p-3 font-semibold text-slate-900 dark:text-white">₹{num(tx.amount)}</td>
-                                  <td className="p-3 font-mono text-[11px] text-slate-500">{tx.transactionRef || 'N/A'}</td>
+                                  <td className="p-3 text-muted-foreground">{tx.institutionName || 'Direct Online'}</td>
+                                  <td className="p-3 font-semibold text-foreground">₹{num(tx.amount)}</td>
+                                  <td className="p-3 font-mono text-[11px] text-muted-foreground">{tx.transactionRef || 'N/A'}</td>
                                   <td className="p-3">
                                     <Badge
                                       tone={
@@ -783,7 +783,7 @@ export default function SuperAdminCourseControlCenterPage() {
                                       {tx.status}
                                     </Badge>
                                   </td>
-                                  <td className="p-3 text-slate-500">{formatDate(tx.createdAt)}</td>
+                                  <td className="p-3 text-muted-foreground">{formatDate(tx.createdAt)}</td>
                                   <td className="p-3 text-right space-x-1">
                                     {tx.status === 'PENDING' && (
                                       <>
@@ -809,7 +809,7 @@ export default function SuperAdminCourseControlCenterPage() {
                                       <Button
                                         size="sm"
                                         variant="secondary"
-                                        className="h-6 px-2 text-[10px] text-slate-500 hover:text-rose-500"
+                                        className="h-6 px-2 text-[10px] text-muted-foreground hover:text-rose-500"
                                         onClick={() => handleTransactionAction(tx.id, 'refund')}
                                       >
                                         Refund
@@ -822,7 +822,7 @@ export default function SuperAdminCourseControlCenterPage() {
                           </table>
                         </div>
                       ) : (
-                        <div className="p-8 text-center text-xs text-slate-500">
+                        <div className="p-8 text-center text-xs text-muted-foreground">
                           No transactions recorded for this course yet.
                         </div>
                       )}
@@ -836,8 +836,8 @@ export default function SuperAdminCourseControlCenterPage() {
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h2 className="text-base font-bold text-slate-900 dark:text-white">Course Faculty &amp; Trainers</h2>
-                      <p className="text-xs text-slate-500">
+                      <h2 className="text-base font-bold text-foreground">Course Faculty &amp; Trainers</h2>
+                      <p className="text-xs text-muted-foreground">
                         Trainers explicitly authorized to schedule live sessions, publish meeting links, and post materials for this course.
                       </p>
                     </div>
@@ -855,7 +855,7 @@ export default function SuperAdminCourseControlCenterPage() {
                   <Card>
                     <CardBody className="p-0">
                       {trainersQuery.data && trainersQuery.data.length > 0 ? (
-                        <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                        <div className="divide-y divide-border text-xs">
                           {trainersQuery.data.map((tr: any) => (
                             <div key={tr.id || tr.trainer_user_id} className="p-4 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                               <div className="flex items-center gap-3">
@@ -863,10 +863,10 @@ export default function SuperAdminCourseControlCenterPage() {
                                   {(tr.trainer_name || 'T')[0]}
                                 </div>
                                 <div>
-                                  <p className="font-semibold text-slate-900 dark:text-white text-sm">
+                                  <p className="font-semibold text-foreground text-sm">
                                     {tr.trainer_name || 'Trainer'}
                                   </p>
-                                  <p className="text-[11px] text-slate-500">
+                                  <p className="text-[11px] text-muted-foreground">
                                     {tr.trainer_email} · Assigned {formatDate(tr.assigned_at)}
                                   </p>
                                 </div>
@@ -883,7 +883,7 @@ export default function SuperAdminCourseControlCenterPage() {
                           ))}
                         </div>
                       ) : (
-                        <div className="p-8 text-center text-xs text-slate-500">
+                        <div className="p-8 text-center text-xs text-muted-foreground">
                           No trainers currently assigned directly to this course.
                         </div>
                       )}
@@ -915,7 +915,7 @@ export default function SuperAdminCourseControlCenterPage() {
                 type="text"
                 value={trainerUserId}
                 onChange={(e) => setTrainerUserId(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-mono"
                 placeholder="e.g. 5d92688c-44b8-41b7-b2f4-af87c482ae8f"
                 required
               />

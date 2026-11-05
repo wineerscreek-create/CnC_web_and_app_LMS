@@ -87,15 +87,15 @@ export default function TrainerPaymentsPage() {
 
       {/* Transactions Table */}
       <Card>
-        <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800">
+        <CardHeader className="p-5 border-b border-border">
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-base">Batch Payment Ledger</CardTitle>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 Real-time tracking of participant course purchases and certification settlements
               </p>
             </div>
-            <Receipt className="size-5 text-indigo" />
+            <Receipt className="size-5 text-primary" />
           </div>
         </CardHeader>
         <CardBody className="p-0">
@@ -105,14 +105,14 @@ export default function TrainerPaymentsPage() {
               <p className="font-semibold text-sm text-slate-700 dark:text-slate-300">
                 No transactions recorded for your batches yet
               </p>
-              <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+              <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
                 As participants in your batches purchase courses or convert from trials, their fee records will appear here.
               </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 text-slate-500 uppercase tracking-wider font-semibold">
+                <thead className="bg-slate-50 dark:bg-slate-900 border-b border-border text-muted-foreground uppercase tracking-wider font-semibold">
                   <tr>
                     <th className="px-5 py-3">Order ID</th>
                     <th className="px-5 py-3">Participant</th>
@@ -130,8 +130,8 @@ export default function TrainerPaymentsPage() {
                         {p.orderId}
                       </td>
                       <td className="px-5 py-3.5">
-                        <p className="font-semibold text-slate-900 dark:text-white">{p.studentName}</p>
-                        <p className="text-[11px] text-slate-400">{p.studentEmail}</p>
+                        <p className="font-semibold text-heading">{p.studentName}</p>
+                        <p className="text-[11px] text-muted-foreground">{p.studentEmail}</p>
                       </td>
                       <td className="px-5 py-3.5 text-slate-600 dark:text-slate-300 font-medium">
                         {p.batchName}
@@ -139,10 +139,10 @@ export default function TrainerPaymentsPage() {
                       <td className="px-5 py-3.5 text-slate-700 dark:text-slate-300 max-w-xs truncate">
                         {p.purpose}
                       </td>
-                      <td className="px-5 py-3.5 font-bold text-slate-900 dark:text-white">
+                      <td className="px-5 py-3.5 font-bold text-heading">
                         ₹{num(p.amount)}
                       </td>
-                      <td className="px-5 py-3.5 text-slate-500">
+                      <td className="px-5 py-3.5 text-muted-foreground">
                         {formatDate(p.createdAt)}
                       </td>
                       <td className="px-5 py-3.5">

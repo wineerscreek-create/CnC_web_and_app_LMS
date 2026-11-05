@@ -48,12 +48,12 @@ export default function HodParticipantsPage() {
       render: (row) => (
         <Link
           href={`/hod/participants/${row.studentUserId}`}
-          className="flex items-center gap-2.5 hover:text-indigo-600"
+          className="flex items-center gap-2.5 hover:text-primary"
         >
           <Avatar name={row.name} color={row.avatarColor} size={28} />
           <span className="min-w-0">
             <span className="block truncate font-semibold">{row.name}</span>
-            <span className="block text-xs text-ink-3">{row.rollNumber}</span>
+            <span className="block text-xs text-muted-foreground">{row.rollNumber}</span>
           </span>
         </Link>
       ),
@@ -146,11 +146,11 @@ export default function HodParticipantsPage() {
         />
 
         {meta?.legend && (
-          <ul className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-300">
+          <ul className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
             {meta.legend.map((entry: any) => (
               <li key={entry.label} className="flex items-center gap-1.5">
                 <span
-                  className={cn('size-2 rounded-full', LEGEND_TONE[entry.tone] ?? 'bg-slate-400')}
+                  className={cn('size-2 rounded-full', LEGEND_TONE[entry.tone] ?? 'bg-muted-foreground')}
                   aria-hidden
                 />
                 {entry.label}

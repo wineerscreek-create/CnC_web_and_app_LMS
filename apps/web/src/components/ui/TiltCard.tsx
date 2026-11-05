@@ -76,7 +76,7 @@ export function TiltCard({
       onPointerLeave={handlePointerLeave}
       className={cn(
         'relative rounded-2xl border transition-colors',
-        'border-line bg-card shadow-card dark:border-white/10 dark:bg-slate-900/60 dark:backdrop-blur-xl',
+        'border-border bg-card shadow-card',
         isPointerFine && !prefersReducedMotion && 'preserve-3d will-change-transform',
         className
       )}

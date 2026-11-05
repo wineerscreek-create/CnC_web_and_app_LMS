@@ -113,15 +113,15 @@ export default function BulkImportPage() {
                 className={cn(
                   'rounded-xl border p-3.5 text-left transition-all duration-200 active:scale-[0.98]',
                   entity === item.code
-                    ? 'border-indigo-500 bg-indigo-500/20 text-white shadow-3d-hover'
-                    : 'border-white/10 surface-3d hover:border-white/20 text-slate-200 hover:shadow-3d-card',
+                    ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                    : 'border-border bg-card hover:border-primary/40 text-muted-foreground hover:shadow-sm',
                 )}
               >
                 <span className="flex items-center gap-2 text-base font-semibold">
-                  <FileSpreadsheet className="size-4 text-slate-300" aria-hidden />
+                  <FileSpreadsheet className="size-4 text-muted-foreground" aria-hidden />
                   {item.label}
                 </span>
-                <span className="mt-1 block text-sm leading-relaxed text-slate-400">{item.help}</span>
+                <span className="mt-1 block text-sm leading-relaxed text-muted-foreground">{item.help}</span>
               </button>
             ))}
           </div>
@@ -159,7 +159,7 @@ export default function BulkImportPage() {
           {guidelines.length > 0 && (
             <ul className="mt-4 space-y-1.5">
               {guidelines.map((line) => (
-                <li key={line} className="flex items-start gap-2 text-sm text-slate-300">
+                <li key={line} className="flex items-start gap-2 text-sm text-muted-foreground">
                   <Info className="mt-0.5 size-3.5 shrink-0 text-cyan-400" aria-hidden />
                   {line}
                 </li>
@@ -182,12 +182,12 @@ export default function BulkImportPage() {
           </CardHeader>
           <CardBody>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-[10px] bg-emerald-500/20 border border-emerald-500/30 px-3.5 py-3">
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
+              <div className="rounded-[10px] bg-primary/10 border border-primary/20 px-3.5 py-3">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-primary">
                   <CheckCircle2 className="size-3.5" aria-hidden />
                   Imported
                 </p>
-                <p className="tnum mt-0.5 text-[22px] font-bold text-emerald-300">{num(result.insertedCount ?? result.successCount)}</p>
+                <p className="tnum mt-0.5 text-[22px] font-bold text-primary">{num(result.insertedCount ?? result.successCount)}</p>
               </div>
               <div className="rounded-[10px] bg-cyan-500/20 border border-cyan-500/30 px-3.5 py-3">
                 <p className="flex items-center gap-1.5 text-xs font-semibold text-cyan-400">
@@ -196,31 +196,31 @@ export default function BulkImportPage() {
                 </p>
                 <p className="tnum mt-0.5 text-[22px] font-bold text-cyan-300">{num(result.updatedCount ?? 0)}</p>
               </div>
-              <div className="rounded-[10px] bg-amber-500/20 border border-amber-500/30 px-3.5 py-3">
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-400">
+              <div className="rounded-[10px] bg-accent/15 border border-accent/25 px-3.5 py-3">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-gold-text">
                   <Info className="size-3.5" aria-hidden />
                   Duplicates Skipped
                 </p>
-                <p className="tnum mt-0.5 text-[22px] font-bold text-amber-300">{num(result.skippedDuplicates ?? 0)}</p>
+                <p className="tnum mt-0.5 text-[22px] font-bold text-gold-text">{num(result.skippedDuplicates ?? 0)}</p>
               </div>
-              <div className="rounded-[10px] bg-rose-500/20 border border-rose-500/30 px-3.5 py-3">
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-rose-400">
+              <div className="rounded-[10px] bg-destructive/10 border border-destructive/20 px-3.5 py-3">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-destructive">
                   <AlertTriangle className="size-3.5" aria-hidden />
                   Rejected
                 </p>
-                <p className="tnum mt-0.5 text-[22px] font-bold text-rose-300">{num(result.failureCount)}</p>
+                <p className="tnum mt-0.5 text-[22px] font-bold text-destructive">{num(result.failureCount)}</p>
               </div>
             </div>
 
             {((result.errors && result.errors.length > 0) || (result.failedRows && result.failedRows.length > 0)) && (
               <div className="mt-4">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Errors ({(result.errors ?? result.failedRows).length})
                 </p>
-                <div className="mt-2 max-h-48 overflow-y-auto rounded-[8px] border border-white/10 bg-slate-900/60 p-2 text-xs">
+                <div className="mt-2 max-h-48 overflow-y-auto rounded-[8px] border border-border bg-muted p-2 text-xs">
                   {(result.errors ?? result.failedRows).map((err: any, idx: number) => (
-                    <div key={idx} className="border-b border-white/5 py-1 text-slate-300 last:border-b-0">
-                      Row {err.row}: <span className="text-rose-400">{err.error ?? err.reason}</span>
+                    <div key={idx} className="border-b border-white/5 py-1 text-muted-foreground last:border-b-0">
+                      Row {err.row}: <span className="text-destructive">{err.error ?? err.reason}</span>
                     </div>
                   ))}
                 </div>
@@ -240,7 +240,7 @@ export default function BulkImportPage() {
         <AsyncSection query={jobs} skeleton="table">
           {(data) =>
             data.items.length === 0 ? (
-              <CardBody className="py-8 text-center text-slate-400">No import jobs recorded</CardBody>
+              <CardBody className="py-8 text-center text-muted-foreground">No import jobs recorded</CardBody>
             ) : (
               <TableWrap>
                 <Table>
@@ -261,26 +261,26 @@ export default function BulkImportPage() {
                   <tbody>
                     {data.items.map((job: any) => (
                       <Tr key={job.id}>
-                        <Td className="font-semibold text-ink-1">{job.entity}</Td>
-                        <Td hideBelow="md" className="text-ink-2">
+                        <Td className="font-semibold text-foreground">{job.entity}</Td>
+                        <Td hideBelow="md" className="text-muted-foreground">
                           {job.filename ?? '—'}
                         </Td>
-                        <Td hideBelow="sm" className="text-ink-2">
+                        <Td hideBelow="sm" className="text-muted-foreground">
                           {job.requestedByLabel ?? '—'}
                         </Td>
-                        <Td align="right" className="tnum text-ink-2">
+                        <Td align="right" className="tnum text-muted-foreground">
                           {num(job.totalRows)}
                         </Td>
-                        <Td align="right" className="tnum text-emerald-400 font-semibold">
+                        <Td align="right" className="tnum text-primary font-semibold">
                           {num(job.successCount)}
                         </Td>
-                        <Td align="right" className="tnum text-rose-400 font-semibold">
+                        <Td align="right" className="tnum text-destructive font-semibold">
                           {num(job.failureCount)}
                         </Td>
                         <Td>
                           <StatusBadge status={job.status} />
                         </Td>
-                        <Td align="right" hideBelow="lg" className="tnum text-sm text-slate-400">
+                        <Td align="right" hideBelow="lg" className="tnum text-sm text-muted-foreground">
                           {formatDate(job.createdAt, true)}
                         </Td>
                       </Tr>

@@ -114,7 +114,7 @@ export default function TrainerEbooksPage() {
               <Card>
                 <CardBody className="p-4">
                   <span className="text-xs uppercase tracking-wider text-ink-3">Total Readership</span>
-                  <p className="tnum mt-1 text-2xl font-bold text-indigo-600">{num(totalReads)}</p>
+                  <p className="tnum mt-1 text-2xl font-bold text-primary">{num(totalReads)}</p>
                   <p className="mt-1 text-2xs text-ink-3">Student reading sessions</p>
                 </CardBody>
               </Card>
@@ -157,7 +157,7 @@ export default function TrainerEbooksPage() {
                         <tr key={book.id} className="hover:bg-slate-50/50 transition-colors">
                           <td className="px-4 py-3.5">
                             <div className="flex items-center gap-2.5">
-                              <span className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-indigo-50 text-indigo-600">
+                              <span className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-indigo-50 text-primary">
                                 {book.coverUrl ? (
                                   <Image
                                     src={book.coverUrl}

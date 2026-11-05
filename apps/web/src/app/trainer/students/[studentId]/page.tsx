@@ -88,8 +88,8 @@ function FeedbackDialog({
                   className={cn(
                     'flex size-9 items-center justify-center rounded-[9px] border transition-colors',
                     rating >= value
-                      ? 'border-amber bg-amber text-white'
-                      : 'border-line bg-white text-ink-3 hover:bg-app',
+                      ? 'border-accent bg-accent text-accent-foreground'
+                      : 'border-border bg-card text-muted-foreground hover:bg-muted',
                   )}
                 >
                   <Star className="size-4" aria-hidden />
@@ -197,7 +197,7 @@ function EvaluateEediDialog({
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader className="border-b border-line pb-3">
           <DialogTitle className="text-lg font-bold text-ink-1 flex items-center gap-2">
-            <Sparkles className="size-5 text-indigo-500 dark:text-indigo-400" />
+            <Sparkles className="size-5 text-primary-500 dark:text-primary-400" />
             Evaluate EEDI & Generate Report for {studentName}
           </DialogTitle>
         </DialogHeader>
@@ -220,7 +220,7 @@ function EvaluateEediDialog({
                 <div key={p.label} className="p-2 rounded-xl bg-card border border-line dark:bg-slate-950/60 dark:border-white/6">
                   <div className="flex justify-between font-semibold text-ink-1">
                     <span>{p.label}</span>
-                    <span className="text-indigo font-bold">{p.val}</span>
+                    <span className="text-primary font-bold">{p.val}</span>
                   </div>
                   <input
                     type="range"
