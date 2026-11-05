@@ -67,7 +67,7 @@ export function Sidebar({
             </span>
             {role === 'HOD' && user.departmentName && (
               <span className="mt-1 text-[11px] text-muted-foreground">
-                {user.departmentName}
+                Data isolation active: {user.departmentName}
               </span>
             )}
           </div>
@@ -92,10 +92,15 @@ export function Sidebar({
                   return (
                     <li key={`${group.label || 'nav'}-${item.label}-${item.href}`}>
                       {item.locked ? (
-                        <div className="group relative flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium opacity-50 cursor-not-allowed text-muted-foreground">
-                          <Icon className="size-4 shrink-0" aria-hidden />
-                          <span className="truncate">{item.label}</span>
-                          <Lock className="ml-auto size-3" aria-hidden />
+                        <div className="group relative flex flex-col gap-0.5 rounded-xl px-3 py-2 text-sm font-medium opacity-50 cursor-not-allowed text-muted-foreground">
+                          <div className="flex items-center gap-2.5">
+                            <Icon className="size-4 shrink-0" aria-hidden />
+                            <span className="truncate">{item.label}</span>
+                            <Lock className="ml-auto size-3" aria-hidden />
+                          </div>
+                          <span className="text-[10px] text-muted-foreground">
+                            Not rendered; also blocked server-side
+                          </span>
                         </div>
                       ) : (
                         <Link
