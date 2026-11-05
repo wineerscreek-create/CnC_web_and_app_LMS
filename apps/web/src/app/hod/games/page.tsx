@@ -92,11 +92,11 @@ export default function HodGamesPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Batch Breakdown */}
             <Card>
-              <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800">
+              <CardHeader className="p-5 border-b border-border">
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-base">Batch Engagement</CardTitle>
-                    <p className="text-xs text-slate-500 mt-0.5">
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       Activity and average score distribution across department batches
                     </p>
                   </div>
@@ -105,7 +105,7 @@ export default function HodGamesPage() {
               </CardHeader>
               <CardBody className="p-5">
                 {!data.byBatch || data.byBatch.length === 0 ? (
-                  <div className="text-center py-8 text-xs text-slate-400">
+                  <div className="text-center py-8 text-xs text-muted-foreground">
                     No batch activity recorded yet.
                   </div>
                 ) : (
@@ -113,10 +113,10 @@ export default function HodGamesPage() {
                     {data.byBatch.map((batch) => (
                       <div key={batch.batchId} className="space-y-1.5">
                         <div className="flex justify-between items-center text-xs">
-                          <span className="font-semibold text-slate-800 dark:text-slate-200">
+                          <span className="font-semibold text-foreground">
                             {batch.batchName}
                           </span>
-                          <span className="text-slate-500">
+                          <span className="text-muted-foreground">
                             <strong>{batch.plays} plays</strong> · Avg: {num(batch.avgScore, 1)}%
                           </span>
                         </div>
@@ -133,24 +133,24 @@ export default function HodGamesPage() {
 
             {/* Top Games in Department */}
             <Card>
-              <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800">
+              <CardHeader className="p-5 border-b border-border">
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-base">Most Played Challenges</CardTitle>
-                    <p className="text-xs text-slate-500 mt-0.5">
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       Popular game modules among department participants
                     </p>
                   </div>
-                  <Award className="size-5 text-amber-500" />
+                  <Award className="size-5 text-accent" />
                 </div>
               </CardHeader>
               <CardBody className="p-5">
                 {!data.topGames || data.topGames.length === 0 ? (
-                  <div className="text-center py-8 text-xs text-slate-400">
+                  <div className="text-center py-8 text-xs text-muted-foreground">
                     No game play statistics recorded yet.
                   </div>
                 ) : (
-                  <div className="divide-y divide-slate-100 dark:divide-slate-800 space-y-3">
+                  <div className="divide-y divide-border space-y-3">
                     {data.topGames.map((game, idx) => (
                       <div key={game.code} className="pt-3 flex items-center justify-between">
                         <div className="flex items-center gap-3">
@@ -158,17 +158,17 @@ export default function HodGamesPage() {
                             #{idx + 1}
                           </div>
                           <div>
-                            <p className="font-semibold text-sm text-slate-900 dark:text-white">
+                            <p className="font-semibold text-sm text-foreground">
                               {game.title}
                             </p>
-                            <p className="text-xs text-slate-400 font-mono">{game.code}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{game.code}</p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                          <p className="text-xs font-semibold text-foreground">
                             {game.plays} plays
                           </p>
-                          <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                          <p className="text-[11px] text-primary font-medium">
                             {num(game.avgScore, 1)}% avg
                           </p>
                         </div>

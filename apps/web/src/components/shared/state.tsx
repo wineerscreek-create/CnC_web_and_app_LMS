@@ -113,11 +113,11 @@ export function EmptyState({
 }) {
   return (
     <div className={cn('flex flex-col items-center px-6 py-14 text-center', className)}>
-      <div className="mb-3.5 flex size-11 items-center justify-center rounded-full bg-app text-ink-3">
+      <div className="mb-3.5 flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground">
         {icon ?? <Inbox className="size-5" aria-hidden />}
       </div>
-      <p className="text-md font-bold text-ink-1">{title}</p>
-      {body && <p className="mt-1.5 max-w-md text-base text-ink-2">{body}</p>}
+      <p className="text-md font-bold text-heading">{title}</p>
+      {body && <p className="mt-1.5 max-w-md text-base text-muted-foreground">{body}</p>}
       {action && <div className="mt-4">{action}</div>}
     </div>
   );
@@ -138,21 +138,21 @@ export function ErrorState({
     <div
       role="alert"
       className={cn(
-        'flex flex-col items-center rounded-card border border-danger-bg bg-danger-bg/40 px-6 py-12 text-center',
+        'flex flex-col items-center rounded-2xl border border-destructive/30 bg-destructive/10 px-6 py-12 text-center',
         className,
       )}
     >
-      <div className="mb-3.5 flex size-11 items-center justify-center rounded-full bg-danger-bg text-danger">
+      <div className="mb-3.5 flex size-11 items-center justify-center rounded-full bg-destructive/20 text-destructive">
         <AlertTriangle className="size-5" aria-hidden />
       </div>
-      <p className="text-md font-bold text-ink-1">
+      <p className="text-md font-bold text-heading">
         {isScope ? "You don't have access to this" : "That didn't load"}
       </p>
-      <p className="mt-1.5 max-w-md text-base text-ink-2">
+      <p className="mt-1.5 max-w-md text-base text-muted-foreground">
         {error?.message ?? 'Something went wrong while loading this view.'}
       </p>
       {apiError?.requestId && (
-        <p className="mt-2 text-xs text-ink-3">Reference: {apiError.requestId}</p>
+        <p className="mt-2 text-xs text-muted-foreground">Reference: {apiError.requestId}</p>
       )}
       {onRetry && !isScope && (
         <Button variant="secondary" size="sm" className="mt-4" onClick={onRetry}>

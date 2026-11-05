@@ -184,9 +184,9 @@ export default function SuperAdminCoursesPage() {
       </div>
 
       {/* Course Search and Filter Controls */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-card p-3.5 rounded-xl border border-border">
         <div className="relative flex-1 w-full">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
           <input
             type="text"
             value={search}
@@ -199,7 +199,7 @@ export default function SuperAdminCoursesPage() {
           <select
             value={modeFilter}
             onChange={(e) => setModeFilter(e.target.value)}
-            className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-medium"
+            className="text-xs px-3 py-1.5 rounded-lg border border-border bg-card text-foreground font-medium"
           >
             <option value="all">All Delivery Modes</option>
             <option value="ONLINE">Online Direct Only</option>
@@ -213,7 +213,7 @@ export default function SuperAdminCoursesPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
         {filtered.map((course) => (
           <Card key={course.id} className="group hover:border-indigo transition-all shadow-xs hover:shadow-md flex flex-col justify-between">
-            <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800">
+            <CardHeader className="p-5 border-b border-border">
               <div className="flex items-start justify-between gap-2">
                 <Badge tone={course.courseMode === 'ONLINE' ? 'indigo' : course.courseMode === 'OFFLINE' ? 'teal' : 'purple'}>
                   {course.courseMode === 'BOTH' ? 'ONLINE + OFFLINE' : course.courseMode}
@@ -222,30 +222,30 @@ export default function SuperAdminCoursesPage() {
                   {course.published ? 'Published' : 'Draft'}
                 </Badge>
               </div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white mt-2 group-hover:text-indigo transition-colors">
+              <h2 className="text-base font-bold text-foreground mt-2 group-hover:text-primary transition-colors">
                 {course.title}
               </h2>
-              <p className="text-xs text-slate-500 font-mono mt-0.5">/{course.slug}</p>
+              <p className="text-xs text-muted-foreground font-mono mt-0.5">/{course.slug}</p>
             </CardHeader>
             <CardBody className="p-5 space-y-4">
               <div className="grid grid-cols-3 gap-2 text-center text-xs">
                 <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60">
-                  <p className="text-[10px] text-slate-400 font-medium">Fee</p>
+                  <p className="text-[10px] text-muted-foreground font-medium">Fee</p>
                   <p className="font-bold text-slate-800 dark:text-slate-200">
                     {course.price > 0 ? `₹${num(course.price)}` : 'Free'}
                   </p>
                 </div>
                 <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60">
-                  <p className="text-[10px] text-slate-400 font-medium">Campus</p>
+                  <p className="text-[10px] text-muted-foreground font-medium">Campus</p>
                   <p className="font-bold text-emerald-600">{num(course.offlineEnrollments)}</p>
                 </div>
                 <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60">
-                  <p className="text-[10px] text-slate-400 font-medium">Online</p>
+                  <p className="text-[10px] text-muted-foreground font-medium">Online</p>
                   <p className="font-bold text-indigo">{num(course.onlineEnrollments)}</p>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t border-border">
                 <span>Faculty: <strong>{course.trainerName}</strong></span>
                 <span>{course.category}</span>
               </div>
@@ -299,7 +299,7 @@ export default function SuperAdminCoursesPage() {
                   id="cMode"
                   value={courseMode}
                   onChange={(e) => setCourseMode(e.target.value as any)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground font-medium"
                 >
                   <option value="BOTH">Dual Mode (ONLINE + OFFLINE)</option>
                   <option value="ONLINE">Online Direct Only</option>
@@ -323,7 +323,7 @@ export default function SuperAdminCoursesPage() {
                   id="cCategory"
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground font-medium"
                 >
                   <option value="Employability">Employability Skills</option>
                   <option value="Technical">Technical &amp; Coding</option>
@@ -350,7 +350,7 @@ export default function SuperAdminCoursesPage() {
                 value={desc}
                 onChange={(e) => setDesc(e.target.value)}
                 placeholder="Provide learning outcomes, prerequisites, and evaluation milestones."
-                className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white"
+                className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground"
               />
             </Field>
 

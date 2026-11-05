@@ -27,42 +27,52 @@ export default function PracticeLabPage() {
           (mode: any) => category === 'all' || mode.category === category,
         );
         return (
-          <>
+          <div className="space-y-6">
             <PageHeader
               title="Practice Lab"
-              description="Rehearse interviews, group discussions and presentations. Every attempt is scored against the transcript, with the evidence shown."
+              description="Rehearse interviews, group discussions and presentations. Every attempt is scored against objective rubrics with targeted AI diagnostics."
               actions={
-                <Badge tone="amber" dot>
-                  <Flame className="size-3" aria-hidden />
-                  {data.streak.days}-day streak
-                </Badge>
+                <div className="flex items-center gap-2 rounded-2xl bg-card border border-border px-3.5 py-1.5 shadow-card">
+                  <Flame className="size-4 text-accent" aria-hidden />
+                  <span className="text-xs font-bold font-mono text-heading">
+                    {data.streak.days}-Day Streak
+                  </span>
+                </div>
               }
             />
 
-            <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
-              <div>
+            <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
+              <div className="space-y-5">
+                {/* Recommended Practice Card */}
                 {data.recommended && (
-                  <Card className="mb-4 card-interactive border-amber/40 bg-amber-50/60">
-                    <CardBody className="flex flex-wrap items-center gap-4">
-                      <span className="flex size-10 items-center justify-center rounded-full bg-amber text-white shadow-xs">
+                  <Card className="border-accent/40 bg-card shadow-card transition-all duration-300 hover:shadow-card hover:border-accent">
+                    <CardBody className="flex flex-wrap items-center gap-4 p-5">
+                      <span className="flex size-11 items-center justify-center rounded-2xl bg-accent text-accent-foreground shadow-xs">
                         <Sparkles className="size-5" aria-hidden />
                       </span>
                       <div className="min-w-[220px] flex-1">
-                        <p className="text-xs font-bold uppercase tracking-wider text-amber-dark">
-                          Recommended for you
-                        </p>
-                        <p className="mt-1 text-md font-semibold text-ink-1">
+                        <div className="flex items-center gap-2">
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                            Recommended Activity
+                          </p>
+                          <Badge tone="mustard" className="text-[10px] py-0 px-2 font-semibold">
+                            Priority Focus
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-base font-bold font-heading text-heading">
                           {data.recommended.exerciseTitle}
                         </p>
-                        <p className="mt-0.5 text-sm text-ink-2">
+                        <p className="mt-0.5 text-xs text-muted-foreground">
                           {data.recommended.reason} · Weakest area:{' '}
-                          {data.recommended.weakestDimensionLabel} (
-                          {data.recommended.weakestScore})
+                          <span className="font-semibold text-heading">
+                            {data.recommended.weakestDimensionLabel} ({data.recommended.weakestScore})
+                          </span>
                         </p>
                       </div>
                       <Button asChild variant="primary" size="sm">
                         <Link
                           href={`/student/practice/${data.recommended.practiceModeCode}`}
+                          className="flex items-center gap-1.5"
                         >
                           <Target className="size-3.5" aria-hidden />
                           Start · {data.recommended.estimatedMinutes} min
@@ -73,38 +83,39 @@ export default function PracticeLabPage() {
                 )}
 
                 {/* AI Presentation Simulator Card */}
-                <Card className="mb-4 card-interactive border-indigo/30 bg-gradient-to-r from-indigo-50/70 to-purple-50/50 dark:from-indigo-950/20 dark:to-purple-950/20">
-                  <CardBody className="flex flex-wrap items-center gap-4 p-4 sm:p-5">
-                    <span className="flex size-11 items-center justify-center rounded-2xl bg-indigo text-white shadow-xs">
-                      <Video className="size-5" aria-hidden />
+                <Card className="border-border bg-card shadow-card transition-all duration-300 hover:shadow-card">
+                  <CardBody className="flex flex-wrap items-center gap-4 p-5">
+                    <span className="flex size-12 items-center justify-center rounded-2xl bg-foreground text-card shadow-xs">
+                      <Video className="size-5 text-accent" aria-hidden />
                     </span>
                     <div className="min-w-[220px] flex-1">
                       <div className="flex items-center gap-2">
-                        <p className="text-xs font-bold uppercase tracking-wider text-indigo">
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                           Interactive Simulation Arena
                         </p>
-                        <Badge tone="indigo" className="text-[10px] py-0 px-1.5">
+                        <Badge tone="mustard" className="text-[10px] py-0 px-2 font-semibold">
                           8-Stage Simulator
                         </Badge>
                       </div>
-                      <p className="mt-0.5 text-md font-bold text-ink-1 dark:text-white">
+                      <p className="mt-1 text-base font-bold font-heading text-heading">
                         AI Presentation Simulator & Speech Coach
                       </p>
-                      <p className="mt-0.5 text-xs text-ink-2 dark:text-slate-300">
-                        Live slide delivery (SIH 2026 Bhoorakshak deck), real-time speech-to-text, WPM cadence tracking, and verbal filler diagnostics.
+                      <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
+                        Live slide delivery, real-time speech-to-text, WPM cadence tracking, and verbal filler diagnostics.
                       </p>
                     </div>
                     <Button asChild variant="primary" size="sm" className="px-4">
-                      <Link href="/student/practice/presentation-coach">
-                        <Play className="size-3.5 mr-1" aria-hidden />
+                      <Link href="/student/practice/presentation-coach" className="flex items-center gap-1.5">
+                        <Play className="size-3.5" aria-hidden />
                         Launch Simulator
                       </Link>
                     </Button>
                   </CardBody>
                 </Card>
 
+                {/* Categories Filter */}
                 <div
-                  className="mb-4 flex flex-wrap gap-1.5"
+                  className="flex flex-wrap gap-2"
                   role="group"
                   aria-label="Filter by category"
                 >
@@ -115,55 +126,61 @@ export default function PracticeLabPage() {
                       onClick={() => setCategory(item)}
                       aria-pressed={category === item}
                       className={cn(
-                        'tactile-press rounded-full border px-3 py-1.5 text-sm font-semibold transition-all duration-150',
+                        'rounded-xl border px-3.5 py-1.5 text-xs font-semibold transition-all duration-200 capitalize',
                         category === item
-                          ? 'border-indigo bg-indigo text-white shadow-xs'
-                          : 'border-line bg-white text-ink-2 hover:bg-app hover:border-line-hover',
+                          ? 'border-accent bg-accent text-accent-foreground shadow-xs'
+                          : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground',
                       )}
                     >
-                      {item === 'all' ? 'All modes' : item}
+                      {item === 'all' ? 'All Modes' : item}
                     </button>
                   ))}
                 </div>
 
+                {/* Practice Modes Grid */}
                 <div className="grid gap-4 sm:grid-cols-2">
                   {visible.map((mode: any) => {
                     const Icon = iconFor(mode.icon, Target);
                     return (
-                      <Card key={mode.id} className="card-interactive group flex flex-col">
-                        <CardBody className="flex flex-1 flex-col">
+                      <Card
+                        key={mode.id}
+                        className="group flex flex-col border-border bg-card shadow-card transition-all duration-300 hover:shadow-card hover:-translate-y-0.5"
+                      >
+                        <CardBody className="flex flex-1 flex-col p-5">
                           <div className="flex items-start justify-between gap-3">
-                            <span className="flex size-9 items-center justify-center rounded-[10px] bg-indigo-50 text-indigo transition-transform duration-200 group-hover:scale-110">
-                              <Icon className="size-[18px]" aria-hidden />
+                            <span className="flex size-10 items-center justify-center rounded-2xl bg-muted text-primary border border-border transition-transform duration-200 group-hover:scale-105">
+                              <Icon className="size-5" aria-hidden />
                             </span>
-                            <Badge tone="neutral" className="capitalize">
+                            <Badge tone="neutral" className="capitalize text-xs font-semibold">
                               {mode.difficulty}
                             </Badge>
                           </div>
-                          <h2 className="mt-3.5 text-md font-semibold text-ink-1">{mode.title}</h2>
-                          <p className="mt-1.5 text-sm leading-relaxed text-ink-2">
+                          <h2 className="mt-3.5 text-base font-bold font-heading text-heading line-clamp-1">
+                            {mode.title}
+                          </h2>
+                          <p className="mt-1 text-xs leading-relaxed text-muted-foreground line-clamp-2">
                             {mode.description}
                           </p>
-                          <dl className="tnum mt-3.5 grid grid-cols-3 gap-2 text-center">
+                          <dl className="tnum mt-4 grid grid-cols-3 gap-2 text-center">
                             {[
                               ['Attempts', String(mode.attempts ?? 0)],
                               ['Last', mode.lastScore != null ? String(mode.lastScore) : '—'],
                               ['Best', mode.bestScore != null ? String(mode.bestScore) : '—'],
                             ].map(([label, value]) => (
-                              <div key={label} className="rounded-[8px] bg-app px-2 py-1.5">
-                                <dd className="text-sm font-bold">{value}</dd>
-                                <dt className="text-2xs text-ink-3">{label}</dt>
+                              <div key={label} className="rounded-xl bg-muted/40 border border-border px-2 py-2">
+                                <dd className="text-sm font-bold font-mono text-heading">{value}</dd>
+                                <dt className="text-[10px] font-semibold text-muted-foreground mt-0.5">{label}</dt>
                               </div>
                             ))}
                           </dl>
-                          <p className="mt-3 text-xs text-ink-3">
-                            {mode.questions?.length ?? 1} question(s) · ~{mode.durationMinutes} min
+                          <p className="mt-3 text-xs text-muted-foreground">
+                            {mode.questions?.length ?? 1} prompt(s) · ~{mode.durationMinutes} min
                           </p>
                           <div className="mt-auto pt-4">
-                            <Button asChild variant="primary" size="sm" className="w-full">
+                            <Button asChild variant="primary" size="sm" className="w-full flex items-center justify-center gap-1.5">
                               <Link href={`/student/practice/${mode.code}`}>
                                 <Play className="size-3.5" aria-hidden />
-                                {mode.attempts ? 'Practise again' : 'Start practice'}
+                                {mode.attempts ? 'Practice Again' : 'Start Practice'}
                               </Link>
                             </Button>
                           </div>
@@ -174,20 +191,21 @@ export default function PracticeLabPage() {
                 </div>
               </div>
 
+              {/* Sidebar Cards */}
               <div className="space-y-5">
-                <Card className="card-interactive">
-                  <CardHeader>
+                <Card className="border-border bg-card shadow-card">
+                  <CardHeader className="pb-3 border-b border-border">
                     <div>
-                      <CardTitle>This week</CardTitle>
-                      <CardSubtitle>
+                      <CardTitle className="text-base font-bold font-heading text-heading">Weekly Target</CardTitle>
+                      <CardSubtitle className="text-xs text-muted-foreground">
                         Resets {formatDate(data.weeklyProgress.resetsAt)}
                       </CardSubtitle>
                     </div>
                   </CardHeader>
-                  <CardBody>
-                    <p className="tnum text-[22px] font-bold leading-none">
+                  <CardBody className="pt-4">
+                    <p className="tnum text-2xl font-bold font-mono text-heading">
                       {data.weeklyProgress.completed}
-                      <span className="text-[14px] font-semibold text-ink-3">
+                      <span className="text-sm font-medium text-muted-foreground ml-1">
                         /{data.weeklyProgress.target} sessions
                       </span>
                     </p>
@@ -203,41 +221,41 @@ export default function PracticeLabPage() {
                   </CardBody>
                 </Card>
 
-                <Card className="card-interactive">
-                  <CardHeader>
+                <Card className="border-border bg-card shadow-card">
+                  <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
                     <div>
-                      <CardTitle>Recent attempts</CardTitle>
-                      <CardSubtitle>Your last few sessions</CardSubtitle>
+                      <CardTitle className="text-base font-bold font-heading text-heading">Recent Sessions</CardTitle>
+                      <CardSubtitle className="text-xs text-muted-foreground">Your latest practice feedback</CardSubtitle>
                     </div>
-                    <History className="size-4 text-ink-3" aria-hidden />
+                    <History className="size-4 text-muted-foreground" aria-hidden />
                   </CardHeader>
-                  <CardBody>
+                  <CardBody className="pt-4">
                     {data.recentAttempts.length === 0 ? (
-                      <p className="py-4 text-center text-sm text-ink-2">
-                        No attempts yet — pick a mode to start.
+                      <p className="py-6 text-center text-xs text-muted-foreground">
+                        No attempts recorded yet. Select an exercise to begin.
                       </p>
                     ) : (
-                      <ul className="space-y-3">
+                      <ul className="space-y-2.5">
                         {data.recentAttempts.map((attempt: any) => (
                           <li key={attempt.id}>
                             <Link
                               href={`/student/practice/session/${attempt.id}/feedback`}
-                              className="block rounded-[10px] border border-line-soft px-3.5 py-3 transition-all duration-200 hover:border-line-hover hover:bg-slate-50/60 hover:translate-x-0.5"
+                              className="block rounded-xl border border-border p-3 transition-all duration-200 hover:border-accent hover:bg-muted"
                             >
                               <div className="flex items-center justify-between gap-2">
-                                <p className="min-w-0 truncate text-base font-semibold">
+                                <p className="min-w-0 truncate text-xs font-bold text-heading">
                                   {attempt.practiceModeTitle}
                                 </p>
                                 {attempt.overallScore != null ? (
-                                  <span className="tnum shrink-0 text-base font-bold">
+                                  <span className="tnum shrink-0 text-xs font-bold font-mono text-heading">
                                     {attempt.overallScore}
-                                    <span className="text-xs text-ink-3">/100</span>
+                                    <span className="text-[10px] text-muted-foreground">/100</span>
                                   </span>
                                 ) : (
                                   <StatusBadge status={attempt.state} />
                                 )}
                               </div>
-                              <p className="mt-0.5 text-xs text-ink-3">
+                              <p className="mt-1 text-[11px] text-muted-foreground">
                                 Attempt {attempt.attemptNumber} ·{' '}
                                 {formatDate(attempt.completedAt ?? attempt.startedAt)}
                               </p>
@@ -250,7 +268,7 @@ export default function PracticeLabPage() {
                 </Card>
               </div>
             </div>
-          </>
+          </div>
         );
       }}
     </AsyncSection>

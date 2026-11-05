@@ -308,7 +308,7 @@ export default function TrainerEvaluationsPage() {
                       evidence
                     </CardSubtitle>
                   </div>
-                  <Sparkles className="size-4 text-indigo" aria-hidden />
+                  <Sparkles className="size-4 text-primary" aria-hidden />
                 </CardHeader>
                 <CardBody>
                   {data.items.length === 0 ? (

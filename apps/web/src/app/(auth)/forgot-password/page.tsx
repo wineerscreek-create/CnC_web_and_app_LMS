@@ -31,11 +31,11 @@ export default function ForgotPasswordPage() {
   if (sent) {
     return (
       <>
-        <span className="flex size-11 items-center justify-center rounded-full bg-indigo-50 text-indigo">
+        <span className="flex size-11 items-center justify-center rounded-full bg-muted text-primary">
           <MailCheck className="size-5" aria-hidden />
         </span>
-        <h1 className="mt-4 font-serif text-[26px] font-semibold tracking-tight">Check your email</h1>
-        <p className="mt-1.5 text-base text-ink-2">
+        <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-heading">Check your email</h1>
+        <p className="mt-1.5 text-base text-muted-foreground">
           If an account exists for {email.trim().toLowerCase()}, we’ve sent a reset code and a
           one-click link. The code expires shortly, so use it soon.
         </p>
@@ -44,8 +44,8 @@ export default function ForgotPasswordPage() {
             I have a code
           </Link>
         </Button>
-        <p className="mt-5 text-base text-ink-2">
-          <Link href="/login" className="font-semibold text-indigo hover:underline">
+        <p className="mt-5 text-base text-muted-foreground">
+          <Link href="/login" className="font-semibold text-foreground hover:underline">
             Back to sign in
           </Link>
         </p>
@@ -55,11 +55,11 @@ export default function ForgotPasswordPage() {
 
   return (
     <>
-      <span className="flex size-11 items-center justify-center rounded-full bg-indigo-50 text-indigo">
+      <span className="flex size-11 items-center justify-center rounded-full bg-muted text-primary">
         <KeyRound className="size-5" aria-hidden />
       </span>
-      <h1 className="mt-4 font-serif text-[26px] font-semibold tracking-tight">Reset your password</h1>
-      <p className="mt-1.5 text-base text-ink-2">
+      <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-heading">Reset your password</h1>
+      <p className="mt-1.5 text-base text-muted-foreground">
         Enter the email address on your account and we’ll send a code. Resetting signs you out of
         every device.
       </p>
@@ -77,7 +77,7 @@ export default function ForgotPasswordPage() {
         </Field>
 
         {error && (
-          <p role="alert" className="flex items-start gap-2 rounded-[10px] bg-danger-bg px-3.5 py-2.5 text-sm font-semibold text-danger">
+          <p role="alert" className="flex items-start gap-2 rounded-xl bg-destructive/10 border border-destructive/30 px-3.5 py-2.5 text-sm font-semibold text-destructive">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             {error}
           </p>
@@ -88,8 +88,8 @@ export default function ForgotPasswordPage() {
         </Button>
       </form>
 
-      <p className="mt-5 text-base text-ink-2">
-        <Link href="/login" className="font-semibold text-indigo hover:underline">
+      <p className="mt-5 text-base text-muted-foreground">
+        <Link href="/login" className="font-semibold text-foreground hover:underline">
           Back to sign in
         </Link>
       </p>

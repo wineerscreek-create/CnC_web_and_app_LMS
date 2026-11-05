@@ -257,7 +257,7 @@ export function FileUpload({
                 type="button"
                 onClick={onClear}
                 aria-label="Remove selected file"
-                className="rounded p-1 text-ink-3 hover:bg-white hover:text-ink-1"
+                className="rounded p-1 text-ink-3 hover:bg-muted hover:text-foreground"
               >
                 <X className="size-3.5" aria-hidden />
               </button>
@@ -386,7 +386,7 @@ export function KeyboardHint({
       <span className="font-semibold">Keyboard shortcuts:</span>
       {shortcuts.map((shortcut) => (
         <span key={shortcut.keys} className="flex items-center gap-1.5">
-          <kbd className="rounded-[5px] border border-line bg-white px-1.5 py-0.5 font-sans text-2xs font-semibold">
+          <kbd className="rounded-[5px] border border-border bg-card px-1.5 py-0.5 font-sans text-2xs font-semibold">
             {shortcut.keys}
           </kbd>
           {shortcut.action}

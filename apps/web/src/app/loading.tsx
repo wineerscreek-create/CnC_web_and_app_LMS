@@ -6,7 +6,7 @@ export default function Loading() {
     <div
       className="fixed inset-0 z-50 flex min-h-screen w-full flex-col items-center justify-center bg-background/80 p-4 backdrop-blur-[2px] transition-all animate-in fade-in duration-200"
       role="status"
-      aria-label="Loading Winners Creek Platform"
+      aria-label="Loading SkillSharp Platform"
     >
       <div className="relative flex flex-col items-center justify-center gap-7 text-center max-w-sm sm:max-w-md w-full">
         {/* Layered 3D Ambient Lighting Auras */}
@@ -27,7 +27,7 @@ export default function Loading() {
         <div className="relative z-10 flex flex-col items-center gap-2">
           <div className="flex items-center gap-2.5 text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">
             <Loader2 className="size-4 animate-spin text-indigo-600 dark:text-indigo-400" aria-hidden />
-            <span>Loading Winners Creek Platform…</span>
+            <span>Loading SkillSharp Platform…</span>
           </div>
           <p className="text-2xs text-slate-500 dark:text-slate-400 font-medium">
             Initialising secure session &amp; campus resources

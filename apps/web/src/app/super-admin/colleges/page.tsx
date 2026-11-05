@@ -148,13 +148,13 @@ export default function SuperAdminCollegesPage() {
       {/* Filter and stats */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="relative max-w-sm w-full">
-          <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by college name, code, or city…"
-            className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+            className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground"
           />
         </div>
 
@@ -172,7 +172,7 @@ export default function SuperAdminCollegesPage() {
             key={college.id}
             className={cn(
               'flex flex-col justify-between transition-all hover:shadow-md',
-              college.status !== 'active' && 'opacity-70 bg-slate-50 dark:bg-slate-900/40'
+              college.status !== 'active' && 'opacity-70 bg-card/40'
             )}
           >
             <CardBody className="p-5 flex flex-col justify-between h-full space-y-4">
@@ -193,58 +193,58 @@ export default function SuperAdminCollegesPage() {
 
                 <div className="mt-3">
                   <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-base text-slate-900 dark:text-white line-clamp-1">
+                    <h3 className="font-bold text-base text-foreground line-clamp-1">
                       {college.name}
                     </h3>
                   </div>
                   <span className="text-xs font-mono text-indigo font-bold">{college.code}</span>
                 </div>
 
-                <div className="mt-3 space-y-1.5 text-xs text-slate-500">
+                <div className="mt-3 space-y-1.5 text-xs text-muted-foreground">
                   {college.address && (
                     <p className="flex items-center gap-1.5 truncate">
-                      <MapPin className="size-3.5 shrink-0 text-slate-400" />
+                      <MapPin className="size-3.5 shrink-0 text-muted-foreground" />
                       {college.address}
                     </p>
                   )}
                   {college.contact?.email && (
                     <p className="flex items-center gap-1.5 truncate">
-                      <Mail className="size-3.5 shrink-0 text-slate-400" />
+                      <Mail className="size-3.5 shrink-0 text-muted-foreground" />
                       {college.contact.email}
                     </p>
                   )}
                   {college.contact?.phone && (
                     <p className="flex items-center gap-1.5 truncate">
-                      <Phone className="size-3.5 shrink-0 text-slate-400" />
+                      <Phone className="size-3.5 shrink-0 text-muted-foreground" />
                       {college.contact.phone}
                     </p>
                   )}
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-3 gap-1 text-center">
+                <div className="mt-4 pt-3 border-t border-border grid grid-cols-3 gap-1 text-center">
                   <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
-                    <p className="font-bold text-slate-900 dark:text-white text-sm">
+                    <p className="font-bold text-foreground text-sm">
                       {num(college.departmentsCount)}
                     </p>
-                    <p className="text-[10px] text-slate-400">Depts</p>
+                    <p className="text-[10px] text-muted-foreground">Depts</p>
                   </div>
                   <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
-                    <p className="font-bold text-slate-900 dark:text-white text-sm">
+                    <p className="font-bold text-foreground text-sm">
                       {num(college.participantsCount ?? college.studentsCount)}
                     </p>
-                    <p className="text-[10px] text-slate-400">Participants</p>
+                    <p className="text-[10px] text-muted-foreground">Participants</p>
                   </div>
                   <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
-                    <p className="font-bold text-slate-900 dark:text-white text-sm">
+                    <p className="font-bold text-foreground text-sm">
                       {num(college.trainersCount)}
                     </p>
-                    <p className="text-[10px] text-slate-400">Trainers</p>
+                    <p className="text-[10px] text-muted-foreground">Trainers</p>
                   </div>
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                <span className="text-slate-400">
+              <div className="pt-3 border-t border-border flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">
                   Onboarded {college.createdAt ? formatDate(college.createdAt) : 'Recently'}
                 </span>
                 <Button
@@ -286,7 +286,7 @@ export default function SuperAdminCollegesPage() {
               <select
                 value={formType}
                 onChange={(e) => setFormType(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-card text-foreground"
               >
                 <option value="COLLEGE">College / University → College Training</option>
                 <option value="COMPANY">Company / Corporate → Cooperative Training</option>
@@ -304,7 +304,7 @@ export default function SuperAdminCollegesPage() {
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
                 placeholder="e.g., National Institute of Technology, Bangalore"
-                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-card text-foreground"
               />
             </div>
 
@@ -319,7 +319,7 @@ export default function SuperAdminCollegesPage() {
                   value={formCode}
                   onChange={(e) => setFormCode(e.target.value.toUpperCase())}
                   placeholder="e.g., NITB"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-card text-foreground font-mono"
                 />
               </div>
 
@@ -331,7 +331,7 @@ export default function SuperAdminCollegesPage() {
                   type="text"
                   value={formTimezone}
                   onChange={(e) => setFormTimezone(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-card text-foreground"
                 />
               </div>
             </div>
@@ -345,7 +345,7 @@ export default function SuperAdminCollegesPage() {
                 value={formAddress}
                 onChange={(e) => setFormAddress(e.target.value)}
                 placeholder="e.g., Electronic City Phase 1, Bengaluru, Karnataka"
-                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-card text-foreground"
               />
             </div>
 
@@ -359,7 +359,7 @@ export default function SuperAdminCollegesPage() {
                   value={formEmail}
                   onChange={(e) => setFormEmail(e.target.value)}
                   placeholder="admin@nitb.edu.in"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-card text-foreground"
                 />
               </div>
 
@@ -372,7 +372,7 @@ export default function SuperAdminCollegesPage() {
                   value={formPhone}
                   onChange={(e) => setFormPhone(e.target.value)}
                   placeholder="+91 80 2852 0000"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-card text-foreground"
                 />
               </div>
             </div>

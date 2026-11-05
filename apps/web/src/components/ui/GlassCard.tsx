@@ -12,15 +12,15 @@ export interface GlassCardProps extends React.HTMLAttributes<HTMLDivElement> {
 
 const toneStyles: Record<string, string> = {
   default:
-    'bg-card border-line text-ink-1 shadow-card dark:bg-slate-900/40 dark:border-white/20 dark:text-white dark:shadow-xl',
+    'bg-card/90 border-border text-foreground shadow-card backdrop-blur-md',
   indigo:
-    'bg-indigo-50/70 border-indigo-200 text-ink-1 shadow-xs dark:bg-indigo-950/30 dark:border-indigo-500/30 dark:text-white dark:shadow-indigo-950/20',
+    'bg-muted/80 border-border text-foreground shadow-xs',
   cyan:
-    'bg-cyan-50/70 border-cyan-200 text-ink-1 shadow-xs dark:bg-cyan-950/30 dark:border-cyan-500/30 dark:text-white dark:shadow-cyan-950/20',
+    'bg-muted/80 border-border text-foreground shadow-xs',
   purple:
-    'bg-purple-50/70 border-purple-200 text-ink-1 shadow-xs dark:bg-purple-950/30 dark:border-purple-500/30 dark:text-white dark:shadow-purple-950/20',
+    'bg-muted/80 border-border text-foreground shadow-xs',
   amber:
-    'bg-amber-50/70 border-amber-200 text-ink-1 shadow-xs dark:bg-amber-950/30 dark:border-amber-500/30 dark:text-white dark:shadow-amber-950/20',
+    'bg-accent/15 border-accent/30 text-foreground shadow-xs',
 };
 
 /**
@@ -29,7 +29,6 @@ const toneStyles: Record<string, string> = {
  */
 export function GlassCard({
   tone = 'default',
-  glow = false,
   hover = false,
   className,
   children,
@@ -39,9 +38,8 @@ export function GlassCard({
     <div
       className={cn(
         'relative overflow-hidden rounded-2xl border backdrop-blur-md transition-all duration-300',
-        toneStyles[tone],
-        glow && 'hover:shadow-glow',
-        hover && 'hover:scale-[1.01] hover:border-white/40 hover:shadow-2xl',
+        toneStyles[tone] || toneStyles.default,
+        hover && 'hover:scale-[1.01] hover:border-accent/40 hover:shadow-card-hover',
         className,
       )}
       {...props}
@@ -50,4 +48,3 @@ export function GlassCard({
     </div>
   );
 }
-

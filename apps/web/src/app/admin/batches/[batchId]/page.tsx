@@ -174,7 +174,7 @@ export default function AdminBatchDetailPage() {
       render: (row) => (
         <>
           <span className="block font-semibold">{row.name}</span>
-          <span className="block text-xs text-ink-3">
+          <span className="block text-xs text-muted-foreground">
             {row.institutionId ?? row.email}
           </span>
         </>
@@ -249,7 +249,7 @@ export default function AdminBatchDetailPage() {
                   value={batch.utilisationPercent}
                 />
                 {batch.utilisationPercent >= 100 && (
-                  <p className="mt-3 flex items-center gap-1.5 text-sm font-semibold text-amber-dark">
+                  <p className="mt-3 flex items-center gap-1.5 text-sm font-semibold text-gold-text">
                     <AlertTriangle className="size-3.5" aria-hidden />
                     This batch is full — further assignments are refused until capacity is raised.
                   </p>
@@ -330,7 +330,7 @@ export default function AdminBatchDetailPage() {
                         caption="Participants eligible for this batch"
                       />
                     </div>
-                    <p className="mt-3 text-xs text-ink-3">
+                    <p className="mt-3 text-xs text-muted-foreground">
                       Moving a participant closes their current enrollment as{' '}
                       <strong className="font-semibold">transferred</strong> and opens a new row —
                       the old one stays on their record.
@@ -355,49 +355,49 @@ export default function AdminBatchDetailPage() {
                   </CardHeader>
                   <CardBody>
                     {assignedTrainers.loading ? (
-                      <p className="py-6 text-center text-sm text-ink-3">Loading assigned trainers...</p>
+                      <p className="py-6 text-center text-sm text-muted-foreground">Loading assigned trainers...</p>
                     ) : !assignedTrainers.data || assignedTrainers.data.length === 0 ? (
-                      <div className="rounded-[10px] border border-dashed border-line p-8 text-center">
-                        <GraduationCap className="mx-auto size-8 text-ink-3" aria-hidden />
-                        <p className="mt-2 text-base font-semibold text-ink-1">No trainers assigned yet</p>
-                        <p className="mt-1 text-sm text-ink-2">
+                      <div className="rounded-[10px] border border-dashed border-border p-8 text-center">
+                        <GraduationCap className="mx-auto size-8 text-muted-foreground" aria-hidden />
+                        <p className="mt-2 text-base font-semibold text-foreground">No trainers assigned yet</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
                           Use the form below to assign trainers and configure their schedule for this batch.
                         </p>
                       </div>
                     ) : (
-                      <ul className="divide-y divide-line-soft rounded-[10px] border border-line">
+                      <ul className="divide-y divide-line-soft rounded-[10px] border border-border">
                         {assignedTrainers.data.map((item: any) => (
                           <li key={item.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
-                                <span className="text-base font-semibold text-ink-1">{item.trainerName}</span>
+                                <span className="text-base font-semibold text-foreground">{item.trainerName}</span>
                                 <StatusBadge status={item.status} />
                                 {item.designation && (
-                                  <span className="text-xs text-ink-3">· {item.designation}</span>
+                                  <span className="text-xs text-muted-foreground">· {item.designation}</span>
                                 )}
                               </div>
-                              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-2">
+                              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                                 <span>{item.trainerEmail}</span>
                                 {item.departmentName && <span>Dept: {item.departmentName}</span>}
                                 {(item.startDate || item.endDate) && (
-                                  <span className="flex items-center gap-1 font-medium text-ink-1">
-                                    <Calendar className="size-3 text-ink-3" aria-hidden />
+                                  <span className="flex items-center gap-1 font-medium text-foreground">
+                                    <Calendar className="size-3 text-muted-foreground" aria-hidden />
                                     {item.startDate ? formatDate(item.startDate) : 'Start'} – {item.endDate ? formatDate(item.endDate) : 'Ongoing'}
                                   </span>
                                 )}
                               </div>
                               <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <span className="text-xs font-medium text-ink-3">Days:</span>
+                                <span className="text-xs font-medium text-muted-foreground">Days:</span>
                                 {(item.weekdays || []).map((w: number) => (
                                   <span
                                     key={w}
-                                    className="rounded bg-indigo-500/10 px-1.5 py-0.5 text-xs font-semibold text-indigo-400"
+                                    className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-semibold text-primary"
                                   >
                                     {WEEKDAY_NAMES[w] || `Day ${w}`}
                                   </span>
                                 ))}
                                 {item.notes && (
-                                  <span className="ml-2 rounded bg-panel-2 px-2 py-0.5 text-xs italic text-ink-2">
+                                  <span className="ml-2 rounded bg-muted px-2 py-0.5 text-xs italic text-muted-foreground">
                                     &ldquo;{item.notes}&rdquo;
                                   </span>
                                 )}
@@ -451,8 +451,8 @@ export default function AdminBatchDetailPage() {
                   </CardHeader>
                   <CardBody className="space-y-4">
                     {/* Schedule Configuration Controls */}
-                    <div className="space-y-4 rounded-lg border border-line bg-panel-1 p-4">
-                      <h4 className="text-sm font-semibold text-ink-1">Schedule & validity window</h4>
+                    <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+                      <h4 className="text-sm font-semibold text-foreground">Schedule & validity window</h4>
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <Field label="Effective start date" htmlFor="new-start">
                           <Input
@@ -473,7 +473,7 @@ export default function AdminBatchDetailPage() {
                       </div>
 
                       <div>
-                        <label className="mb-1.5 block text-sm font-semibold text-ink-1">
+                        <label className="mb-1.5 block text-sm font-semibold text-foreground">
                           Applicable weekdays
                         </label>
                         <div className="flex flex-wrap items-center gap-2">
@@ -501,8 +501,8 @@ export default function AdminBatchDetailPage() {
                                 className={cn(
                                   'rounded-md px-3 py-1.5 text-xs font-semibold transition-colors border',
                                   active
-                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                                    : 'bg-panel text-ink-2 border-line hover:border-line-soft'
+                                    ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                                    : 'bg-card text-muted-foreground border-border hover:border-border'
                                 )}
                               >
                                 {label}
@@ -512,15 +512,15 @@ export default function AdminBatchDetailPage() {
                           <div className="ml-2 flex items-center gap-2">
                             <button
                               type="button"
-                              className="text-xs text-indigo-400 hover:underline"
+                              className="text-xs text-primary hover:underline"
                               onClick={() => setAssignWeekdays([1, 2, 3, 4, 5])}
                             >
                               Mon–Fri
                             </button>
-                            <span className="text-xs text-ink-3">·</span>
+                            <span className="text-xs text-muted-foreground">·</span>
                             <button
                               type="button"
-                              className="text-xs text-indigo-400 hover:underline"
+                              className="text-xs text-primary hover:underline"
                               onClick={() => setAssignWeekdays([1, 2, 3, 4, 5, 6, 7])}
                             >
                               All Days
@@ -561,10 +561,10 @@ export default function AdminBatchDetailPage() {
                       </Select>
                     </div>
 
-                    <label className="mb-1 block text-sm font-semibold text-ink-1">
+                    <label className="mb-1 block text-sm font-semibold text-foreground">
                       Select trainer(s) to assign
                     </label>
-                    <ul className="scroll-thin max-h-[300px] divide-y divide-line-soft overflow-y-auto rounded-[10px] border border-line">
+                    <ul className="scroll-thin max-h-[300px] divide-y divide-line-soft overflow-y-auto rounded-[10px] border border-border">
                       {(trainers.data?.items ?? []).map((trainer: any) => {
                         const isAssigned = (assignedTrainers.data ?? []).some(
                           (at: any) => at.trainerUserId === trainer.id
@@ -574,7 +574,7 @@ export default function AdminBatchDetailPage() {
                             key={trainer.id}
                             className={cn(
                               'flex items-center gap-3 px-3.5 py-2.5 transition-colors',
-                              isAssigned ? 'bg-panel-1/50 opacity-75' : ''
+                              isAssigned ? 'bg-card/50 opacity-75' : ''
                             )}
                           >
                             <Checkbox
@@ -592,12 +592,12 @@ export default function AdminBatchDetailPage() {
                               <span className="flex items-center gap-2">
                                 <span className="block text-base font-semibold">{trainer.name}</span>
                                 {isAssigned && (
-                                  <span className="rounded bg-indigo-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-400">
+                                  <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-semibold text-primary">
                                     Already Assigned
                                   </span>
                                 )}
                               </span>
-                              <span className="block text-xs text-ink-3">
+                              <span className="block text-xs text-muted-foreground">
                                 {trainer.departmentName} · {trainer.designation ?? ''} · {trainer.email}
                               </span>
                             </span>
@@ -724,7 +724,7 @@ function EditBatchDialog({
                 <SelectItem value="archived">Archived</SelectItem>
               </SelectContent>
             </Select>
-            <p className="mt-1.5 text-sm text-ink-3">
+            <p className="mt-1.5 text-sm text-muted-foreground">
               Archiving keeps every record — it only stops new activity.
             </p>
           </div>
@@ -825,7 +825,7 @@ function EditScheduleDialog({
           </div>
 
           <div>
-            <label className="mb-1.5 block text-sm font-semibold text-ink-1">
+            <label className="mb-1.5 block text-sm font-semibold text-foreground">
               Applicable weekdays
             </label>
             <div className="flex flex-wrap gap-2">
@@ -847,8 +847,8 @@ function EditScheduleDialog({
                     className={cn(
                       'rounded-md px-3 py-1.5 text-xs font-semibold transition-colors border',
                       active
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-panel text-ink-2 border-line hover:border-line-soft'
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-card text-muted-foreground border-border hover:border-border'
                     )}
                   >
                     {label}
@@ -859,15 +859,15 @@ function EditScheduleDialog({
             <div className="mt-2 flex gap-2">
               <button
                 type="button"
-                className="text-xs text-indigo-400 hover:underline"
+                className="text-xs text-primary hover:underline"
                 onClick={() => setWeekdays([1, 2, 3, 4, 5])}
               >
                 Mon–Fri
               </button>
-              <span className="text-xs text-ink-3">·</span>
+              <span className="text-xs text-muted-foreground">·</span>
               <button
                 type="button"
-                className="text-xs text-indigo-400 hover:underline"
+                className="text-xs text-primary hover:underline"
                 onClick={() => setWeekdays([1, 2, 3, 4, 5, 6, 7])}
               >
                 All Days

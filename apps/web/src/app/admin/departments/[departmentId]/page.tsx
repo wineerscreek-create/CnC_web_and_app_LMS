@@ -178,7 +178,7 @@ export default function AdminDepartmentDetailPage() {
       render: (row) => (
         <>
           <span className="block font-semibold">{row.name}</span>
-          <span className="block text-xs text-ink-3">{row.code}</span>
+          <span className="block text-xs text-muted-foreground">{row.code}</span>
         </>
       ),
     },
@@ -189,7 +189,7 @@ export default function AdminDepartmentDetailPage() {
       render: (row) => (
         <span className="tnum">
           {num(row.students)}
-          <span className="text-xs text-ink-3">/{num(row.capacity)}</span>
+          <span className="text-xs text-muted-foreground">/{num(row.capacity)}</span>
         </span>
       ),
     },
@@ -200,7 +200,7 @@ export default function AdminDepartmentDetailPage() {
       render: (row) => (
         <div className="min-w-[110px]">
           <ProgressBar value={row.utilisationPercent} showValue={false} thin />
-          <span className="tnum mt-1 block text-xs text-ink-3">
+          <span className="tnum mt-1 block text-xs text-muted-foreground">
             {pct(row.utilisationPercent, 1)}
           </span>
         </div>
@@ -349,7 +349,7 @@ export default function AdminDepartmentDetailPage() {
                   </CardHeader>
                   <CardBody>
                     {departmentSemesters.length === 0 ? (
-                      <p className="py-4 text-center text-base text-ink-2">
+                      <p className="py-4 text-center text-base text-muted-foreground">
                         No semester configured yet — batches can still be created without one.
                       </p>
                     ) : (
@@ -358,7 +358,7 @@ export default function AdminDepartmentDetailPage() {
                           label: semester.label ?? `Semester ${semester.number}`,
                           value: (
                             <span className="flex items-center gap-2">
-                              <span className="text-sm text-ink-2">{semester.academicYear}</span>
+                              <span className="text-sm text-muted-foreground">{semester.academicYear}</span>
                               <StatusBadge status={semester.active ? 'active' : 'archived'} />
                             </span>
                           ),

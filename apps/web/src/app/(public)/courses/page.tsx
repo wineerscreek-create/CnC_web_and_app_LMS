@@ -25,13 +25,13 @@ export default function CoursesPage() {
       {/* ------------------------------------------------------------------ hero */}
       <section className="relative py-12 sm:py-16">
         <div className="relative mx-auto max-w-[1180px] px-5">
-          <Badge tone="indigo">
+          <Badge tone="mustard" className="font-semibold text-xs py-1 px-3">
             Structured Curriculum
           </Badge>
-          <h1 className="mt-4 font-serif heading-hero text-ink-1 max-w-[700px]">
+          <h1 className="mt-4 font-heading font-black text-4xl sm:text-5xl text-heading tracking-tight max-w-[700px]">
             Explore Employability Programs
           </h1>
-          <p className="mt-4 max-w-[620px] text-base sm:text-lg leading-relaxed text-ink-2">
+          <p className="mt-4 max-w-[620px] text-base leading-relaxed text-muted-foreground">
             Every program is an outcome-driven path: structured modules, real-world practice, and
             objective evaluations that calculate your true readiness score.
           </p>
@@ -39,15 +39,15 @@ export default function CoursesPage() {
       </section>
 
       {/* ------------------------------------------------------------------ content */}
-      <div className="mx-auto max-w-[1180px] px-5 pt-10">
-        <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-line-soft">
+      <div className="mx-auto max-w-[1180px] px-5">
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-border">
           <SearchInput
             value={search}
             onChange={setSearch}
             placeholder="Search programs…"
-            className="w-full sm:w-[320px]"
+            className="w-full sm:w-[320px] bg-card border-border rounded-xl"
           />
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by category">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by category">
             {['all', ...(data?.categories ?? [])].map((item) => (
               <button
                 key={item}
@@ -55,10 +55,10 @@ export default function CoursesPage() {
                 onClick={() => setCategory(item)}
                 aria-pressed={category === item}
                 className={cn(
-                  'rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-all duration-150 active:scale-95',
+                  'rounded-xl border px-3.5 py-1.5 text-xs font-semibold transition-all duration-150',
                   category === item
-                    ? 'border-indigo bg-indigo text-white shadow-xs'
-                    : 'border-line bg-card text-ink-2 hover:bg-slate-50 hover:border-line-soft',
+                    ? 'border-accent bg-accent text-accent-foreground shadow-xs'
+                    : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground',
                 )}
               >
                 {item === 'all' ? 'All Programs' : item}
@@ -86,7 +86,7 @@ export default function CoursesPage() {
                       setCategory('all');
                     }}
                   >
-                    Clear filters
+                    Clear Filters
                   </Button>
                 }
               />

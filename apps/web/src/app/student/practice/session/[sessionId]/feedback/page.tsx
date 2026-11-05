@@ -74,7 +74,7 @@ export default function PracticeFeedbackPage() {
                     </>
                   ) : (
                     <>
-                      <Loader2 className="mx-auto size-6 animate-spin text-indigo" aria-hidden />
+                      <Loader2 className="mx-auto size-6 animate-spin text-primary" aria-hidden />
                       <p className="mt-4 text-md font-semibold">Analysing your answers</p>
                       <p className="mx-auto mt-1.5 max-w-[380px] text-base text-ink-2">
                         {data.message} You can leave this page — your feedback will be waiting in
@@ -190,7 +190,7 @@ export default function PracticeFeedbackPage() {
                       </p>
                     )}
                     {data.trainerReview.overridden && (
-                      <p className="mt-3 rounded-[8px] bg-amber-50 px-3 py-2 text-sm text-amber-dark">
+                      <p className="mt-3 rounded-[8px] bg-muted/40 px-3 py-2 text-sm text-foreground border border-border">
                         A trainer adjusted some AI scores on this attempt.
                         {data.trainerReview.overrideReason
                           ? ` Reason: ${data.trainerReview.overrideReason}`
@@ -231,7 +231,7 @@ export default function PracticeFeedbackPage() {
                           </div>
                           <div className="mt-3 h-[7px] overflow-hidden rounded-full bg-line-soft">
                             <div
-                              className="h-full rounded-full bg-indigo"
+                              className="h-full rounded-full bg-primary"
                               style={{ width: `${Math.min(100, dimension.score)}%` }}
                             />
                           </div>
@@ -248,7 +248,7 @@ export default function PracticeFeedbackPage() {
                                   className="rounded-[10px] border-l-[3px] border-indigo bg-app px-3.5 py-2.5"
                                 >
                                   <p className="flex items-start gap-2 text-base italic text-ink-1">
-                                    <Quote className="mt-0.5 size-3.5 shrink-0 text-indigo" aria-hidden />
+                                    <Quote className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden />
                                     “{item.quote}”
                                   </p>
                                   {item.note && (
@@ -326,7 +326,7 @@ export default function PracticeFeedbackPage() {
                                 key={index}
                                 className="flex items-start gap-3 rounded-[10px] bg-app px-3.5 py-3"
                               >
-                                <span className="tnum mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-indigo text-2xs font-bold text-white">
+                                <span className="tnum mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-2xs font-bold text-primary-foreground">
                                   {index + 1}
                                 </span>
                                 <span className="min-w-0 flex-1 text-base">
@@ -345,9 +345,9 @@ export default function PracticeFeedbackPage() {
                     )}
 
                     {data.personalizedExercise && (
-                      <Card className="border-amber/40 bg-amber-50/60">
+                      <Card className="border-border bg-card">
                         <CardBody className="flex flex-wrap items-center gap-4">
-                          <span className="flex size-10 items-center justify-center rounded-full bg-amber text-white">
+                          <span className="flex size-10 items-center justify-center rounded-full bg-accent text-accent-foreground">
                             <Sparkles className="size-5" aria-hidden />
                           </span>
                           <div className="min-w-[220px] flex-1">

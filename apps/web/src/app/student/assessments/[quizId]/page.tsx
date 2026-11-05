@@ -175,7 +175,7 @@ export default function AssessmentAttemptPage() {
                                 className={cn(
                                   'flex cursor-pointer items-start gap-3 rounded-[10px] border p-3 transition-colors',
                                   answers[question.id] === option.id
-                                    ? 'border-indigo bg-indigo-50'
+                                    ? 'border-accent bg-accent/20 text-accent-foreground'
                                     : 'border-line hover:bg-app',
                                 )}
                               >

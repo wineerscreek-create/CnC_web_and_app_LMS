@@ -63,9 +63,9 @@ export function OtpInput({
             if (event.key === 'ArrowRight' && index < length - 1) refs.current[index + 1]?.focus();
           }}
           className={cn(
-            'tnum h-12 w-full rounded-[10px] border bg-white text-center text-[18px] font-semibold',
-            'focus-visible:border-indigo',
-            invalid ? 'border-danger' : 'border-line',
+            'tnum h-12 w-full rounded-xl border bg-card text-center text-[18px] font-semibold text-foreground transition-all',
+            'focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none',
+            invalid ? 'border-destructive' : 'border-input',
           )}
         />
       ))}

@@ -308,7 +308,7 @@ function StudentPaymentsContent() {
           title="Billing, Payments &amp; Subscriptions"
           subtitle="Manage active 3-day course free trials, verify UPI transactions, and download official tax receipts."
           badge={
-            <Badge tone="success" className="flex items-center gap-1.5 bg-emerald-500/20 text-emerald-200 border-emerald-500/30">
+            <Badge tone="success" className="flex items-center gap-1.5 bg-primary/20 text-foreground border-border">
               <ShieldCheck className="size-3.5" />
               PCI-DSS &amp; UPI Encrypted Payments
             </Badge>
@@ -317,19 +317,19 @@ function StudentPaymentsContent() {
 
         {/* Target Course Already Verified Notification */}
         {targetCourseId && paidCourseIds.has(targetCourseId) && (
-          <div className="rounded-xl border border-emerald-300 bg-emerald-50/90 dark:bg-emerald-950/40 dark:border-emerald-800 p-4 flex flex-wrap items-center justify-between gap-4 shadow-sm">
+          <div className="rounded-xl border border-border bg-card p-4 flex flex-wrap items-center justify-between gap-4 shadow-sm">
             <div className="flex items-center gap-3">
-              <CheckCircle2 className="size-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <CheckCircle2 className="size-5 text-primary shrink-0" />
               <div>
-                <p className="font-bold text-xs text-emerald-900 dark:text-emerald-100">
+                <p className="font-bold text-xs text-heading">
                   You Already Have Verified Access
                 </p>
-                <p className="text-[11px] text-emerald-700 dark:text-emerald-300">
+                <p className="text-[11px] text-muted-foreground">
                   Payment for this course is verified. You have lifetime access to all lessons, class materials, and recordings.
                 </p>
               </div>
             </div>
-            <Button asChild size="sm" variant="primary" className="bg-emerald-600 hover:bg-emerald-700 text-xs shrink-0">
+            <Button asChild size="sm" variant="primary" className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs shrink-0">
               <Link href={`/student/learning/${targetCourseId}`}>
                 Open Course →
               </Link>
@@ -372,14 +372,14 @@ function StudentPaymentsContent() {
         {/* Active 3-Day Free Trials Section */}
         {trials.length > 0 && (
           <Card elevated>
-            <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800">
+            <CardHeader className="p-5 border-b border-border">
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-base flex items-center gap-2">
-                    <Clock className="size-4 text-amber-500" />
+                    <Clock className="size-4 text-accent" />
                     Your Course Free Trials (3 Days / 72 Hours)
                   </CardTitle>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     Full curriculum access during your 72-hour trial. Upgrade anytime to keep your learning progress and unlock all class materials and live sessions.
                   </p>
                 </div>
@@ -399,17 +399,17 @@ function StudentPaymentsContent() {
                       className={cn(
                         'p-4 rounded-xl border surface-3d surface-3d-interactive shadow-3d-card hover:shadow-3d-hover transition-all flex flex-col justify-between space-y-3',
                         isPaid
-                          ? 'border-emerald-200/80 bg-emerald-50/40 dark:bg-emerald-950/20'
+                          ? 'border-border bg-card'
                           : trial.isActive
                           ? isExpiringSoon
-                            ? 'border-amber-300/80 bg-amber-50/50 dark:bg-amber-950/20'
-                            : 'border-slate-200/80 dark:border-white/[0.08]'
-                          : 'border-rose-200/80 bg-rose-50/30 dark:bg-rose-950/10 opacity-85'
+                            ? 'border-accent bg-accent/15'
+                            : 'border-border bg-card'
+                          : 'border-destructive/30 bg-destructive/10 opacity-85'
                       )}
                     >
                       <div>
                         <div className="flex items-start justify-between gap-2">
-                          <span className="font-semibold text-sm text-slate-900 dark:text-white line-clamp-1">
+                          <span className="font-semibold text-sm text-heading line-clamp-1">
                             {trial.courseName}
                           </span>
                           <Badge
@@ -431,16 +431,16 @@ function StudentPaymentsContent() {
                           </Badge>
                         </div>
 
-                        <div className="mt-2 text-xs text-slate-500 space-y-1">
+                        <div className="mt-2 text-xs text-muted-foreground space-y-1">
                           <p>Started: {formatDate(trial.startedAt)}</p>
                           <p>Expires: {formatDate(trial.expiresAt)}</p>
                         </div>
                       </div>
 
-                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                      <div className="pt-2 border-t border-border flex items-center justify-between">
                         <Link
                           href={`/student/learning/${trial.courseId}`}
-                          className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+                          className="text-xs text-primary hover:underline font-medium"
                         >
                           Open Course →
                         </Link>
@@ -470,10 +470,10 @@ function StudentPaymentsContent() {
 
         {/* Transaction History */}
         <Card elevated>
-          <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <CardHeader className="p-5 border-b border-border flex items-center justify-between">
             <div>
               <CardTitle className="text-base">Payment &amp; Invoices History</CardTitle>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 Audit ledger of all course enrollments, UPI transactions, and verified tax receipts.
               </p>
             </div>
@@ -481,18 +481,18 @@ function StudentPaymentsContent() {
           <CardBody className="p-0">
             {payments.length === 0 ? (
               <div className="text-center py-12">
-                <Receipt className="size-10 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
-                <p className="font-semibold text-sm text-slate-700 dark:text-slate-300">
+                <Receipt className="size-10 text-muted-foreground mx-auto mb-2" />
+                <p className="font-semibold text-sm text-foreground">
                   No payment transactions found
                 </p>
-                <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
                   When you purchase lifetime course access, your invoices and receipts will appear here.
                 </p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 text-slate-500 uppercase tracking-wider font-semibold">
+                  <thead className="bg-card border-b border-border text-muted-foreground uppercase tracking-wider font-semibold">
                     <tr>
                       <th className="px-5 py-3">Course / Purpose</th>
                       <th className="px-5 py-3">Mode</th>
@@ -504,15 +504,15 @@ function StudentPaymentsContent() {
                       <th className="px-5 py-3 text-right">Access</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  <tbody className="divide-y divide-border">
                     {payments.map((p) => {
                       const isAccessActive =
                         p.status === 'success' ||
                         p.status === 'completed' ||
                         p.status === 'verified';
                       return (
-                        <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                          <td className="px-5 py-3.5 font-medium text-slate-900 dark:text-white max-w-xs truncate">
+                        <tr key={p.id} className="hover:bg-muted/50">
+                          <td className="px-5 py-3.5 font-medium text-heading max-w-xs truncate">
                             {p.courseTitle || p.purpose || 'Course Enrollment'}
                           </td>
                           <td className="px-5 py-3.5">
@@ -520,7 +520,7 @@ function StudentPaymentsContent() {
                               {p.courseMode || 'ONLINE'}
                             </Badge>
                           </td>
-                          <td className="px-5 py-3.5 font-bold text-slate-900 dark:text-white">
+                          <td className="px-5 py-3.5 font-bold text-heading">
                             ₹{num(p.amount)}
                           </td>
                           <td className="px-5 py-3.5">
@@ -538,35 +538,35 @@ function StudentPaymentsContent() {
                               {p.status === 'pending_verification' ? 'Pending Review' : p.status.toUpperCase()}
                             </Badge>
                           </td>
-                          <td className="px-5 py-3.5 font-mono text-[11px] text-slate-500">
+                          <td className="px-5 py-3.5 font-mono text-[11px] text-muted-foreground">
                             {p.transactionRef || p.transactionId || '—'}
                           </td>
-                          <td className="px-5 py-3.5 text-slate-500">
+                          <td className="px-5 py-3.5 text-muted-foreground">
                             {formatDate(p.createdAt || p.paidAt)}
                           </td>
                           <td className="px-5 py-3.5">
                             {isAccessActive ? (
                               <button
                                 onClick={() => handleViewInvoice(p.id)}
-                                className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+                                className="inline-flex items-center gap-1 text-primary hover:underline font-medium"
                               >
                                 <Download className="size-3" />
                                 Invoice
                               </button>
                             ) : (
-                              <span className="text-slate-400">—</span>
+                              <span className="text-muted-foreground">—</span>
                             )}
                           </td>
                           <td className="px-5 py-3.5 text-right">
                             {p.courseId && isAccessActive ? (
                               <Link
                                 href={`/student/learning/${p.courseId}`}
-                                className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+                                className="text-primary hover:underline font-medium"
                               >
                                 View Course →
                               </Link>
                             ) : (
-                              <span className="text-slate-400 text-[11px]">
+                              <span className="text-muted-foreground text-[11px]">
                                 {p.status === 'pending' || p.status === 'pending_verification' ? 'Verifying…' : 'Locked'}
                               </span>
                             )}
@@ -594,11 +594,11 @@ function StudentPaymentsContent() {
 
           {checkoutSuccessMessage ? (
             <div className="p-8 text-center space-y-4">
-              <CheckCircle2 className="size-12 text-emerald-500 mx-auto" />
-              <h3 className="font-bold text-lg text-slate-900 dark:text-white">
+              <CheckCircle2 className="size-12 text-primary mx-auto" />
+              <h3 className="font-bold text-lg text-heading">
                 Payment Received
               </h3>
-              <p className="text-xs text-slate-600 dark:text-slate-300 max-w-md mx-auto">
+              <p className="text-xs text-muted-foreground max-w-md mx-auto">
                 {checkoutSuccessMessage}
               </p>
               <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
@@ -613,7 +613,7 @@ function StudentPaymentsContent() {
                   Close &amp; Return to Payments
                 </Button>
                 {selectedTrialToBuy?.courseId && (
-                  <Button asChild variant="primary" size="sm" className="bg-emerald-600 hover:bg-emerald-700">
+                  <Button asChild variant="primary" size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground">
                     <Link href={`/student/learning/${selectedTrialToBuy.courseId}`}>
                       Open Purchased Course →
                     </Link>
@@ -624,18 +624,18 @@ function StudentPaymentsContent() {
           ) : selectedTrialToBuy ? (
             <form onSubmit={handleConfirmCheckout} className="p-6 space-y-5">
               {/* Course Overview Card */}
-              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="p-4 rounded-xl bg-card border border-border flex items-center justify-between">
                 <div>
-                  <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                  <h4 className="font-bold text-sm text-heading">
                     {courseConfig?.title || selectedTrialToBuy.courseName}
                   </h4>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Payee: {courseConfig?.merchantName || 'Winners Creek LMS'} · Category: {courseConfig?.category || 'Employability'}
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Payee: {courseConfig?.merchantName || 'SkillSharp LMS'} · Category: {courseConfig?.category || 'Employability'}
                   </p>
                 </div>
                 <div className="text-right">
-                  <span className="text-xs text-slate-400 uppercase tracking-wider block font-semibold">Course Fee</span>
-                  <span className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider block font-semibold">Course Fee</span>
+                  <span className="text-xl font-extrabold text-primary">
                     ₹{num(courseConfig?.fee ?? 2499)}
                   </span>
                 </div>
@@ -643,7 +643,7 @@ function StudentPaymentsContent() {
 
               {/* Mode Selection */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                <label className="text-xs font-semibold text-foreground">
                   Select Learning Mode:
                 </label>
                 <div className="grid grid-cols-2 gap-2">
@@ -652,12 +652,12 @@ function StudentPaymentsContent() {
                     onClick={() => setSelectedMode('ONLINE')}
                     className={`p-3 rounded-lg border text-left text-xs transition-all ${
                       selectedMode === 'ONLINE'
-                        ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-900 dark:text-indigo-200 font-semibold'
-                        : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 text-slate-700 dark:text-slate-300'
+                        ? 'border-primary bg-primary/10 text-heading font-semibold'
+                        : 'border-border hover:border-accent text-foreground'
                     }`}
                   >
                     <p className="font-bold">Online Platform</p>
-                    <p className="text-[11px] text-slate-500 font-normal">Self-Paced, Virtual Classrooms</p>
+                    <p className="text-[11px] text-muted-foreground font-normal">Self-Paced, Virtual Classrooms</p>
                   </button>
 
                   <button
@@ -665,19 +665,19 @@ function StudentPaymentsContent() {
                     onClick={() => setSelectedMode('OFFLINE')}
                     className={`p-3 rounded-lg border text-left text-xs transition-all ${
                       selectedMode === 'OFFLINE'
-                        ? 'border-amber-500 bg-amber-50/50 dark:bg-amber-950/20 text-amber-900 dark:text-amber-200 font-semibold'
-                        : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 text-slate-700 dark:text-slate-300'
+                        ? 'border-accent bg-accent/20 text-heading font-semibold'
+                        : 'border-border hover:border-accent text-foreground'
                     }`}
                   >
                     <p className="font-bold">Campus Cohort</p>
-                    <p className="text-[11px] text-slate-500 font-normal">In-Person Campus Sessions</p>
+                    <p className="text-[11px] text-muted-foreground font-normal">In-Person Campus Sessions</p>
                   </button>
                 </div>
               </div>
 
               {/* Payment Method Tabs */}
               <div className="space-y-3">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                <label className="text-xs font-semibold text-foreground">
                   Select Payment Method:
                 </label>
                 <div className="grid grid-cols-2 gap-2">
@@ -686,14 +686,14 @@ function StudentPaymentsContent() {
                     onClick={() => setSelectedMethod('UPI')}
                     className={`p-3 rounded-lg border text-left text-xs transition-all flex items-center gap-2 ${
                       selectedMethod === 'UPI'
-                        ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/20 font-semibold text-indigo-900 dark:text-indigo-200'
-                        : 'border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                        ? 'border-primary bg-primary/10 font-semibold text-heading'
+                        : 'border-border text-foreground'
                     }`}
                   >
-                    <QrCode className="size-4 text-indigo-500" />
+                    <QrCode className="size-4 text-primary" />
                     <div>
                       <p className="font-bold">UPI QR / Direct Pay</p>
-                      <p className="text-[10px] text-slate-500">Google Pay, PhonePe, Paytm</p>
+                      <p className="text-[10px] text-muted-foreground">Google Pay, PhonePe, Paytm</p>
                     </div>
                   </button>
 
@@ -702,14 +702,14 @@ function StudentPaymentsContent() {
                     onClick={() => setSelectedMethod('GATEWAY')}
                     className={`p-3 rounded-lg border text-left text-xs transition-all flex items-center gap-2 ${
                       selectedMethod === 'GATEWAY'
-                        ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/20 font-semibold text-indigo-900 dark:text-indigo-200'
-                        : 'border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                        ? 'border-primary bg-primary/10 font-semibold text-heading'
+                        : 'border-border text-foreground'
                     }`}
                   >
-                    <CreditCard className="size-4 text-indigo-500" />
+                    <CreditCard className="size-4 text-primary" />
                     <div>
                       <p className="font-bold">Instant Gateway</p>
-                      <p className="text-[10px] text-slate-500">Card / NetBanking / Mock</p>
+                      <p className="text-[10px] text-muted-foreground">Card / NetBanking / Mock</p>
                     </div>
                   </button>
                 </div>
@@ -717,15 +717,15 @@ function StudentPaymentsContent() {
 
               {/* UPI QR Display & UTR Submission */}
               {selectedMethod === 'UPI' && (
-                <div className="p-4 rounded-xl border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/30 dark:bg-indigo-950/20 space-y-4">
+                <div className="p-4 rounded-xl border border-border bg-card space-y-4">
                   <div className="flex flex-col sm:flex-row items-center gap-4">
-                    <div className="size-32 bg-white p-2 rounded-xl border border-slate-200 shadow-sm shrink-0 flex items-center justify-center">
+                    <div className="size-32 bg-card p-2 rounded-xl border border-border shadow-sm shrink-0 flex items-center justify-center">
                       <Image
                         src={
                           courseConfig?.qrCodeUrl ||
                           `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
                             `upi://pay?pa=${courseConfig?.upiId || 'eedi@icici'}&pn=${encodeURIComponent(
-                              courseConfig?.merchantName || 'Winners Creek LMS'
+                              courseConfig?.merchantName || 'SkillSharp LMS'
                             )}&am=${courseConfig?.fee ?? 2499}&cu=INR`
                           )}`
                         }
@@ -736,19 +736,19 @@ function StudentPaymentsContent() {
                       />
                     </div>
                     <div className="space-y-1.5 text-xs">
-                      <p className="font-bold text-slate-900 dark:text-white">
+                      <p className="font-bold text-heading">
                         Scan with any UPI App to Pay ₹{num(courseConfig?.fee ?? 2499)}
                       </p>
-                      <p className="text-slate-600 dark:text-slate-300">
+                      <p className="text-muted-foreground">
                         UPI ID:{' '}
-                        <strong className="font-mono text-indigo-600 dark:text-indigo-400 select-all">
+                        <strong className="font-mono text-primary select-all">
                           {courseConfig?.upiId || 'eedi@icici'}
                         </strong>
                       </p>
-                      <p className="text-slate-500 text-[11px]">
-                        Payee: {courseConfig?.merchantName || 'Winners Creek LMS'}
+                      <p className="text-muted-foreground text-[11px]">
+                        Payee: {courseConfig?.merchantName || 'SkillSharp LMS'}
                       </p>
-                      <p className="text-slate-500 text-[11px] leading-relaxed">
+                      <p className="text-muted-foreground text-[11px] leading-relaxed">
                         {courseConfig?.paymentInstructions ||
                           'After paying, enter your 12-digit UPI UTR reference number below to verify your transaction.'}
                       </p>
@@ -757,7 +757,7 @@ function StudentPaymentsContent() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                     <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      <label className="text-[11px] font-semibold text-foreground">
                         12-Digit Transaction UTR Reference *
                       </label>
                       <input
@@ -765,13 +765,13 @@ function StudentPaymentsContent() {
                         value={transactionRef}
                         onChange={(e) => setTransactionRef(e.target.value)}
                         placeholder="e.g. 429182749102"
-                        className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full rounded-lg border border-input bg-card px-3 py-1.5 text-xs font-mono text-heading focus:outline-none focus:ring-2 focus:ring-ring"
                         required
                       />
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      <label className="text-[11px] font-semibold text-foreground">
                         Your UPI ID (Optional)
                       </label>
                       <input
@@ -779,25 +779,25 @@ function StudentPaymentsContent() {
                         value={payerUpiId}
                         onChange={(e) => setPayerUpiId(e.target.value)}
                         placeholder="e.g. student@okhdfcbank"
-                        className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full rounded-lg border border-input bg-card px-3 py-1.5 text-xs font-mono text-heading focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                     </div>
                   </div>
                 </div>
               )}
 
-              <div className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
+              <div className="space-y-2 text-xs text-muted-foreground">
                 <div className="flex items-center gap-2">
-                  <ShieldCheck className="size-4 text-emerald-500" />
+                  <ShieldCheck className="size-4 text-primary" />
                   <span>Instant access without data loss (your free trial progress is preserved)</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="size-4 text-emerald-500" />
+                  <CheckCircle2 className="size-4 text-primary" />
                   <span>{courseConfig?.refundPolicy || '7-Day refund policy applies.'}</span>
                 </div>
               </div>
 
-              <div className="pt-3 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+              <div className="pt-3 flex justify-end gap-2 border-t border-border">
                 <Button
                   type="button"
                   variant="secondary"
@@ -832,57 +832,57 @@ function StudentPaymentsContent() {
           <DialogHeader>
             <DialogTitle>Tax Invoice &amp; Payment Receipt</DialogTitle>
             <DialogDescription>
-              Official electronic receipt issued by Winners Creek LMS.
+              Official electronic receipt issued by SkillSharp LMS.
             </DialogDescription>
           </DialogHeader>
 
           {loadingInvoice ? (
-            <div className="p-12 text-center text-xs text-slate-500">
+            <div className="p-12 text-center text-xs text-muted-foreground">
               Generating invoice preview…
             </div>
           ) : invoiceData ? (
-            <div className="p-6 space-y-6 bg-white dark:bg-slate-900">
-              <div className="flex justify-between items-start border-b border-slate-200 dark:border-slate-800 pb-4">
+            <div className="p-6 space-y-6 bg-card">
+              <div className="flex justify-between items-start border-b border-border pb-4">
                 <div className="flex flex-col gap-1">
                   <WinnersCreekLogo variant="invoice" />
-                  <p className="text-xs text-slate-500 mt-1">Learning &amp; Education Platform</p>
+                  <p className="text-xs text-muted-foreground mt-1">Learning &amp; Education Platform</p>
                 </div>
                 <div className="text-right">
                   <Badge tone="success">
                     {invoiceData.status.toUpperCase()}
                   </Badge>
-                  <p className="font-mono text-xs font-semibold text-slate-700 dark:text-slate-300 mt-1">
+                  <p className="font-mono text-xs font-semibold text-foreground mt-1">
                     #{invoiceData.invoiceNumber}
                   </p>
-                  <p className="text-[11px] text-slate-400">Date: {formatDate(invoiceData.issuedAt)}</p>
+                  <p className="text-[11px] text-muted-foreground">Date: {formatDate(invoiceData.issuedAt)}</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4 text-xs">
                 <div>
-                  <p className="font-bold text-slate-500 uppercase text-[10px]">Billed To</p>
-                  <p className="font-semibold text-slate-800 dark:text-slate-200 mt-1">
+                  <p className="font-bold text-muted-foreground uppercase text-[10px]">Billed To</p>
+                  <p className="font-semibold text-heading mt-1">
                     {invoiceData.studentName}
                   </p>
-                  <p className="text-slate-500">{invoiceData.collegeName}</p>
+                  <p className="text-muted-foreground">{invoiceData.collegeName}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-slate-500 uppercase text-[10px]">Payment Method</p>
-                  <p className="font-semibold text-slate-800 dark:text-slate-200 mt-1">
+                  <p className="font-bold text-muted-foreground uppercase text-[10px]">Payment Method</p>
+                  <p className="font-semibold text-heading mt-1">
                     {invoiceData.paymentMethod || 'UPI / Electronic'}
                   </p>
-                  <p className="text-slate-500">Currency: INR (₹)</p>
+                  <p className="text-muted-foreground">Currency: INR (₹)</p>
                 </div>
               </div>
 
               <table className="w-full text-xs text-left">
-                <thead className="border-y border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                <thead className="border-y border-border bg-muted/50">
                   <tr>
                     <th className="py-2 px-3">Description</th>
                     <th className="py-2 px-3 text-right">Amount</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                <tbody className="divide-y divide-border">
                   {invoiceData.items.map((item, idx) => (
                     <tr key={idx}>
                       <td className="py-3 px-3">{item.description}</td>
@@ -892,9 +892,9 @@ function StudentPaymentsContent() {
                 </tbody>
               </table>
 
-              <div className="flex justify-between items-center border-t border-slate-200 dark:border-slate-800 pt-4">
+              <div className="flex justify-between items-center border-t border-border pt-4">
                 <span className="font-bold text-sm">Total Paid</span>
-                <span className="font-bold text-lg text-emerald-600 dark:text-emerald-400">
+                <span className="font-bold text-lg text-primary">
                   ₹{num(invoiceData.total)}
                 </span>
               </div>
@@ -910,7 +910,7 @@ export default function StudentPaymentsPage() {
   return (
     <React.Suspense
       fallback={
-        <div className="p-12 text-center text-xs text-slate-500">
+        <div className="p-12 text-center text-xs text-muted-foreground">
           Loading billing and payment records…
         </div>
       }

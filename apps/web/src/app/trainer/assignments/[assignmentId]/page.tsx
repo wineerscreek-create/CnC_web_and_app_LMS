@@ -157,7 +157,7 @@ export default function AssignmentSubmissionsPage() {
                               href={file.downloadUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="mt-1 inline-flex items-center gap-1 text-sm font-semibold text-indigo hover:underline"
+                              className="mt-1 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline"
                             >
                               <Download className="size-3" aria-hidden />
                               {file.filename}

@@ -470,7 +470,7 @@ export function SnakeAndLadderGame({
                   disabled={selectedOption === null || isSubmitting}
                   loading={isSubmitting}
                   onClick={handleSubmitChallenge}
-                  className="bg-red-500 hover:bg-red-600 text-white font-bold"
+                  className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold"
                 >
                   Confront Snake
                 </Button>

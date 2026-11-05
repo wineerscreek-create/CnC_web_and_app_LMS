@@ -6,32 +6,28 @@ import { StoreProvider } from '@/store/provider';
 import { ThemeProvider } from '@/lib/theme/ThemeContext';
 import '@/styles/globals.css';
 
-/**
- * Typography is declared in `globals.css` rather than fetched from a font CDN at build time.
- */
-
 export const metadata: Metadata = {
   title: {
-    default: 'Winners Creek — Learning & Education Platform',
-    template: '%s · Winners Creek',
+    default: 'SkillSharp — Campus to Corporate',
+    template: '%s · SkillSharp',
   },
   description:
-    'Winners Creek is a modern learning platform connecting participants, trainers, colleges and digital learning experiences.',
+    'SkillSharp — An elite career-readiness and soft-skills platform empowering students to learn, practise, and build essential skills for professional career success.',
   robots: { index: true, follow: true },
-  applicationName: 'Winners Creek',
+  applicationName: 'SkillSharp — Campus to Corporate',
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#0b0f19',
+  themeColor: '#4A5D4E',
 };
 
 const themeAntiFlashScript = `
 (function() {
   try {
-    var stored = localStorage.getItem('wc_theme') || localStorage.getItem('winnerscreek-theme');
-    var isDark = stored ? stored === 'dark' : true;
+    var stored = localStorage.getItem('skillsharp_theme') || localStorage.getItem('cnc_theme') || localStorage.getItem('wc_theme');
+    var isDark = stored === 'dark';
     var root = document.documentElement;
     if (isDark) {
       root.classList.add('dark');
@@ -50,11 +46,11 @@ const themeAntiFlashScript = `
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" className="light" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeAntiFlashScript }} />
       </head>
-      <body className="relative min-h-screen antialiased selection:bg-indigo-500/30 selection:text-white bg-app text-ink-1">
+      <body className="relative min-h-screen antialiased selection:bg-accent/40 selection:text-foreground bg-background text-foreground">
         <StoreProvider>
           <ThemeProvider>
             <GlobalBackgroundProvider>
@@ -63,7 +59,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </div>
               <Toaster
                 position="top-right"
-                toastOptions={{ style: { fontSize: '13px', borderRadius: '10px' } }}
+                toastOptions={{
+                  style: {
+                    fontSize: '13px',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(23, 23, 23, 0.08)',
+                    boxShadow: '0 8px 24px -4px rgba(23, 23, 23, 0.08)',
+                  },
+                }}
               />
             </GlobalBackgroundProvider>
           </ThemeProvider>

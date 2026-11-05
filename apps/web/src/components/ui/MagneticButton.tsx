@@ -58,8 +58,8 @@ export function MagneticButton({
   };
 
   const variantClasses = {
-    primary: 'bg-indigo hover:bg-indigo-600 text-white shadow-md shadow-indigo-600/30 border border-indigo-400/30',
-    secondary: 'bg-white/10 hover:bg-white/15 text-white border border-white/20 shadow-sm backdrop-blur-md',
+    primary: 'bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm border border-primary/30',
+    secondary: 'bg-card hover:bg-muted text-foreground border border-border shadow-sm',
     glass: 'bg-white/[0.06] hover:bg-white/[0.12] text-white border border-white/15 backdrop-blur-lg',
     ghost: 'bg-transparent hover:bg-white/[0.08] text-white/90 border border-transparent',
   };

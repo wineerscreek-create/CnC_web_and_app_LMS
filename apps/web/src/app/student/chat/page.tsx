@@ -92,7 +92,7 @@ export default function StudentChatPage() {
       id: 'welcome-1',
       sender: 'assistant',
       content:
-        'Hello! I am your Winners Creek AI Academic Assistant. I provide truthful, grounded guidance on your active courses, diagnosed EEDI employability pillars, ATS resume compatibility, and practice lab milestones.\n\nHow can I help you today?',
+        'Hello! I am your SkillSharp AI Academic Assistant. I provide truthful, grounded guidance on your active courses, diagnosed EEDI employability pillars, ATS resume compatibility, and practice lab milestones.\n\nHow can I help you today?',
       citations: [
         'Enrolled Course Catalog & Syllabus',
         'Verified EEDI Diagnostic Evaluation',
@@ -305,8 +305,8 @@ export default function StudentChatPage() {
               className={cn(
                 'tactile-press rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
                 activeMainMode === 'mentor'
-                  ? 'bg-indigo text-white shadow-xs'
-                  : 'bg-white dark:bg-slate-800 text-ink-2 dark:text-slate-300 border border-line dark:border-slate-700 hover:bg-app'
+                  ? 'bg-accent text-accent-foreground shadow-xs'
+                  : 'bg-card text-muted-foreground border border-border hover:bg-muted hover:text-foreground'
               )}
             >
               <Users className="size-3.5 inline mr-1.5" />
@@ -318,11 +318,11 @@ export default function StudentChatPage() {
               className={cn(
                 'tactile-press rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
                 activeMainMode === 'ai'
-                  ? 'bg-indigo text-white shadow-xs'
-                  : 'bg-white dark:bg-slate-800 text-ink-2 dark:text-slate-300 border border-line dark:border-slate-700 hover:bg-app'
+                  ? 'bg-accent text-accent-foreground shadow-xs'
+                  : 'bg-card text-muted-foreground border border-border hover:bg-muted hover:text-foreground'
               )}
             >
-              <Sparkles className="size-3.5 inline mr-1.5 text-amber-400" />
+              <Sparkles className="size-3.5 inline mr-1.5 text-accent" />
               AI Academic Coach
             </button>
           </div>
@@ -332,19 +332,19 @@ export default function StudentChatPage() {
       {activeMainMode === 'ai' ? (
         /* ==================== AI ACADEMIC COACH VIEW ==================== */
         <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
-          <div className="flex flex-col h-[650px] bg-white dark:bg-slate-900 border border-line dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+          <div className="flex flex-col h-[650px] bg-card border border-border rounded-2xl shadow-card overflow-hidden">
             {/* Header */}
-            <div className="px-5 py-3.5 border-b border-line dark:border-slate-800 bg-surface dark:bg-slate-900 flex items-center justify-between">
+            <div className="px-5 py-3.5 border-b border-border bg-card flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <span className="flex size-9 items-center justify-center rounded-xl bg-indigo/10 text-indigo dark:bg-indigo/20">
+                <span className="flex size-9 items-center justify-center rounded-xl bg-muted text-primary border border-border">
                   <Bot className="size-5" />
                 </span>
                 <div>
-                  <h2 className="text-sm font-bold text-ink-1 dark:text-white flex items-center gap-2">
-                    Winners Creek AI Academic Assistant
-                    <Badge tone="indigo" className="text-[10px] py-0 px-1.5">Grounded RAG</Badge>
+                  <h2 className="text-sm font-bold text-heading flex items-center gap-2">
+                    SkillSharp AI Academic Assistant
+                    <Badge tone="mustard" className="text-[10px] py-0 px-1.5">Grounded RAG</Badge>
                   </h2>
-                  <p className="text-xs text-ink-3 dark:text-slate-400">
+                  <p className="text-xs text-muted-foreground">
                     Truthful responses referencing your enrolled courses, EEDI scores, and resume skills.
                   </p>
                 </div>
@@ -355,7 +355,7 @@ export default function StudentChatPage() {
             </div>
 
             {/* Chat Messages */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 bg-app/50 dark:bg-slate-950/40">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 bg-background">
               {aiMessages.map((msg) => {
                 const isMe = msg.sender === 'user';
                 return (
@@ -365,7 +365,7 @@ export default function StudentChatPage() {
                   >
                     <div className="flex items-start gap-2.5 max-w-[85%]">
                       {!isMe && (
-                        <div className="size-8 rounded-xl bg-indigo/10 text-indigo dark:bg-indigo/20 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                        <div className="size-8 rounded-xl bg-muted text-primary border border-border font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
                           <Bot className="size-4" />
                         </div>
                       )}
@@ -373,22 +373,22 @@ export default function StudentChatPage() {
                         className={cn(
                           'p-4 rounded-2xl text-sm leading-relaxed shadow-xs',
                           isMe
-                            ? 'bg-indigo text-white rounded-br-xs'
-                            : 'bg-white dark:bg-slate-900 text-ink-1 dark:text-slate-100 border border-line dark:border-slate-800 rounded-bl-xs'
+                            ? 'bg-primary text-primary-foreground rounded-br-xs'
+                            : 'bg-card text-foreground border border-border rounded-bl-xs'
                         )}
                       >
                         <p className="whitespace-pre-wrap break-words">{msg.content}</p>
 
                         {/* Citations */}
                         {msg.citations && msg.citations.length > 0 && (
-                          <div className="mt-3 pt-2.5 border-t border-line/60 dark:border-slate-800 flex flex-wrap items-center gap-1.5">
-                            <span className="text-[11px] font-semibold text-ink-3 dark:text-slate-400 flex items-center gap-1">
-                              <CheckCircle2 className="size-3 text-success inline" /> Citations:
+                          <div className="mt-3 pt-2.5 border-t border-border flex flex-wrap items-center gap-1.5">
+                            <span className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
+                              <CheckCircle2 className="size-3 text-primary inline" /> Citations:
                             </span>
                             {msg.citations.map((c) => (
                               <span
                                 key={c}
-                                className="inline-block text-[10px] font-medium px-2 py-0.5 rounded-md bg-surface-muted dark:bg-slate-800 text-ink-2 dark:text-slate-300 border border-line dark:border-slate-700"
+                                className="inline-block text-[10px] font-medium px-2 py-0.5 rounded-md bg-muted text-foreground border border-border"
                               >
                                 {c}
                               </span>
@@ -397,7 +397,7 @@ export default function StudentChatPage() {
                         )}
                       </div>
                     </div>
-                    <span className="text-[10px] text-ink-3 dark:text-slate-500 mt-1 px-1">
+                    <span className="text-[10px] text-muted-foreground mt-1 px-1">
                       {relativeTime(msg.createdAt)}
                     </span>
                   </div>
@@ -406,12 +406,12 @@ export default function StudentChatPage() {
 
               {aiLoading && (
                 <div className="flex items-start gap-2.5 max-w-[80%]">
-                  <div className="size-8 rounded-xl bg-indigo/10 text-indigo dark:bg-indigo/20 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                  <div className="size-8 rounded-xl bg-muted text-primary border border-border font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
                     <Bot className="size-4" />
                   </div>
-                  <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-line dark:border-slate-800 rounded-bl-xs">
-                    <p className="text-xs text-ink-3 dark:text-slate-400 flex items-center gap-2">
-                      <span className="inline-block size-2 rounded-full bg-indigo animate-ping" />
+                  <div className="p-3.5 rounded-2xl bg-card border border-border rounded-bl-xs">
+                    <p className="text-xs text-muted-foreground flex items-center gap-2">
+                      <span className="inline-block size-2 rounded-full bg-accent animate-ping" />
                       Analyzing curriculum records and synthesizing response…
                     </p>
                   </div>
@@ -426,14 +426,14 @@ export default function StudentChatPage() {
                 e.preventDefault();
                 handleAiSend();
               }}
-              className="p-3 border-t border-line dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2"
+              className="p-3 border-t border-border bg-card flex items-center gap-2"
             >
               <input
                 type="text"
                 value={aiInput}
                 onChange={(e) => setAiInput(e.target.value)}
                 placeholder="Ask about your courses, skill gaps, ATS keywords, or EEDI metrics…"
-                className="flex-1 px-4 py-2.5 text-sm rounded-xl border border-line dark:border-slate-700 bg-app dark:bg-slate-950 focus:outline-hidden focus:ring-2 focus:ring-indigo text-ink-1 dark:text-white placeholder:text-ink-3"
+                className="flex-1 px-4 py-2.5 text-sm rounded-xl border border-input bg-background focus:ring-2 focus:ring-ring text-foreground placeholder:text-muted-foreground"
               />
               <Button
                 type="submit"
@@ -451,8 +451,8 @@ export default function StudentChatPage() {
           <div className="space-y-4">
             <Card className="card-interactive">
               <CardBody className="p-4 space-y-3">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-ink-3 dark:text-slate-400 flex items-center gap-1.5">
-                  <Compass className="size-3.5 text-indigo" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Compass className="size-3.5 text-primary" />
                   Suggested Questions
                 </h3>
                 <div className="space-y-2">
@@ -462,7 +462,7 @@ export default function StudentChatPage() {
                       type="button"
                       onClick={() => handleAiSend(sug)}
                       disabled={aiLoading}
-                      className="w-full text-left p-2.5 rounded-xl border border-line dark:border-slate-800 bg-surface dark:bg-slate-850 hover:border-indigo/40 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 text-xs font-medium text-ink-1 dark:text-slate-200 transition-all tactile-press"
+                      className="w-full text-left p-2.5 rounded-xl border border-border bg-card hover:border-accent hover:bg-muted text-xs font-medium text-foreground transition-all tactile-press"
                     >
                       {sug}
                     </button>
@@ -473,14 +473,14 @@ export default function StudentChatPage() {
 
             <Card className="card-interactive">
               <CardBody className="p-4 space-y-3">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-ink-3 dark:text-slate-400 flex items-center gap-1.5">
-                  <FileCheck2 className="size-3.5 text-success" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <FileCheck2 className="size-3.5 text-primary" />
                   Grounded Verification
                 </h3>
-                <p className="text-xs text-ink-2 dark:text-slate-300 leading-relaxed">
+                <p className="text-xs text-muted-foreground leading-relaxed">
                   The AI Assistant answers strictly from your authenticated student record, syllabus catalog, and diagnostic evaluations. It never fabricates grades or scores.
                 </p>
-                <div className="rounded-xl bg-app dark:bg-slate-950 p-2.5 text-[11px] text-ink-3 dark:text-slate-400 space-y-1">
+                <div className="rounded-xl bg-muted/40 border border-border p-2.5 text-[11px] text-muted-foreground space-y-1">
                   <div>✓ PostgreSQL Enrolled Courses</div>
                   <div>✓ EEDI 5-Parameter Diagnostics</div>
                   <div>✓ ATS Resume Keyword Extractions</div>
@@ -491,19 +491,19 @@ export default function StudentChatPage() {
         </div>
       ) : (
         /* ==================== MENTOR CHAT VIEW ==================== */
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[650px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[650px] bg-card border border-border rounded-2xl shadow-card overflow-hidden">
           {/* Sidebar */}
-          <div className="lg:col-span-4 border-r border-slate-200 dark:border-slate-800 flex flex-col h-full bg-slate-50/50 dark:bg-slate-900/50">
+          <div className="lg:col-span-4 border-r border-border flex flex-col h-full bg-muted/30">
             {/* Tabs: Recent vs All Mentors */}
-            <div className="p-3 border-b border-slate-200 dark:border-slate-800 flex gap-1">
+            <div className="p-3 border-b border-border flex gap-1">
               <button
                 type="button"
                 onClick={() => setActiveTab('recent')}
                 className={cn(
                   'flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors',
                   activeTab === 'recent'
-                    ? 'bg-white dark:bg-slate-800 text-indigo shadow-xs'
-                    : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                    ? 'bg-card text-foreground shadow-xs border border-border'
+                    : 'text-muted-foreground hover:text-foreground'
                 )}
               >
                 Conversations ({conversations.length})
@@ -514,8 +514,8 @@ export default function StudentChatPage() {
                 className={cn(
                   'flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors',
                   activeTab === 'mentors'
-                    ? 'bg-white dark:bg-slate-800 text-indigo shadow-xs'
-                    : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                    ? 'bg-card text-foreground shadow-xs border border-border'
+                    : 'text-muted-foreground hover:text-foreground'
                 )}
               >
                 All Mentors ({mentors.length})
@@ -523,25 +523,25 @@ export default function StudentChatPage() {
             </div>
 
             {/* List */}
-            <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60">
+            <div className="flex-1 overflow-y-auto divide-y divide-border">
               {loadingInitial ? (
                 <div className="p-4 space-y-3">
                   {[1, 2, 3].map((n) => (
                     <div key={n} className="flex gap-3 items-center animate-pulse">
-                      <div className="size-10 rounded-full bg-slate-200 dark:bg-slate-700" />
+                      <div className="size-10 rounded-full bg-muted" />
                       <div className="flex-1 space-y-1.5">
-                        <div className="h-3.5 bg-slate-200 dark:bg-slate-700 rounded-sm w-3/4" />
-                        <div className="h-2.5 bg-slate-200 dark:bg-slate-700 rounded-sm w-1/2" />
+                        <div className="h-3.5 bg-muted rounded-sm w-3/4" />
+                        <div className="h-2.5 bg-muted rounded-sm w-1/2" />
                       </div>
                     </div>
                   ))}
                 </div>
               ) : activeTab === 'recent' ? (
                 conversations.length === 0 ? (
-                  <div className="p-6 text-center text-slate-400">
+                  <div className="p-6 text-center text-muted-foreground">
                     <MessageSquare className="size-8 mx-auto mb-2 opacity-40" />
                     <p className="text-xs">No active conversations yet.</p>
-                    <p className="text-[11px] text-slate-400 mt-1">
+                    <p className="text-[11px] text-muted-foreground mt-1">
                       Switch to &ldquo;All Mentors&rdquo; tab to start a dialogue.
                     </p>
                   </div>
@@ -556,30 +556,30 @@ export default function StudentChatPage() {
                         className={cn(
                           'w-full p-3.5 flex items-start gap-3 text-left transition-colors',
                           isSelected
-                            ? 'bg-indigo/5 dark:bg-indigo/10 border-l-2 border-indigo'
-                            : 'hover:bg-slate-100/60 dark:hover:bg-slate-800/40'
+                            ? 'bg-accent/20 border-l-2 border-accent text-accent-foreground'
+                            : 'hover:bg-muted text-foreground'
                         )}
                       >
-                        <div className="size-10 rounded-full bg-indigo/10 text-indigo font-bold text-sm flex items-center justify-center shrink-0">
+                        <div className="size-10 rounded-full bg-muted text-primary font-bold text-sm flex items-center justify-center shrink-0 border border-border">
                           {conv.participant.name.charAt(0)}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-1">
-                            <span className="font-semibold text-sm truncate text-slate-900 dark:text-slate-100">
+                            <span className="font-semibold text-sm truncate text-heading">
                               {conv.participant.name}
                             </span>
                             {conv.lastMessage && (
-                              <span className="text-[10px] text-slate-400 shrink-0">
+                              <span className="text-[10px] text-muted-foreground shrink-0">
                                 {relativeTime(conv.lastMessage.createdAt)}
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">
                             {conv.lastMessage?.content || 'No messages yet'}
                           </p>
                         </div>
                         {conv.unreadCount > 0 && (
-                          <span className="size-5 rounded-full bg-indigo text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                          <span className="size-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center shrink-0">
                             {conv.unreadCount}
                           </span>
                         )}
@@ -588,7 +588,7 @@ export default function StudentChatPage() {
                   })
                 )
               ) : mentors.length === 0 ? (
-                <div className="p-6 text-center text-slate-400">
+                <div className="p-6 text-center text-muted-foreground">
                   <User className="size-8 mx-auto mb-2 opacity-40" />
                   <p className="text-xs">No mentors assigned to your batch yet.</p>
                 </div>
@@ -603,18 +603,18 @@ export default function StudentChatPage() {
                       className={cn(
                         'w-full p-3.5 flex items-start gap-3 text-left transition-colors',
                         isSelected
-                          ? 'bg-indigo/5 dark:bg-indigo/10 border-l-2 border-indigo'
-                          : 'hover:bg-slate-100/60 dark:hover:bg-slate-800/40'
+                          ? 'bg-accent/20 border-l-2 border-accent text-accent-foreground'
+                          : 'hover:bg-muted text-foreground'
                       )}
                     >
-                      <div className="size-10 rounded-full bg-indigo/10 text-indigo font-bold text-sm flex items-center justify-center shrink-0">
+                      <div className="size-10 rounded-full bg-muted text-primary font-bold text-sm flex items-center justify-center shrink-0 border border-border">
                         {mentor.name.charAt(0)}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className="font-semibold text-sm truncate text-slate-900 dark:text-slate-100 block">
+                        <span className="font-semibold text-sm truncate text-heading block">
                           {mentor.name}
                         </span>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">
                           {mentor.batches?.map((b) => b.batchName).join(', ') || 'Assigned Mentor'}
                         </p>
                       </div>
@@ -626,40 +626,40 @@ export default function StudentChatPage() {
           </div>
 
           {/* Chat Pane */}
-          <div className="lg:col-span-8 flex flex-col h-full bg-white dark:bg-slate-900">
+          <div className="lg:col-span-8 flex flex-col h-full bg-card">
             {activeMentor ? (
               <>
                 {/* Active Mentor Header */}
-                <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/30 dark:bg-slate-900">
+                <div className="px-5 py-3 border-b border-border flex items-center justify-between bg-card">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="size-9 rounded-full bg-indigo/10 text-indigo font-bold text-sm flex items-center justify-center shrink-0">
+                    <div className="size-9 rounded-full bg-muted text-primary font-bold text-sm flex items-center justify-center shrink-0 border border-border">
                       {activeMentor.name.charAt(0)}
                     </div>
                     <div className="min-w-0">
-                      <h2 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                      <h2 className="text-sm font-bold text-heading truncate">
                         {activeMentor.name}
                       </h2>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                      <p className="text-xs text-muted-foreground truncate">
                         {activeMentor.email} · {activeMentor.role}
                       </p>
                     </div>
                   </div>
-                  <Badge tone="indigo" className="hidden sm:inline-flex text-xs">
+                  <Badge tone="mustard" className="hidden sm:inline-flex text-xs">
                     Mentor
                   </Badge>
                 </div>
 
                 {/* Messages List */}
-                <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 bg-slate-50/30 dark:bg-slate-950/20">
+                <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 bg-background">
                   {messages.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
-                      <div className="size-12 rounded-full bg-indigo/10 text-indigo flex items-center justify-center mb-2">
+                    <div className="h-full flex flex-col items-center justify-center text-center p-6 text-muted-foreground">
+                      <div className="size-12 rounded-full bg-muted text-primary flex items-center justify-center mb-2 border border-border">
                         <GraduationCap className="size-6" />
                       </div>
-                      <h3 className="font-semibold text-slate-800 dark:text-slate-200 text-base">
+                      <h3 className="font-semibold text-heading text-base">
                         Start a conversation with {activeMentor.name}
                       </h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mt-1">
+                      <p className="text-xs text-muted-foreground max-w-sm mt-1">
                         Ask questions regarding course topics, get guidance on assignments, or discuss your career goals.
                       </p>
                     </div>
@@ -673,7 +673,7 @@ export default function StudentChatPage() {
                         >
                           <div className="flex items-end gap-2 max-w-[80%]">
                             {!isMe && (
-                              <div className="size-7 rounded-full bg-indigo/20 text-indigo font-bold text-xs flex items-center justify-center shrink-0 mb-1">
+                              <div className="size-7 rounded-full bg-muted text-primary font-bold text-xs flex items-center justify-center shrink-0 mb-1 border border-border">
                                 {activeMentor.name.charAt(0)}
                               </div>
                             )}
@@ -681,14 +681,14 @@ export default function StudentChatPage() {
                               className={cn(
                                 'p-3.5 rounded-2xl text-sm leading-relaxed shadow-xs',
                                 isMe
-                                  ? 'bg-indigo text-white rounded-br-xs'
-                                  : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-bl-xs'
+                                  ? 'bg-primary text-primary-foreground rounded-br-xs'
+                                  : 'bg-card text-foreground border border-border rounded-bl-xs'
                               )}
                             >
                               <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                             </div>
                           </div>
-                          <span className="text-[10px] text-slate-400 mt-1 px-1">
+                          <span className="text-[10px] text-muted-foreground mt-1 px-1">
                             {relativeTime(msg.createdAt)}
                           </span>
                         </div>
@@ -701,14 +701,14 @@ export default function StudentChatPage() {
                 {/* Message Composer */}
                 <form
                   onSubmit={handleSend}
-                  className="p-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2"
+                  className="p-3 border-t border-border bg-card flex items-center gap-2"
                 >
                   <input
                     type="text"
                     value={inputMessage}
                     onChange={(e) => setInputMessage(e.target.value)}
                     placeholder={`Write a message to ${activeMentor.name}…`}
-                    className="flex-1 px-4 py-2.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-950 focus:outline-hidden focus:ring-2 focus:ring-indigo text-slate-900 dark:text-white placeholder:text-slate-400"
+                    className="flex-1 px-4 py-2.5 text-sm rounded-lg border border-input bg-background focus:ring-2 focus:ring-ring text-foreground placeholder:text-muted-foreground"
                   />
                   <Button
                     type="submit"
@@ -723,13 +723,13 @@ export default function StudentChatPage() {
               </>
             ) : (
               <div className="h-full flex flex-col items-center justify-center p-8 text-center">
-                <div className="size-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-3">
+                <div className="size-16 rounded-full bg-muted flex items-center justify-center text-muted-foreground mb-3 border border-border">
                   <MessageSquare className="size-8" />
                 </div>
-                <h3 className="font-semibold text-slate-800 dark:text-slate-200 text-base">
+                <h3 className="font-semibold text-heading text-base">
                   No conversation selected
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mt-1">
+                <p className="text-xs text-muted-foreground max-w-sm mt-1">
                   Choose a mentor from the sidebar to view past messages or start a new dialogue.
                 </p>
               </div>

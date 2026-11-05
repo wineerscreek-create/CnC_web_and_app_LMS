@@ -13,7 +13,7 @@ import Link from 'next/link';
 import * as React from 'react';
 
 import { Button } from '@/components/ui/button';
-import { WinnersCreekLogo } from '@/components/ui/WinnersCreekLogo';
+import { CNCLogo } from '@/components/ui/CNCLogo';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 
@@ -38,17 +38,13 @@ interface AssistantAnswer {
 }
 
 const STARTER_PROMPTS = [
-  'What is Winners Creek?',
+  'What is SkillSharp?',
   'What courses are available?',
   'How does practice & interview coaching work?',
 ];
 
 /**
- * Floating Homepage AI Chatbot (§6).
- *
- * Stays hidden on initial page load as a floating widget in the bottom-right corner.
- * Clicking the launcher expands a responsive floating panel without obstructing navigation.
- * Preserves complete conversation history across open/close cycles and supports Escape-to-close.
+ * Floating Homepage AI Chatbot (§6) — Ivory / Sage / Gold Theme.
  */
 export function HomeAssistant() {
   const [open, setOpen] = React.useState(false);
@@ -161,10 +157,10 @@ export function HomeAssistant() {
           {!open && (
             <span
               role="tooltip"
-              className="pointer-events-none absolute right-full top-1/2 mr-3 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900/90 px-3 py-1.5 text-xs font-medium text-white opacity-0 shadow-lg backdrop-blur transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100 dark:bg-slate-800"
+              className="pointer-events-none absolute right-full top-1/2 mr-3 -translate-y-1/2 whitespace-nowrap rounded-lg bg-popover px-3 py-1.5 text-xs font-medium text-popover-foreground opacity-0 shadow-lg border border-border transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100"
             >
               Chat with AI
-              <span className="absolute left-full top-1/2 -ml-1 -translate-y-1/2 border-4 border-transparent border-l-slate-900/90 dark:border-l-slate-800" />
+              <span className="absolute left-full top-1/2 -ml-1 -translate-y-1/2 border-4 border-transparent border-l-popover" />
             </span>
           )}
 
@@ -177,10 +173,10 @@ export function HomeAssistant() {
             aria-controls="home-assistant-panel"
             aria-label={open ? 'Close AI chat panel' : 'Chat with AI'}
             className={cn(
-              'relative flex size-14 items-center justify-center rounded-full text-white shadow-2xl transition-all duration-300',
-              'bg-gradient-to-tr from-indigo-600 via-indigo-500 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600',
-              'hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-400/40',
-              open ? 'rotate-90 bg-slate-800' : 'animate-bounce-subtle'
+              'relative flex size-14 items-center justify-center rounded-full text-primary-foreground shadow-2xl transition-all duration-300',
+              'bg-primary hover:bg-primary/90',
+              'hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/40',
+              open ? 'rotate-90 bg-foreground text-background' : 'animate-bounce-subtle'
             )}
           >
             {open ? (
@@ -189,8 +185,8 @@ export function HomeAssistant() {
               <>
                 <Bot className="size-6 transition-transform duration-200 group-hover:scale-110" aria-hidden />
                 <span className="absolute -top-1 -right-1 flex size-3.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex size-3.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" />
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-75" />
+                  <span className="relative inline-flex size-3.5 rounded-full border-2 border-background bg-accent" />
                 </span>
               </>
             )}
@@ -204,9 +200,9 @@ export function HomeAssistant() {
         ref={panelRef}
         role="dialog"
         aria-modal="false"
-        aria-label="Winners Creek AI Assistant"
+        aria-label="SkillSharp AI Assistant"
         className={cn(
-          'fixed bottom-24 right-4 sm:right-6 z-50 flex flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white/95 shadow-2xl backdrop-blur-xl transition-all duration-200 ease-out dark:border-white/10 dark:bg-slate-900/95',
+          'fixed bottom-24 right-4 sm:right-6 z-50 flex flex-col overflow-hidden rounded-2xl border border-border bg-popover shadow-2xl backdrop-blur-xl transition-all duration-200 ease-out text-popover-foreground',
           'w-[calc(100vw-32px)] sm:w-[400px] h-[550px] max-h-[calc(100dvh-120px)]',
           open
             ? 'scale-100 opacity-100 translate-y-0 pointer-events-auto'
@@ -214,22 +210,22 @@ export function HomeAssistant() {
         )}
       >
         {/* Panel Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-4 py-3 dark:border-white/5 dark:bg-slate-800/50">
+        <div className="flex items-center justify-between border-b border-border bg-card/80 px-4 py-3">
           <div className="flex items-center gap-2.5">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-muted text-primary border border-border">
               <Sparkles className="size-4" aria-hidden />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white">
-                  Winners Creek
+                <p className="text-xs font-bold uppercase tracking-wider text-heading">
+                  CNC
                 </p>
-                <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400">
+                <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary border border-primary/20">
                   AI Live
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Grounded academic & course advisor
+              <p className="text-[11px] text-muted-foreground">
+                Grounded academic &amp; course advisor
               </p>
             </div>
           </div>
@@ -241,7 +237,7 @@ export function HomeAssistant() {
                 onClick={handleClear}
                 aria-label="Clear conversation history"
                 title="Clear chat"
-                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <RotateCcw className="size-4" aria-hidden />
               </button>
@@ -250,7 +246,7 @@ export function HomeAssistant() {
               type="button"
               onClick={() => setOpen(false)}
               aria-label="Close chat"
-              className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="size-4" aria-hidden />
             </button>
@@ -260,9 +256,9 @@ export function HomeAssistant() {
         {/* Conversation Body */}
         <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 text-sm scroll-thin">
           {/* Welcome Intro */}
-          <div className="rounded-xl border border-indigo-50 bg-indigo-50/50 p-3.5 dark:border-indigo-950/40 dark:bg-indigo-950/20">
-            <p className="text-xs font-medium leading-relaxed text-slate-700 dark:text-slate-300">
-              👋 Hi! Ask me about our courses, 34 interactive skill games, practice interviews, or
+          <div className="rounded-xl border border-border bg-card/60 p-3.5">
+            <p className="text-xs font-medium leading-relaxed text-foreground">
+              👋 Hi! Ask me about our courses, interactive skill games, practice interviews, or
               how the EEDI employability rubric works. All answers are grounded in real platform data.
             </p>
           </div>
@@ -270,7 +266,7 @@ export function HomeAssistant() {
           {/* Quick Starter Chips (shown when no messages yet) */}
           {thread.length === 0 && (
             <div className="space-y-2 pt-1">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Suggested questions:
               </p>
               <div className="flex flex-col gap-1.5">
@@ -279,10 +275,10 @@ export function HomeAssistant() {
                     key={prompt}
                     type="button"
                     onClick={() => submitQuestion(prompt)}
-                    className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-medium text-slate-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/30"
+                    className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <span>{prompt}</span>
-                    <ArrowRight className="size-3 text-slate-400" aria-hidden />
+                    <ArrowRight className="size-3 text-muted-foreground" aria-hidden />
                   </button>
                 ))}
               </div>
@@ -294,20 +290,20 @@ export function HomeAssistant() {
             <div key={entry.id} className="space-y-2">
               {/* User Question */}
               <div className="flex justify-end">
-                <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-gradient-to-r from-indigo-600 to-indigo-700 px-3.5 py-2.5 text-xs sm:text-sm font-medium text-white shadow-sm">
+                <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-primary px-3.5 py-2.5 text-xs sm:text-sm font-medium text-primary-foreground shadow-sm">
                   {entry.question}
                 </div>
               </div>
 
               {/* Assistant Answer */}
               <div className="flex flex-col items-start gap-1">
-                <div className="max-w-[92%] rounded-2xl rounded-tl-sm border border-slate-100 bg-slate-100/90 px-3.5 py-2.5 text-xs sm:text-sm leading-relaxed text-slate-800 shadow-sm dark:border-white/5 dark:bg-slate-800/80 dark:text-slate-100">
+                <div className="max-w-[92%] rounded-2xl rounded-tl-sm border border-border bg-card px-3.5 py-2.5 text-xs sm:text-sm leading-relaxed text-foreground shadow-sm">
                   <p className="whitespace-pre-line">{entry.answer}</p>
 
                   {/* Course Recommendations */}
                   {entry.courses && entry.courses.length > 0 && (
-                    <div className="mt-3 border-t border-slate-200/60 pt-2.5 dark:border-slate-700/60">
-                      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <div className="mt-3 border-t border-border pt-2.5">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                         Related Courses:
                       </p>
                       <ul className="mt-1.5 space-y-1.5">
@@ -315,10 +311,10 @@ export function HomeAssistant() {
                           <li key={course.id}>
                             <Link
                               href={`/courses/${course.slug}`}
-                              className="group flex items-center justify-between rounded-md bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-600 shadow-xs transition-colors hover:bg-indigo-50 dark:bg-slate-900/60 dark:text-indigo-400 dark:hover:bg-indigo-950/50"
+                              className="group flex items-center justify-between rounded-md bg-muted px-2.5 py-1.5 text-xs font-semibold text-foreground shadow-xs transition-colors hover:bg-muted/80"
                             >
                               <span className="truncate group-hover:underline">{course.title}</span>
-                              <ArrowRight className="size-3 shrink-0 text-indigo-400 transition-transform group-hover:translate-x-0.5" />
+                              <ArrowRight className="size-3 shrink-0 text-gold-text transition-transform group-hover:translate-x-0.5" />
                             </Link>
                           </li>
                         ))}
@@ -333,7 +329,7 @@ export function HomeAssistant() {
                         <Link
                           key={link.href}
                           href={link.href}
-                          className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700 transition-colors hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300 dark:hover:bg-indigo-900/80"
+                          className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-[11px] font-medium text-secondary-foreground transition-colors hover:opacity-90"
                         >
                           <span>{link.label}</span>
                           <ArrowRight className="size-2.5" />
@@ -344,29 +340,29 @@ export function HomeAssistant() {
 
                   {/* Support Escalation */}
                   {entry.escalation?.available && (
-                    <div className="mt-2.5 pt-2 border-t border-slate-200/40 dark:border-slate-700/40 text-[11px] text-slate-500 dark:text-slate-400">
+                    <div className="mt-2.5 pt-2 border-t border-border text-[11px] text-muted-foreground">
                       <span>{entry.escalation.message ?? 'Have questions about admissions or batch schedules?'} </span>
                       <Link
                         href={entry.escalation.href ?? '/contact'}
-                        className="font-semibold text-indigo-600 underline hover:text-indigo-700 dark:text-indigo-400"
+                        className="font-semibold text-gold-text underline hover:opacity-90"
                       >
                         {entry.escalation.label ?? 'Contact programme office'}
                       </Link>
                     </div>
                   )}
                 </div>
-                <span className="pl-1 text-[10px] text-slate-400">{entry.createdAt}</span>
+                <span className="pl-1 text-[10px] text-muted-foreground">{entry.createdAt}</span>
               </div>
             </div>
           ))}
 
           {/* Loading Indicator */}
           {pending && (
-            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-              <div className="flex items-center gap-1 rounded-2xl rounded-tl-sm bg-slate-100 px-3.5 py-2.5 dark:bg-slate-800">
-                <span className="size-1.5 animate-bounce rounded-full bg-indigo-600" />
-                <span className="size-1.5 animate-bounce rounded-full bg-indigo-600 [animation-delay:0.2s]" />
-                <span className="size-1.5 animate-bounce rounded-full bg-indigo-600 [animation-delay:0.4s]" />
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1 rounded-2xl rounded-tl-sm bg-muted px-3.5 py-2.5">
+                <span className="size-1.5 animate-bounce rounded-full bg-primary" />
+                <span className="size-1.5 animate-bounce rounded-full bg-primary [animation-delay:0.2s]" />
+                <span className="size-1.5 animate-bounce rounded-full bg-primary [animation-delay:0.4s]" />
               </div>
               <span className="text-[11px]">Consulting knowledge base…</span>
             </div>
@@ -374,14 +370,14 @@ export function HomeAssistant() {
 
           {/* Error Message with Retry */}
           {errorMessage && (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
               <p className="font-medium">{errorMessage}</p>
               {lastFailedQuestion && (
                 <button
                   type="button"
                   onClick={handleRetry}
                   disabled={pending}
-                  className="mt-2 inline-flex items-center gap-1 font-semibold text-red-800 underline hover:text-red-900 dark:text-red-200"
+                  className="mt-2 inline-flex items-center gap-1 font-semibold text-destructive underline hover:opacity-90"
                 >
                   <RotateCcw className="size-3" /> Retry question
                 </button>
@@ -395,7 +391,7 @@ export function HomeAssistant() {
         {/* Input Footer */}
         <form
           onSubmit={handleSubmit}
-          className="border-t border-slate-100 bg-slate-50/70 p-3 dark:border-white/5 dark:bg-slate-800/40"
+          className="border-t border-border bg-card/70 p-3"
         >
           <div className="flex items-end gap-2">
             <label htmlFor="home-assistant-input" className="sr-only">
@@ -411,9 +407,9 @@ export function HomeAssistant() {
               disabled={pending}
               placeholder="Ask about courses, games, or practice..."
               className={cn(
-                'flex-1 resize-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400',
-                'focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20',
-                'disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:disabled:bg-slate-800'
+                'flex-1 resize-none rounded-xl border border-input bg-card px-3 py-2.5 text-xs sm:text-sm text-foreground placeholder:text-muted-foreground',
+                'focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30',
+                'disabled:cursor-not-allowed disabled:bg-muted'
               )}
             />
             <Button
@@ -423,13 +419,13 @@ export function HomeAssistant() {
               loading={pending}
               disabled={pending || !question.trim()}
               aria-label="Send message"
-              className="size-9 shrink-0 rounded-xl shadow-md"
+              className="size-9 shrink-0 rounded-xl shadow-xs"
             >
               <Send className="size-4" aria-hidden />
             </Button>
           </div>
-          <p className="mt-1 text-center text-[10px] text-slate-400">
-            Press <kbd className="rounded bg-slate-200 px-1 py-0.5 font-mono text-[9px] dark:bg-slate-700">Enter</kbd> to send, <kbd className="rounded bg-slate-200 px-1 py-0.5 font-mono text-[9px] dark:bg-slate-700">Shift+Enter</kbd> for new line
+          <p className="mt-1 text-center text-[10px] text-muted-foreground">
+            Press <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[9px] text-foreground">Enter</kbd> to send, <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[9px] text-foreground">Shift+Enter</kbd> for new line
           </p>
         </form>
       </div>

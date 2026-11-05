@@ -310,7 +310,7 @@ export default function SuperAdminUsersPage() {
         <CardBody className="p-4">
           <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
             <div className="relative w-full sm:max-w-xs">
-              <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
                 value={search}
@@ -319,7 +319,7 @@ export default function SuperAdminUsersPage() {
                   setPage(1);
                 }}
                 placeholder="Search by name, email, or employee ID…"
-                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900"
+                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-border bg-slate-50 dark:bg-slate-900"
               />
             </div>
 
@@ -330,7 +330,7 @@ export default function SuperAdminUsersPage() {
                   setRoleFilter(e.target.value);
                   setPage(1);
                 }}
-                className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium w-full sm:w-auto"
+                className="px-3 py-1.5 text-xs rounded-lg border border-border bg-card text-foreground font-medium w-full sm:w-auto"
               >
                 <option value="all">All Roles</option>
                 <option value="STUDENT">Participants</option>
@@ -346,21 +346,21 @@ export default function SuperAdminUsersPage() {
 
       {/* Directory Table */}
       <Card>
-        <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <CardHeader className="p-5 border-b border-border flex items-center justify-between">
           <CardTitle className="text-base">User Directory & Status Management</CardTitle>
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-muted-foreground">
             Page {pagination.page} of {pagination.totalPages}
           </span>
         </CardHeader>
         <CardBody className="p-0">
           {items.length === 0 ? (
-            <div className="p-12 text-center text-slate-500 text-xs">
+            <div className="p-12 text-center text-muted-foreground text-xs">
               No users matching criteria found.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 text-slate-500 uppercase tracking-wider font-semibold">
+                <thead className="bg-slate-50 dark:bg-slate-900 border-b border-border text-muted-foreground uppercase tracking-wider font-semibold">
                   <tr>
                     <th className="px-5 py-3">User & Contact</th>
                     <th className="px-5 py-3">Role & Employee ID</th>
@@ -379,10 +379,10 @@ export default function SuperAdminUsersPage() {
                             {u.name.charAt(0).toUpperCase()}
                           </div>
                           <div>
-                            <p className="font-semibold text-slate-900 dark:text-white">{u.name}</p>
-                            <p className="text-[11px] text-slate-400">{u.email}</p>
+                            <p className="font-semibold text-foreground">{u.name}</p>
+                            <p className="text-[11px] text-muted-foreground">{u.email}</p>
                             {u.mobile && (
-                              <p className="text-[10px] text-slate-400">Ph: {u.mobile}</p>
+                              <p className="text-[10px] text-muted-foreground">Ph: {u.mobile}</p>
                             )}
                           </div>
                         </div>
@@ -393,17 +393,17 @@ export default function SuperAdminUsersPage() {
                             {ROLE_LABEL[u.role] || u.role.replace('_', ' ')}
                           </Badge>
                           {u.employeeId && (
-                            <p className="text-[11px] font-mono text-slate-500">ID: {u.employeeId}</p>
+                            <p className="text-[11px] font-mono text-muted-foreground">ID: {u.employeeId}</p>
                           )}
                           {u.designation && (
-                            <p className="text-[11px] text-slate-400">{u.designation}</p>
+                            <p className="text-[11px] text-muted-foreground">{u.designation}</p>
                           )}
                         </div>
                       </td>
                       <td className="px-5 py-3.5">
                         <p className="font-medium text-slate-700 dark:text-slate-300">{u.collegeName}</p>
                         {u.departmentName && (
-                          <p className="text-[11px] text-slate-400">{u.departmentName}</p>
+                          <p className="text-[11px] text-muted-foreground">{u.departmentName}</p>
                         )}
                       </td>
                       <td className="px-5 py-3.5">
@@ -420,7 +420,7 @@ export default function SuperAdminUsersPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-5 py-3.5 text-slate-500">
+                      <td className="px-5 py-3.5 text-muted-foreground">
                         {u.createdAt ? formatDate(u.createdAt) : '—'}
                       </td>
                       <td className="px-5 py-3.5 text-right">
@@ -484,8 +484,8 @@ export default function SuperAdminUsersPage() {
           )}
 
           {/* Pagination */}
-          <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-            <span className="text-slate-500">
+          <div className="p-4 border-t border-border flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">
               Showing {(pagination.page - 1) * pagination.pageSize + 1} to{' '}
               {Math.min(pagination.page * pagination.pageSize, pagination.total)} of{' '}
               {pagination.total} entries
@@ -592,7 +592,7 @@ export default function SuperAdminUsersPage() {
                       {copiedPassword ? 'Copied' : 'Copy Pwd'}
                     </Button>
                   </div>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-muted-foreground">
                     User will be forced to change this password on first sign-in (mustChangePassword = true).
                   </p>
                 </div>
@@ -641,7 +641,7 @@ export default function SuperAdminUsersPage() {
                     id="pRole"
                     value={form.role}
                     onChange={(e) => handleRoleChange(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground font-medium"
                   >
                     <option value="TRAINER">Lead Trainer</option>
                     <option value="HOD">Single Point of Contact (SPOC)</option>
@@ -675,7 +675,7 @@ export default function SuperAdminUsersPage() {
                   <label className="text-xs font-semibold text-slate-800">
                     Granular Access Permissions ({selectedPermissions.length} granted)
                   </label>
-                  <span className="text-[11px] text-slate-500">Super Admin Enforced</span>
+                  <span className="text-[11px] text-muted-foreground">Super Admin Enforced</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {(ROLE_PERMISSION_OPTIONS[form.role] || []).map((perm) => {
@@ -687,8 +687,8 @@ export default function SuperAdminUsersPage() {
                         onClick={() => togglePermission(perm)}
                         className={`text-[11px] px-2.5 py-1 rounded-md font-mono transition-all ${
                           active
-                            ? 'bg-indigo text-white shadow-xs font-semibold'
-                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                            ? 'bg-primary text-primary-foreground shadow-xs font-semibold'
+                            : 'bg-card text-muted-foreground border border-border hover:bg-muted'
                         }`}
                       >
                         {active ? '✓ ' : '+ '}
@@ -706,7 +706,7 @@ export default function SuperAdminUsersPage() {
                       id="pCollege"
                       value={form.collegeId}
                       onChange={(e) => setForm({ ...form, collegeId: e.target.value })}
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground font-medium"
                     >
                       <option value="">Select College…</option>
                       {colleges.map((c) => (

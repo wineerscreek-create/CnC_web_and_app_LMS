@@ -135,15 +135,15 @@ export default function AdminReportsPage() {
                         className={cn(
                           'rounded-[10px] border p-3.5 text-left transition-colors',
                           family === item.code
-                            ? 'border-indigo-500 bg-indigo-500/20 text-white'
-                            : 'border-white/10 bg-white/5 hover:bg-white/10 text-slate-200',
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-border bg-card hover:bg-muted text-muted-foreground',
                         )}
                       >
                         <span className="flex items-center justify-between gap-2">
                           <span className="text-base font-semibold">{item.label}</span>
                           {!available && <Badge tone="neutral">No dataset yet</Badge>}
                         </span>
-                        <span className="mt-1 block text-sm leading-relaxed text-slate-400">
+                        <span className="mt-1 block text-sm leading-relaxed text-muted-foreground">
                           {item.description}
                         </span>
                       </button>
@@ -255,11 +255,11 @@ export default function AdminReportsPage() {
                     <FileDown className="size-3.5" aria-hidden />
                     Generate {chosen?.label ?? 'report'}
                   </Button>
-                  <code className="rounded-[6px] bg-white/10 px-2 py-1 text-sm text-slate-200">
+                  <code className="rounded-[6px] bg-muted px-2 py-1 text-sm text-foreground">
                     {family}.{timeGrain}.{entity}
                   </code>
                   {!isRunnable && (
-                    <span className="flex items-center gap-1.5 text-sm text-amber-400">
+                    <span className="flex items-center gap-1.5 text-sm text-gold-text">
                       <Info className="size-3.5" aria-hidden />
                       This family has no dataset wired up yet, so it cannot be exported.
                     </span>

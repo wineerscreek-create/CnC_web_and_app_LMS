@@ -16,16 +16,16 @@ export const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      'flex h-9 items-center justify-between gap-2 rounded-[9px] border border-input-border bg-input',
-      'px-3 text-base font-medium text-ink-1 data-[placeholder]:text-ink-3',
-      'hover:bg-surface-hover focus:border-indigo-500 focus:ring-2 focus:ring-indigo-400/20 disabled:opacity-55 transition-all',
+      'flex h-9 items-center justify-between gap-2 rounded-[9px] border border-input bg-card',
+      'px-3 text-base font-medium text-foreground data-[placeholder]:text-muted-foreground',
+      'hover:bg-muted focus:border-ring focus:ring-2 focus:ring-ring/30 disabled:opacity-55 transition-all',
       className,
     )}
     {...props}
   >
     {children}
     <SelectPrimitive.Icon asChild>
-      <ChevronDown className="size-3.5 shrink-0 text-ink-3" aria-hidden />
+      <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
 ));
@@ -40,8 +40,8 @@ export const SelectContent = React.forwardRef<
       ref={ref}
       position={position}
       className={cn(
-        'z-50 max-h-72 min-w-[10rem] overflow-hidden rounded-[10px] border border-line',
-        'bg-card shadow-2xl backdrop-blur-2xl text-ink-1 data-[state=open]:animate-fade',
+        'z-50 max-h-72 min-w-[10rem] overflow-hidden rounded-[10px] border border-border',
+        'bg-popover shadow-2xl text-popover-foreground data-[state=open]:animate-fade',
         position === 'popper' && 'data-[side=bottom]:translate-y-1',
         className,
       )}
@@ -63,15 +63,15 @@ export const SelectItem = React.forwardRef<
     ref={ref}
     className={cn(
       'relative flex cursor-pointer select-none items-center rounded-[6px] py-1.5 pl-7 pr-2.5',
-      'text-base text-ink-1 outline-none data-[highlighted]:bg-indigo-500/15',
-      'data-[highlighted]:text-indigo-600 dark:data-[highlighted]:text-white data-[disabled]:opacity-50 transition-colors',
+      'text-base text-foreground outline-none data-[highlighted]:bg-muted',
+      'data-[highlighted]:text-foreground data-[disabled]:opacity-50 transition-colors',
       className,
     )}
     {...props}
   >
     <span className="absolute left-2 flex size-3.5 items-center justify-center">
       <SelectPrimitive.ItemIndicator>
-        <Check className="size-3.5 text-indigo-500" aria-hidden />
+        <Check className="size-3.5 text-primary" aria-hidden />
       </SelectPrimitive.ItemIndicator>
     </span>
     <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>

@@ -11,11 +11,11 @@ export default function NotFound() {
         <div className="mb-5 flex justify-center">
           <WinnersCreekLogo variant="full" />
         </div>
-        <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-indigo-50 text-indigo">
+        <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-muted text-primary">
           <Compass className="size-5" aria-hidden />
         </span>
-        <h1 className="mt-4 text-[17px] font-semibold">Page not found</h1>
-        <p className="mt-1.5 text-sm text-ink-2">
+        <h1 className="mt-4 text-[17px] font-semibold text-heading">Page not found</h1>
+        <p className="mt-1.5 text-sm text-muted-foreground">
           This page does not exist, or it belongs to a portal you do not have access to.
         </p>
         <Button variant="primary" className="mt-5" asChild>

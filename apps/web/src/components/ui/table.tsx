@@ -2,12 +2,12 @@ import * as React from 'react';
 
 import { cn } from '@/lib/cn';
 
-/** A table that scrolls horizontally rather than breaking the page layout (§25). */
+/** A table that scrolls horizontally rather than breaking the page layout. */
 export function TableWrap({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(
-        'table-scroll scroll-thin surface-3d rounded-2xl border border-line bg-card/95 backdrop-blur-xl overflow-hidden',
+        'table-scroll scroll-thin rounded-2xl border border-border bg-card shadow-xs overflow-hidden',
         className,
       )}
       {...props}
@@ -40,7 +40,7 @@ export function Th({
     <th
       scope="col"
       className={cn(
-        'border-b border-line bg-slate-100/90 dark:bg-slate-800/80 px-4 py-3 text-[11px] font-bold uppercase tracking-[0.06em] text-ink-3 backdrop-blur-md',
+        'border-b border-border bg-muted px-4 py-3 text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground',
         align === 'right' && 'text-right',
         align === 'center' && 'text-center',
         align === 'left' && 'text-left',
@@ -64,7 +64,7 @@ export function Td({
   return (
     <td
       className={cn(
-        'border-b border-line/60 px-4 py-3.5 align-middle text-[13.5px] sm:text-[14px] text-ink-1',
+        'border-b border-border px-4 py-3.5 align-middle text-[13.5px] sm:text-[14px] text-foreground',
         align === 'right' && 'text-right',
         align === 'center' && 'text-center',
         hideBelow && HIDE_BELOW[hideBelow],
@@ -79,7 +79,7 @@ export function Tr({ className, ...props }: React.HTMLAttributes<HTMLTableRowEle
   return (
     <tr
       className={cn(
-        'transition-colors duration-150 hover:bg-slate-500/[0.04] dark:hover:bg-white/[0.05] last:[&>td]:border-b-0',
+        'bg-card transition-colors duration-150 hover:bg-muted/60 last:[&>td]:border-b-0',
         className,
       )}
       {...props}

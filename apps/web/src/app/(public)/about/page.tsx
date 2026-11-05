@@ -4,102 +4,118 @@ import { ArrowRight, Layers, ShieldCheck, Target, Users } from 'lucide-react';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardBody } from '@/components/ui/card';
-import { GlobalPageBackground } from '@/components/ui/GlobalPageBackground';
-import { InteractiveArrowButton } from '@/components/ui/InteractiveArrowButton';
 
 const PRINCIPLES = [
   {
     icon: Target,
-    title: 'Practise before it counts',
-    body: 'Interviews, group discussions and presentations are rehearsed in the platform, so a participant’s first real attempt is not their first attempt.',
+    title: 'Practise Before It Counts',
+    body: 'Interviews, executive pitches and group dialogues are rehearsed through real-time simulators so a student’s first corporate encounter is never their first attempt.',
   },
   {
     icon: Layers,
-    title: 'Assessment with evidence',
-    body: 'Every AI score quotes the sentence it came from, and every trainer rating is attributable to a named trainer, a parameter and a moment in time.',
+    title: 'Evidence-Grounded Assessment',
+    body: 'Every AI score quotes the exact sentence and pause it came from, and every faculty review is attributable to a certified trainer, parameter, and timestamp.',
   },
   {
     icon: Users,
-    title: 'One method across the institution',
-    body: '95+ parameters across seven pillars mean a “7 out of 10” means the same thing in every department.',
+    title: 'Institutional Consistency',
+    body: '98 standardized evaluation parameters across seven core pillars ensure a score of "8 out of 10" represents the exact same high competency across all departments.',
   },
   {
     icon: ShieldCheck,
-    title: 'Scoped by design',
-    body: 'A trainer sees their batches. A SPOC sees one department. An admin sees one college. That boundary is enforced by the server on every single request, not by hiding menu items.',
+    title: 'Enterprise Scoped by Design',
+    body: 'Trainers manage their designated batches. HODs oversee their department. College administrators govern their institution. All boundaries are strictly enforced on every request.',
   },
 ];
 
 export default function AboutPage() {
   return (
-    <GlobalPageBackground
-      image="/images/backgrounds/colleges.webp"
-      orbTone="indigo"
-      className="min-h-screen py-12 px-4"
-    >
-      <div className="mx-auto max-w-[960px]">
-        <h1 className="font-serif heading-section font-semibold tracking-tight text-ink-1">
-          Employability, treated like a subject
-        </h1>
-        <p className="mt-4 text-base sm:text-lg leading-relaxed text-ink-2">
-          Winners Creek is a parallel platform for the part of a degree that rarely gets a syllabus:
-          communication, confidence, teamwork, aptitude, interview craft and workplace behaviour. It
-          sits alongside the academic LMS rather than replacing it — marks, curriculum attendance and
-          examinations stay in the college’s system of record. What lives here is practice,
-          assessment and measured improvement.
-        </p>
-
-        <h2 className="mt-10 text-xs font-semibold uppercase tracking-wider text-ink-3">
-          How the platform thinks
-        </h2>
-        <div className="mt-4 grid gap-5 sm:grid-cols-2">
-          {PRINCIPLES.map((item) => (
-            <Card key={item.title} className="card-interactive group transition-all duration-200 hover:-translate-y-1 hover:border-indigo-400/50">
-              <CardBody className="p-6">
-                <span className="flex size-11 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-500 border border-indigo-500/30 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-200">
-                  <item.icon className="size-5" aria-hidden />
-                </span>
-                <h3 className="mt-4 heading-card text-ink-1 group-hover:text-brand-primary transition-colors">{item.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-ink-2">{item.body}</p>
-              </CardBody>
-            </Card>
-          ))}
+    <div className="py-12 sm:py-16 px-6">
+      <div className="mx-auto max-w-[1000px] space-y-12">
+        {/* Header */}
+        <div>
+          <span className="inline-flex rounded-full bg-accent/20 px-3 py-1 text-xs font-bold text-foreground border border-accent/40">
+            About SkillSharp — Campus to Corporate
+          </span>
+          <h1 className="mt-4 font-heading text-3xl sm:text-5xl font-extrabold tracking-tight text-heading">
+            Employability Treated as a Core Discipline
+          </h1>
+          <p className="mt-4 text-base sm:text-lg leading-relaxed text-muted-foreground">
+            SkillSharp (Campus to Corporate) is an elite career-development and soft-skills platform that runs alongside academic degrees. While marks and academic attendance stay within your university record, SkillSharp cultivates what determines hiring outcomes: confidence, structured communication, teamwork, executive presence, and professional problem solving.
+          </p>
         </div>
 
-        <h2 className="mt-10 text-xs font-semibold uppercase tracking-wider text-ink-3">
-          Who uses it
-        </h2>
-        <dl className="mt-4 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-card backdrop-blur-md shadow-card dark:divide-white/10 dark:border-white/10 dark:bg-slate-900/60">
-          {[
-            ['Students', 'Learn, practise, take assessments, watch a readiness score move and see exactly what to fix next.'],
-            ['Trainers', 'Run classes, mark attendance, rate students on the parameter set, set assignments and see who is slipping.'],
-            ['Heads of Department', 'One department, end to end: participants, attendance, trainers, assessments, enrollment, and cohort reports.'],
-            ['Institution admins', 'Departments, batches, semesters, users, roles, bulk imports, and system usage for one college.'],
-            ['Parents', 'Reserved, read-only portals provisioned per institution for student progress tracking.'],
-          ].map(([who, what]) => (
-            <div key={who} className="grid gap-1 px-5 py-4 transition-colors hover:bg-surface-hover sm:grid-cols-[190px_1fr] sm:gap-4">
-              <dt className="text-sm font-semibold text-ink-1">{who}</dt>
-              <dd className="text-sm leading-relaxed text-ink-2">{what}</dd>
-            </div>
-          ))}
-        </dl>
+        {/* 4 Pillars of Thought */}
+        <div>
+          <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+            Our Architectural Principles
+          </h2>
+          <div className="mt-5 grid gap-6 sm:grid-cols-2">
+            {PRINCIPLES.map((item) => (
+              <div
+                key={item.title}
+                className="group rounded-3xl border border-border bg-card p-7 shadow-xs transition-all duration-200 hover:-translate-y-1 hover:shadow-card-hover hover:border-accent/40"
+              >
+                <div className="flex size-11 items-center justify-center rounded-2xl bg-muted text-primary border border-border group-hover:bg-accent group-hover:text-accent-foreground transition-colors">
+                  <item.icon className="size-5" />
+                </div>
+                <h3 className="mt-5 font-heading text-lg font-bold text-heading">
+                  {item.title}
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  {item.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
 
-        <Card className="mt-10 border border-line bg-surface-muted text-ink-1 shadow-card-hover transition-all duration-300 dark:border-white/15 dark:bg-navy-950/80 dark:text-white">
-          <CardBody className="flex flex-wrap items-center justify-between gap-5 p-7">
-            <p className="min-w-[240px] flex-1 font-serif text-[20px] font-semibold">
-              Practise → Assess → Improve → Become Employable
+        {/* Multi-Role Stakeholders */}
+        <div>
+          <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+            Ecosystem Stakeholders
+          </h2>
+          <div className="mt-5 divide-y divide-border overflow-hidden rounded-3xl border border-border bg-card shadow-xs">
+            {[
+              ['Students & Participants', 'Learn core curriculum, practice in simulated arenas, track continuous readiness, and earn verified employability certificates.'],
+              ['Faculty Trainers', 'Conduct interactive sessions, evaluate students against rubrics, identify struggling learners, and assign targeted practice.'],
+              ['Heads of Department (HOD)', 'Gain 360-degree analytics across batches, monitor attendance defaulters, oversee faculty delivery, and export cohort reports.'],
+              ['Placement Officers & Recruiters', 'Filter candidates by verified readiness scores, review authentic performance evidence, and access interview-ready talent pools.'],
+              ['College Leadership & Admins', 'Manage departments, academic years, user accounts, and strategic employability metrics across the entire college.'],
+            ].map(([who, what]) => (
+              <div
+                key={who}
+                className="grid gap-2 px-6 py-5 sm:grid-cols-[220px_1fr] sm:items-center hover:bg-muted/60 transition-colors"
+              >
+                <span className="font-heading text-sm font-bold text-heading">
+                  {who}
+                </span>
+                <span className="text-xs leading-relaxed text-muted-foreground">
+                  {what}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Bottom Banner */}
+        <div className="rounded-3xl bg-foreground p-8 sm:p-10 text-background flex flex-wrap items-center justify-between gap-6 shadow-md">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-accent">
+              The SkillSharp Progression Formula
             </p>
-            <InteractiveArrowButton
-              href="/courses"
-              variant="gradient"
-              size="md"
-            >
-              See the programs
-            </InteractiveArrowButton>
-          </CardBody>
-        </Card>
+            <h3 className="mt-1 font-heading text-xl sm:text-2xl font-bold text-background">
+              Learn → Practise → Improve → Become Employable
+            </h3>
+          </div>
+          <Button asChild variant="primary" size="md">
+            <Link href="/courses">
+              Explore Programs
+              <ArrowRight className="size-4 ml-1" />
+            </Link>
+          </Button>
+        </div>
       </div>
-    </GlobalPageBackground>
+    </div>
   );
 }

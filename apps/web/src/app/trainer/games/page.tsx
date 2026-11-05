@@ -296,7 +296,7 @@ export default function TrainerGamesPage() {
             <select
               value={selectedBatch}
               onChange={(e) => setSelectedBatch(e.target.value)}
-              className="px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium"
+              className="px-3 py-2 text-xs rounded-lg border border-input bg-card font-medium"
             >
               <option value="all">All Assigned Batches</option>
               {batches.map((b) => (
@@ -319,14 +319,14 @@ export default function TrainerGamesPage() {
       />
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800">
+      <div className="flex items-center gap-2 border-b border-border">
         <button
           onClick={() => setActiveTab('catalog')}
           className={cn(
             'px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors',
             activeTab === 'catalog'
-              ? 'border-indigo text-indigo'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+              ? 'border-accent text-accent-foreground font-semibold'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
           )}
         >
           Game Catalog ({games.length})
@@ -336,8 +336,8 @@ export default function TrainerGamesPage() {
           className={cn(
             'px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors',
             activeTab === 'insights'
-              ? 'border-indigo text-indigo'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+              ? 'border-accent text-accent-foreground font-semibold'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
           )}
         >
           Batch Insights & Weak Skills
@@ -348,23 +348,23 @@ export default function TrainerGamesPage() {
       {activeTab === 'catalog' && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {games.map((g) => (
-            <Card key={g.code} className="flex flex-col justify-between hover:border-indigo/50 transition-colors">
+            <Card key={g.code} className="flex flex-col justify-between hover:border-primary/50 transition-colors">
               <CardHeader className="p-5 pb-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="size-10 rounded-xl bg-indigo/10 flex items-center justify-center text-indigo shrink-0">
+                  <div className="size-10 rounded-xl bg-muted flex items-center justify-center text-primary border border-border shrink-0">
                     <Gamepad2 className="size-5" />
                   </div>
                   <Badge tone={g.active ? 'success' : 'neutral'}>
                     {g.active ? 'Ready & Active' : 'No Question Set'}
                   </Badge>
                 </div>
-                <h3 className="font-bold text-base mt-3 text-slate-900 dark:text-white line-clamp-1">
+                <h3 className="font-bold text-base mt-3 text-heading line-clamp-1">
                   {g.title}
                 </h3>
-                <p className="text-xs text-slate-500 line-clamp-2 mt-1">{g.description}</p>
+                <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{g.description}</p>
               </CardHeader>
               <CardBody className="p-5 pt-0 space-y-4">
-                <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border">
                   {g.skillsTrained?.map((s) => (
                     <Badge key={s} tone="neutral" className="text-2xs">
                       {s}
@@ -372,7 +372,7 @@ export default function TrainerGamesPage() {
                   ))}
                 </div>
                 <div className="pt-2 flex items-center justify-between">
-                  <span className="text-2xs font-mono text-slate-400 uppercase">{g.category}</span>
+                  <span className="text-2xs font-mono text-muted-foreground uppercase">{g.category}</span>
                   <Button
                     variant="secondary"
                     size="sm"
@@ -416,22 +416,22 @@ export default function TrainerGamesPage() {
 
           {/* Weak Skills Section */}
           <Card>
-            <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800">
+            <CardHeader className="p-5 border-b border-border">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-bold text-base text-slate-900 dark:text-white">
+                  <h3 className="font-bold text-base text-heading">
                     Weak Skill Priorities (Aggregated)
                   </h3>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-muted-foreground">
                     Calculated from participant game attempts across assigned batches
                   </p>
                 </div>
-                <Flame className="size-5 text-amber-500" />
+                <Flame className="size-5 text-accent" />
               </div>
             </CardHeader>
             <CardBody className="p-5">
               {analytics.weakSkills.length === 0 ? (
-                <div className="text-center py-8 text-xs text-slate-400">
+                <div className="text-center py-8 text-xs text-muted-foreground">
                   No weak skills detected yet for this batch.
                 </div>
               ) : (
@@ -439,17 +439,17 @@ export default function TrainerGamesPage() {
                   {analytics.weakSkills.map((ws) => (
                     <div key={ws.skill} className="space-y-1.5">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-slate-700 dark:text-slate-300">
+                        <span className="font-semibold text-foreground">
                           {ws.skill}
                         </span>
-                        <span className="text-slate-400">
-                          Avg: <strong className="text-rose-500">{ws.avgScore}%</strong> •{' '}
+                        <span className="text-muted-foreground">
+                          Avg: <strong className="text-destructive">{ws.avgScore}%</strong> •{' '}
                           {ws.studentCount} students affected
                         </span>
                       </div>
                       <ProgressBar
                         value={ws.avgScore}
-                        className="h-2 bg-slate-100 dark:bg-slate-800"
+                        className="h-2 bg-muted"
                         showValue={false}
                       />
                     </div>
@@ -461,22 +461,22 @@ export default function TrainerGamesPage() {
 
           {/* Top Scorers Section */}
           <Card>
-            <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800">
+            <CardHeader className="p-5 border-b border-border">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-bold text-base text-slate-900 dark:text-white">
+                  <h3 className="font-bold text-base text-heading">
                     Leaderboard & Top Scorers
                   </h3>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-muted-foreground">
                     Highest game scores achieved by participants
                   </p>
                 </div>
-                <Award className="size-5 text-indigo" />
+                <Award className="size-5 text-primary" />
               </div>
             </CardHeader>
             <CardBody className="p-5">
               {analytics.topScorers.length === 0 ? (
-                <div className="text-center py-8 text-xs text-slate-400">
+                <div className="text-center py-8 text-xs text-muted-foreground">
                   No scores recorded yet for this batch.
                 </div>
               ) : (
@@ -491,19 +491,19 @@ export default function TrainerGamesPage() {
                           className={cn(
                             'size-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0',
                             index === 0
-                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                              ? 'bg-secondary text-secondary-foreground'
                               : index === 1
                               ? 'bg-slate-200 text-slate-700 dark:bg-slate-700'
-                              : 'bg-indigo/10 text-indigo'
+                              : 'bg-muted text-primary border border-border'
                           )}
                         >
                           #{index + 1}
                         </div>
                         <div>
-                          <p className="font-semibold text-sm text-slate-900 dark:text-white">
+                          <p className="font-semibold text-sm text-heading">
                             {item.studentName}
                           </p>
-                          <p className="text-xs text-slate-400">{item.gameTitle}</p>
+                          <p className="text-xs text-muted-foreground">{item.gameTitle}</p>
                         </div>
                       </div>
                       <Badge tone="success">
@@ -530,28 +530,28 @@ export default function TrainerGamesPage() {
 
           {assignSuccess ? (
             <div className="p-6 text-center space-y-2">
-              <CheckCircle2 className="size-10 text-emerald-500 mx-auto animate-bounce" />
+              <CheckCircle2 className="size-10 text-primary mx-auto animate-bounce" />
               <p className="font-semibold text-slate-900 text-base">Game Assigned Successfully!</p>
-              <p className="text-xs text-slate-500">Participants in this batch will see the challenge in their dashboard.</p>
+              <p className="text-xs text-muted-foreground">Participants in this batch will see the challenge in their dashboard.</p>
             </div>
           ) : (
             <form onSubmit={handleAssign} className="p-6 space-y-4">
               {assignError && (
-                <div className="rounded-lg bg-rose-50 dark:bg-rose-950/40 p-3 text-xs text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 flex items-start gap-2">
-                  <AlertTriangle className="size-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+                <div className="rounded-lg bg-destructive/10 p-3 text-xs text-destructive border border-destructive/30 flex items-start gap-2">
+                  <AlertTriangle className="size-4 shrink-0 text-destructive dark:text-rose-400 mt-0.5" />
                   <span className="flex-1">{assignError}</span>
                 </div>
               )}
 
               {/* Game Selection */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                <label className="text-xs font-semibold text-foreground">
                   Select Game Challenge
                 </label>
                 <select
                   value={selectedGameCode}
                   onChange={(e) => handleGameSelectChange(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-input bg-card"
                 >
                   {games.length === 0 ? (
                     <option value="" disabled>No games available</option>
@@ -566,10 +566,10 @@ export default function TrainerGamesPage() {
               </div>
 
               {/* Question Set Selection & Inline CSV Upload */}
-              <div className="space-y-2 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
+              <div className="space-y-2 p-3.5 rounded-xl bg-muted/40 border border-input">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                    <Layers className="size-3.5 text-indigo" />
+                  <label className="text-xs font-bold text-heading flex items-center gap-1.5">
+                    <Layers className="size-3.5 text-primary" />
                     Question Set
                   </label>
                   <Button
@@ -599,9 +599,9 @@ export default function TrainerGamesPage() {
                 {!showCsvUpload ? (
                   <div>
                     {loadingQuestionSets ? (
-                      <p className="text-xs text-slate-400 py-1">Loading question sets...</p>
+                      <p className="text-xs text-muted-foreground py-1">Loading question sets...</p>
                     ) : questionSets.length === 0 ? (
-                      <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-xs text-amber-700 dark:text-amber-300 space-y-2">
+                      <div className="p-3 rounded-lg bg-muted/50 border border-border text-xs text-foreground space-y-2">
                         <p>No question set is available for this game yet.</p>
                         <Button
                           type="button"
@@ -617,7 +617,7 @@ export default function TrainerGamesPage() {
                       <select
                         value={selectedQuestionSetId}
                         onChange={(e) => setSelectedQuestionSetId(e.target.value)}
-                        className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium"
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-input bg-card font-medium"
                       >
                         {questionSets.map((qs) => (
                           <option key={qs.id} value={qs.id}>
@@ -627,8 +627,8 @@ export default function TrainerGamesPage() {
                       </select>
                     )}
                     {selectedQuestionSetId && (
-                      <p className="text-2xs text-slate-500 mt-1 flex items-center gap-1">
-                        <Info className="size-3 text-slate-400" />
+                      <p className="text-2xs text-muted-foreground mt-1 flex items-center gap-1">
+                        <Info className="size-3 text-muted-foreground" />
                         Participants will be tested exclusively using questions from this immutable set version.
                       </p>
                     )}
@@ -637,7 +637,7 @@ export default function TrainerGamesPage() {
                   /* CSV Upload Area */
                   <div className="space-y-3 pt-1">
                     <div className="space-y-1">
-                      <label className="text-2xs font-semibold text-slate-600 dark:text-slate-400">
+                      <label className="text-2xs font-semibold text-slate-600 dark:text-muted-foreground">
                         Question Set Title (Optional)
                       </label>
                       <input
@@ -645,23 +645,23 @@ export default function TrainerGamesPage() {
                         placeholder={`e.g., ${selectedGameCode.toUpperCase()} Lab Sprint 1`}
                         value={csvTitle}
                         onChange={(e) => setCsvTitle(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-input bg-card"
                       />
                     </div>
 
-                    <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl p-4 text-center space-y-2 hover:border-indigo/50 transition-colors bg-white/50 dark:bg-slate-900/50">
-                      <FileSpreadsheet className="size-8 mx-auto text-indigo" />
+                    <div className="border-2 border-dashed border-border rounded-xl p-4 text-center space-y-2 hover:border-primary/50 transition-colors bg-card/50">
+                      <FileSpreadsheet className="size-8 mx-auto text-primary" />
                       <div>
-                        <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                        <p className="text-xs font-semibold text-heading">
                           {csvFile ? csvFile.name : 'Select or drop questions CSV file'}
                         </p>
-                        <p className="text-2xs text-slate-400 mt-0.5">
+                        <p className="text-2xs text-muted-foreground mt-0.5">
                           Format: question, option_a, option_b, option_c, option_d, answer, tag, eedi_parameter, weight
                         </p>
                       </div>
 
                       <label className="inline-block cursor-pointer">
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo/10 text-indigo hover:bg-indigo/20 text-xs font-semibold transition-colors">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted text-primary border border-border hover:bg-indigo/20 text-xs font-semibold transition-colors">
                           Browse CSV File
                         </span>
                         <input
@@ -677,13 +677,13 @@ export default function TrainerGamesPage() {
                     </div>
 
                     {validatingCsv && (
-                      <p className="text-xs text-indigo animate-pulse text-center">
+                      <p className="text-xs text-primary animate-pulse text-center">
                         Validating CSV rows against EEDI parameters on server...
                       </p>
                     )}
 
                     {csvError && (
-                      <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-xs text-rose-700 dark:text-rose-300">
+                      <div className="p-2.5 rounded-lg bg-destructive/10 border border-destructive/30 text-xs text-destructive">
                         {csvError}
                       </div>
                     )}
@@ -691,24 +691,24 @@ export default function TrainerGamesPage() {
                     {csvReport && (
                       <div className="space-y-2 text-xs">
                         <div className="grid grid-cols-3 gap-2 text-center">
-                          <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800">
-                            <span className="text-2xs text-slate-400 font-mono">Total Rows</span>
-                            <p className="font-bold text-slate-900 dark:text-white">{csvReport.total_rows}</p>
+                          <div className="p-2 rounded-lg bg-muted">
+                            <span className="text-2xs text-muted-foreground font-mono">Total Rows</span>
+                            <p className="font-bold text-heading">{csvReport.total_rows}</p>
                           </div>
-                          <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900">
-                            <span className="text-2xs text-emerald-600 font-mono">Valid Rows</span>
-                            <p className="font-bold text-emerald-600">{csvReport.valid_count}</p>
+                          <div className="p-2 rounded-lg bg-muted border border-border">
+                            <span className="text-2xs text-primary font-mono">Valid Rows</span>
+                            <p className="font-bold text-primary">{csvReport.valid_count}</p>
                           </div>
-                          <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900">
-                            <span className="text-2xs text-rose-600 font-mono">Invalid Rows</span>
-                            <p className="font-bold text-rose-600">{csvReport.invalid_count}</p>
+                          <div className="p-2 rounded-lg bg-destructive/10 border border-destructive/30">
+                            <span className="text-2xs text-destructive font-mono">Invalid Rows</span>
+                            <p className="font-bold text-destructive">{csvReport.invalid_count}</p>
                           </div>
                         </div>
 
                         {csvReport.errors && csvReport.errors.length > 0 && (
-                          <div className="max-h-28 overflow-y-auto border border-rose-200 dark:border-rose-900 rounded-lg p-2 bg-rose-50/60 dark:bg-rose-950/30 text-2xs space-y-1">
+                          <div className="max-h-28 overflow-y-auto border border-destructive/30 rounded-lg p-2 bg-destructive/10 text-2xs space-y-1">
                             {csvReport.errors.slice(0, 10).map((err: any, idx: number) => (
-                              <p key={idx} className="text-rose-700 dark:text-rose-300">
+                              <p key={idx} className="text-destructive">
                                 Row {err.row} [{err.column}]: {err.message}
                               </p>
                             ))}
@@ -735,12 +735,12 @@ export default function TrainerGamesPage() {
 
               {/* Batch Selection */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                <label className="text-xs font-semibold text-foreground">
                   Assign to Batch
                 </label>
 
                 {batchesQuery.error ? (
-                  <div className="rounded-lg bg-rose-50 dark:bg-rose-950/40 p-2.5 text-xs text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 flex items-center justify-between">
+                  <div className="rounded-lg bg-destructive/10 p-2.5 text-xs text-destructive border border-destructive/30 flex items-center justify-between">
                     <span>Unable to load your assigned batches.</span>
                     <Button type="button" size="sm" variant="secondary" onClick={() => batchesQuery.refetch()}>
                       Retry
@@ -751,7 +751,7 @@ export default function TrainerGamesPage() {
                     value={targetBatchId}
                     onChange={(e) => setTargetBatchId(e.target.value)}
                     disabled={batchesQuery.loading || batches.length === 0}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-input bg-card disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {batchesQuery.loading ? (
                       <option value="" disabled>Loading assigned batches...</option>
@@ -780,7 +780,7 @@ export default function TrainerGamesPage() {
               {/* Max Attempts & Due Date in a 2-column grid */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  <label className="text-xs font-semibold text-foreground">
                     Max Attempts
                   </label>
                   <input
@@ -789,26 +789,26 @@ export default function TrainerGamesPage() {
                     max={20}
                     value={maxAttempts}
                     onChange={(e) => setMaxAttempts(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-input bg-card"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  <label className="text-xs font-semibold text-foreground">
                     Due Date (Optional)
                   </label>
                   <input
                     type="date"
                     value={dueDate}
                     onChange={(e) => setDueDate(e.target.value)}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-input bg-card"
                   />
                 </div>
               </div>
 
               {/* Notes */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                <label className="text-xs font-semibold text-foreground">
                   Instructions / Notes (Optional)
                 </label>
                 <textarea
@@ -816,11 +816,11 @@ export default function TrainerGamesPage() {
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="e.g., Complete before Friday's lab session to discuss results"
                   rows={2}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-input bg-card"
                 />
               </div>
 
-              <div className="pt-3 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+              <div className="pt-3 flex justify-end gap-2 border-t border-border">
                 <Button
                   type="button"
                   variant="secondary"

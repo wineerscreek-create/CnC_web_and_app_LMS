@@ -46,23 +46,23 @@ export function NotificationMenu() {
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
         aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}
-        className="relative flex size-[34px] items-center justify-center rounded-[9px] border border-line bg-surface text-ink-2 hover:bg-surface-hover hover:text-ink-1 transition-all active:scale-95 shadow-xs"
+        className="relative flex size-[34px] items-center justify-center rounded-xl border border-border bg-card text-foreground hover:bg-muted transition-all active:scale-95 shadow-xs"
       >
         <Bell className="size-4" aria-hidden />
         {unread > 0 && (
-          <span className="absolute -right-1 -top-1 flex min-w-[17px] items-center justify-center rounded-full bg-danger px-1 text-2xs font-bold text-white shadow-sm">
+          <span className="absolute -right-1 -top-1 flex min-w-[17px] items-center justify-center rounded-full bg-primary px-1 text-2xs font-bold text-primary-foreground shadow-xs">
             {unread > 9 ? '9+' : unread}
           </span>
         )}
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-[22rem] p-0">
-        <div className="flex items-center justify-between border-b border-line px-3.5 py-3 text-ink-1">
-          <p className="text-sm font-bold text-ink-1">Notifications</p>
+        <div className="flex items-center justify-between border-b border-border px-3.5 py-3 text-foreground">
+          <p className="text-sm font-bold text-heading">Notifications</p>
           {unread > 0 && (
             <button
               type="button"
               onClick={markAllRead}
-              className="flex items-center gap-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:underline"
+              className="flex items-center gap-1.5 text-xs font-semibold text-gold-text hover:underline"
             >
               <CheckCheck className="size-3.5" aria-hidden />
               Mark all read
@@ -71,10 +71,10 @@ export function NotificationMenu() {
         </div>
         <div className="scroll-thin max-h-80 overflow-y-auto">
           {notifications.initialLoading && (
-            <p className="px-3.5 py-8 text-center text-sm text-slate-400">Loading…</p>
+            <p className="px-3.5 py-8 text-center text-sm text-muted-foreground">Loading…</p>
           )}
           {!notifications.initialLoading && !items.length && (
-            <p className="px-3.5 py-8 text-center text-sm text-slate-400">
+            <p className="px-3.5 py-8 text-center text-sm text-muted-foreground">
               You&rsquo;re all caught up.
             </p>
           )}
@@ -86,26 +86,26 @@ export function NotificationMenu() {
                   <span
                     className={cn(
                       'mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-[8px]',
-                      item.read ? 'bg-white/10 text-slate-400' : 'bg-indigo-500/20 text-indigo-300',
+                      item.read ? 'bg-muted text-muted-foreground' : 'bg-accent/20 text-accent',
                     )}
                     aria-hidden
                   >
                     <Icon className="size-3.5" />
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-semibold text-white">{item.title}</span>
-                    <span className="mt-0.5 block text-xs text-slate-300">{item.body}</span>
-                    <span className="mt-1 block text-2xs text-slate-400">
+                    <span className="block text-sm font-semibold text-foreground">{item.title}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{item.body}</span>
+                    <span className="mt-1 block text-2xs text-muted-foreground">
                       {relativeTime(item.createdAt)}
                     </span>
                   </span>
                   {!item.read && (
-                    <span className="mt-2 size-2 shrink-0 rounded-full bg-indigo-400" aria-label="Unread" />
+                    <span className="mt-2 size-2 shrink-0 rounded-full bg-accent" aria-label="Unread" />
                   )}
                 </span>
               );
               return (
-                <li key={item.id} className="border-b border-white/10 last:border-b-0">
+                <li key={item.id} className="border-b border-border last:border-b-0">
                   {item.href ? (
                     <Link
                       href={item.href}
@@ -113,7 +113,7 @@ export function NotificationMenu() {
                         await api.post(`/notifications/${item.id}/read`);
                         setOpen(false);
                       }}
-                      className="block px-3.5 py-3 hover:bg-white/10 transition-colors"
+                      className="block px-3.5 py-3 hover:bg-muted transition-colors"
                     >
                       {body}
                     </Link>
@@ -145,22 +145,22 @@ export function ProfileMenu({ user }: { user: SessionUser }) {
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label="Account menu"
-        className="flex items-center gap-2 rounded-full border border-line bg-surface/80 p-[3px] pr-2.5 text-ink-1 hover:bg-surface-hover transition-all active:scale-95 shadow-xs"
+        className="flex items-center gap-2 rounded-full border border-border bg-card p-[3px] pr-2.5 text-foreground hover:bg-muted transition-all active:scale-95 shadow-xs"
       >
         <Avatar name={user.name} color={user.avatarColor} size={26} />
         <span className="hidden min-w-0 text-left sm:block">
-          <span className="block truncate text-sm font-semibold leading-tight text-ink-1">{user.name}</span>
-          <span className="block truncate text-2xs text-ink-3">
+          <span className="block truncate text-sm font-semibold leading-tight text-foreground">{user.name}</span>
+          <span className="block truncate text-2xs text-muted-foreground">
             {ROLE_LABEL[user.role as Role]}
           </span>
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent>
         <DropdownMenuLabel>
-          <span className="block font-semibold text-ink-1 text-sm">{user.name}</span>
-          <span className="block text-xs text-ink-3">{user.email}</span>
+          <span className="block font-semibold text-foreground text-sm">{user.name}</span>
+          <span className="block text-xs text-muted-foreground">{user.email}</span>
           {user.departmentName && (
-            <span className="mt-1 block text-2xs text-ink-3">
+            <span className="mt-1 block text-2xs text-muted-foreground">
               {user.collegeName} › {user.departmentName}
             </span>
           )}

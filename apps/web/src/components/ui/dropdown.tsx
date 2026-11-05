@@ -18,8 +18,7 @@ export const DropdownMenuContent = React.forwardRef<
       sideOffset={sideOffset}
       align={align}
       className={cn(
-        'z-[100] min-w-[14rem] overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl backdrop-blur-2xl text-slate-900',
-        'dark:border-white/15 dark:bg-slate-900/95 dark:text-white data-[state=open]:animate-fade',
+        'z-[100] min-w-[14rem] overflow-hidden rounded-xl border border-border bg-popover p-1.5 shadow-2xl text-popover-foreground data-[state=open]:animate-fade',
         className,
       )}
       {...props}
@@ -36,12 +35,11 @@ export const DropdownMenuItem = React.forwardRef<
     ref={ref}
     className={cn(
       'flex cursor-pointer select-none items-center gap-2.5 rounded-[8px] px-3 py-2 text-sm font-medium outline-none transition-colors',
-      '[&_svg]:size-[14px] [&_svg]:text-slate-500 dark:[&_svg]:text-slate-400',
-      'data-[highlighted]:bg-slate-100 data-[highlighted]:text-slate-900 data-[highlighted]:[&_svg]:text-slate-900',
-      'dark:data-[highlighted]:bg-white/10 dark:data-[highlighted]:text-white dark:data-[highlighted]:[&_svg]:text-white',
+      '[&_svg]:size-[14px] [&_svg]:text-muted-foreground',
+      'data-[highlighted]:bg-muted data-[highlighted]:text-foreground data-[highlighted]:[&_svg]:text-foreground',
       tone === 'danger'
-        ? 'text-rose-600 dark:text-rose-400 data-[highlighted]:bg-rose-500/15 data-[highlighted]:text-rose-700 dark:data-[highlighted]:text-rose-300 [&_svg]:text-rose-600 dark:[&_svg]:text-rose-400'
-        : 'text-slate-700 dark:text-slate-200',
+        ? 'text-destructive data-[highlighted]:bg-destructive/15 data-[highlighted]:text-destructive [&_svg]:text-destructive'
+        : 'text-foreground',
       className,
     )}
     {...props}
@@ -50,7 +48,7 @@ export const DropdownMenuItem = React.forwardRef<
 DropdownMenuItem.displayName = 'DropdownMenuItem';
 
 export function DropdownMenuLabel({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('px-3 py-2 text-xs font-medium text-slate-600 dark:text-slate-300', className)} {...props} />;
+  return <div className={cn('px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider', className)} {...props} />;
 }
 
 export const DropdownMenuSeparator = React.forwardRef<
@@ -59,7 +57,7 @@ export const DropdownMenuSeparator = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DropdownPrimitive.Separator
     ref={ref}
-    className={cn('my-1 h-px bg-slate-200 dark:bg-white/10', className)}
+    className={cn('my-1 h-px bg-border', className)}
     {...props}
   />
 ));

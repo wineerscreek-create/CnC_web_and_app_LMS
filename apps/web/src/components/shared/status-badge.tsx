@@ -55,7 +55,7 @@ export function StatusBadge({
   dot?: boolean;
   pulse?: boolean;
 }) {
-  if (!status) return <span className="text-ink-3">—</span>;
+  if (!status) return <span className="text-muted-foreground">—</span>;
   const key = status.toLowerCase();
   const shouldPulse = pulse !== undefined ? pulse : LIVE_KEYS.has(key);
   return (
@@ -68,7 +68,7 @@ export function StatusBadge({
 /** Attendance/score band colouring, matching the Participant Directory legend. */
 export function BandBadge({ percentage }: { percentage?: number | null }) {
   if (percentage === null || percentage === undefined) {
-    return <span className="text-ink-3">—</span>;
+    return <span className="text-muted-foreground">—</span>;
   }
   const tone: BadgeProps['tone'] =
     percentage >= 75 ? 'success' : percentage >= 60 ? 'amber' : 'danger';

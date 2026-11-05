@@ -100,7 +100,7 @@ export default function ParticipantProfilePage() {
                         thickness={9}
                       />
                     </div>
-                    <p className="mt-2 text-sm text-ink-2">Readiness score</p>
+                    <p className="mt-2 text-sm text-muted-foreground">Readiness score</p>
                     {data.readiness.focusPillar && (
                       <Badge tone="amber" className="mt-2">
                         Focus: {data.readiness.focusPillar}
@@ -123,7 +123,7 @@ export default function ParticipantProfilePage() {
                     >
                       {pct(summary.sessionAttendancePercent, 1)}
                     </p>
-                    <p className="mt-1.5 text-sm text-ink-2">
+                    <p className="mt-1.5 text-sm text-muted-foreground">
                       {summary.aboveDepartmentAverage
                         ? 'Above the department average'
                         : 'Below the department average'}
@@ -246,10 +246,10 @@ export default function ParticipantProfilePage() {
                             {data.assessments.map((row: any) => (
                               <Tr key={row.id}>
                                 <Td className="font-semibold">{row.trainingModuleName}</Td>
-                                <Td hideBelow="sm" className="text-ink-2">
+                                <Td hideBelow="sm" className="text-muted-foreground">
                                   {row.assessedByLabel ?? '—'}
                                 </Td>
-                                <Td hideBelow="md" className="tnum text-ink-2">
+                                <Td hideBelow="md" className="tnum text-muted-foreground">
                                   {formatDate(row.createdAt)}
                                 </Td>
                                 <Td align="right" className="tnum font-semibold">
@@ -262,7 +262,7 @@ export default function ParticipantProfilePage() {
                       </TableWrap>
                       {data.assessments.length === 0 && (
                         <CardBody>
-                          <p className="py-4 text-center text-base text-ink-2">
+                          <p className="py-4 text-center text-base text-muted-foreground">
                             No submitted evaluations yet.
                           </p>
                         </CardBody>
@@ -283,15 +283,15 @@ export default function ParticipantProfilePage() {
                       </CardHeader>
                       <CardBody>
                         {data.feedback.length === 0 ? (
-                          <p className="py-4 text-center text-base text-ink-2">
+                          <p className="py-4 text-center text-base text-muted-foreground">
                             No written feedback recorded.
                           </p>
                         ) : (
                           <ul className="space-y-3">
                             {data.feedback.map((row: any) => (
-                              <li key={row.id} className="rounded-[10px] bg-app px-3.5 py-3">
+                              <li key={row.id} className="rounded-[10px] bg-muted px-3.5 py-3">
                                 <p className="text-base leading-relaxed">{row.feedbackText}</p>
-                                <p className="mt-1.5 text-xs text-ink-3">
+                                <p className="mt-1.5 text-xs text-muted-foreground">
                                   {row.trainerName} · {formatDate(row.createdAt)}
                                   {row.rating ? ` · ${row.rating}/5` : ''}
                                 </p>
@@ -332,10 +332,10 @@ export default function ParticipantProfilePage() {
                                 <Td>
                                   <StatusBadge status={row.status} />
                                 </Td>
-                                <Td hideBelow="sm" className="text-ink-2">
+                                <Td hideBelow="sm" className="text-muted-foreground">
                                   {row.enrollmentType}
                                 </Td>
-                                <Td hideBelow="md" className="text-ink-2">
+                                <Td hideBelow="md" className="text-muted-foreground">
                                   {row.enrolledByLabel ?? '—'}
                                 </Td>
                                 <Td align="right" className="tnum">
@@ -364,7 +364,7 @@ export default function ParticipantProfilePage() {
                                   <span className="font-semibold">{event.action}</span>
                                   {event.reason ? ` — ${event.reason}` : ''}
                                 </p>
-                                <p className="mt-0.5 text-xs text-ink-3">
+                                <p className="mt-0.5 text-xs text-muted-foreground">
                                   {event.byLabel ?? event.actorLabel ?? 'system'} ·{' '}
                                   {formatDate(event.at, true)}
                                 </p>

@@ -123,7 +123,7 @@ export default function CoursePlayerPage() {
                 { label: course.title },
               ]}
               title={course.title}
-              description={`${course.trainerName ?? 'Winners Creek Faculty'} · ${course.difficulty ?? 'All Levels'} · ${course.durationHours ?? 40}h`}
+              description={`${course.trainerName ?? 'SkillSharp Faculty'} · ${course.difficulty ?? 'All Levels'} · ${course.durationHours ?? 40}h`}
               actions={
                 <div className="flex items-center gap-2">
                   <Button asChild variant="secondary" size="sm">
@@ -133,7 +133,7 @@ export default function CoursePlayerPage() {
                     </Link>
                   </Button>
                   {!hasAccess && (
-                    <Button asChild variant="primary" size="sm" className="bg-amber-600 hover:bg-amber-700">
+                    <Button asChild variant="primary" size="sm">
                       <Link href={`/student/payments?courseId=${course.id}`}>
                         Unlock Full Access (₹{num(course.fee ?? 2499)})
                       </Link>
@@ -145,10 +145,10 @@ export default function CoursePlayerPage() {
 
             {/* Trial Active Banner */}
             {isTrialActive && (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50/80 p-4 dark:border-amber-900/50 dark:bg-amber-950/20 text-xs shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-secondary/20 p-4 text-xs shadow-xs">
                 <div className="flex items-center gap-2.5">
-                  <span className="size-2 rounded-full bg-amber-500 animate-pulse" />
-                  <p className="text-amber-900 dark:text-amber-200">
+                  <span className="size-2 rounded-full bg-accent animate-pulse" />
+                  <p className="text-foreground">
                     <strong>3-Day Free Trial (72 Hours):</strong>{' '}
                     {access?.hoursRemaining !== undefined
                       ? `${access.hoursRemaining} hours remaining.`
@@ -156,7 +156,7 @@ export default function CoursePlayerPage() {
                     All progress is automatically saved to your account.
                   </p>
                 </div>
-                <Button asChild size="sm" variant="primary" className="bg-amber-600 hover:bg-amber-700 text-xs">
+                <Button asChild size="sm" variant="primary" className="text-xs">
                   <Link href={`/student/payments?courseId=${course.id}`}>Upgrade to Full Access (₹{num(course.fee ?? 2499)})</Link>
                 </Button>
               </div>
@@ -164,16 +164,16 @@ export default function CoursePlayerPage() {
 
             {/* Trial Expired / Locked Barrier Banner */}
             {!hasAccess && (
-              <div className="rounded-2xl border border-rose-300 bg-rose-50/80 p-6 dark:border-rose-900/50 dark:bg-rose-950/30 text-center space-y-3 shadow-md">
-                <ShieldAlert className="size-8 text-rose-500 mx-auto" />
-                <h3 className="font-bold text-base text-rose-950 dark:text-rose-100">
+              <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-6 text-center space-y-3 shadow-card">
+                <ShieldAlert className="size-8 text-destructive mx-auto" />
+                <h3 className="font-bold text-base text-heading">
                   {isTrialExpired ? 'Your 3-Day Free Trial Has Expired' : 'Enrolment Required to Access Course Content'}
                 </h3>
-                <p className="text-xs text-rose-800 dark:text-rose-200 max-w-lg mx-auto leading-relaxed">
+                <p className="text-xs text-muted-foreground max-w-lg mx-auto leading-relaxed">
                   Your learning progress and completed lessons are securely preserved. To continue accessing lessons, class materials, live interactive sessions, and certificates, unlock lifetime course access.
                 </p>
                 <div className="pt-2">
-                  <Button asChild size="md" variant="primary" className="bg-indigo-600 hover:bg-indigo-700 font-bold px-6">
+                  <Button asChild size="md" variant="primary" className="font-bold px-6">
                     <Link href={`/student/payments?courseId=${course.id}`}>
                       Unlock Full Access for ₹{num(course.fee ?? 2499)}
                     </Link>
@@ -183,13 +183,13 @@ export default function CoursePlayerPage() {
             )}
 
             {/* Content Navigation Tabs */}
-            <div className="flex items-center rounded-xl bg-slate-100 dark:bg-slate-800/80 p-1 border border-slate-200 dark:border-slate-700/60 text-xs w-fit">
+            <div className="flex items-center rounded-xl bg-muted p-1 border border-border text-xs w-fit">
               <button
                 onClick={() => setActiveTab('lessons')}
                 className={`px-3.5 py-1.5 rounded-lg font-medium transition-all ${
                   activeTab === 'lessons'
-                    ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400 font-bold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    ? 'bg-card shadow-xs text-foreground font-bold border border-border'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 Curriculum Lessons
@@ -198,8 +198,8 @@ export default function CoursePlayerPage() {
                 onClick={() => setActiveTab('materials')}
                 className={`px-3.5 py-1.5 rounded-lg font-medium transition-all ${
                   activeTab === 'materials'
-                    ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400 font-bold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    ? 'bg-card shadow-xs text-foreground font-bold border border-border'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 Class Materials ({materialsQuery.data?.length ?? 0})
@@ -208,8 +208,8 @@ export default function CoursePlayerPage() {
                 onClick={() => setActiveTab('recordings')}
                 className={`px-3.5 py-1.5 rounded-lg font-medium transition-all ${
                   activeTab === 'recordings'
-                    ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400 font-bold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    ? 'bg-card shadow-xs text-foreground font-bold border border-border'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 Recordings ({recordingsQuery.data?.length ?? 0})
@@ -218,8 +218,8 @@ export default function CoursePlayerPage() {
                 onClick={() => setActiveTab('sessions')}
                 className={`px-3.5 py-1.5 rounded-lg font-medium transition-all ${
                   activeTab === 'sessions'
-                    ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400 font-bold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    ? 'bg-card shadow-xs text-foreground font-bold border border-border'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 Live Classes &amp; Meetings ({sessionsQuery.data?.length ?? 0})
@@ -235,7 +235,7 @@ export default function CoursePlayerPage() {
                       {active ? (
                         <>
                           <div className="flex items-start gap-3.5">
-                            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+                            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted text-primary border border-border">
                               {active.kind === 'video' ? (
                                 <PlayCircle className="size-5" aria-hidden />
                               ) : (
@@ -243,13 +243,13 @@ export default function CoursePlayerPage() {
                               )}
                             </span>
                             <div className="min-w-0 flex-1">
-                              <p className="text-xs uppercase tracking-wider text-ink-3">
+                              <p className="text-xs uppercase tracking-wider text-muted-foreground">
                                 {active.kind === 'video' ? 'Video lesson' : 'Reading'}
                                 {active.durationSeconds
                                   ? ` · ${duration(active.durationSeconds)}`
                                   : ''}
                               </p>
-                              <h2 className="mt-1 text-[17px] font-semibold">{active.title}</h2>
+                              <h2 className="mt-1 text-[17px] font-semibold text-heading">{active.title}</h2>
                             </div>
                             {active.completed && (
                               <Badge tone="success">
@@ -259,19 +259,19 @@ export default function CoursePlayerPage() {
                             )}
                           </div>
 
-                          <div className="mt-5 rounded-xl surface-3d border border-slate-200/80 dark:border-white/[0.08] p-5">
+                          <div className="mt-5 rounded-xl border border-border bg-card p-5">
                             {!hasAccess ? (
                               <div className="text-center py-6 space-y-2">
-                                <Lock className="size-6 text-slate-400 mx-auto" />
-                                <p className="font-semibold text-sm text-slate-700 dark:text-slate-300">
+                                <Lock className="size-6 text-muted-foreground mx-auto" />
+                                <p className="font-semibold text-sm text-heading">
                                   Lesson Content Locked
                                 </p>
-                                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                                <p className="text-xs text-muted-foreground max-w-sm mx-auto">
                                   Your free trial has ended. Complete your course payment to view this lesson.
                                 </p>
                               </div>
                             ) : (
-                              <p className="text-base leading-relaxed text-ink-1">
+                              <p className="text-base leading-relaxed text-foreground">
                                 {active.content ??
                                   active.summary ??
                                   'Lesson material for this session is delivered in class by your trainer. Use the practice lab to rehearse what it covers, then mark the lesson complete to keep your path up to date.'}
@@ -296,7 +296,7 @@ export default function CoursePlayerPage() {
                           )}
                         </>
                       ) : (
-                        <p className="py-8 text-center text-base text-ink-2">
+                        <p className="py-8 text-center text-base text-muted-foreground">
                           This program has no lessons published yet.
                         </p>
                       )}
@@ -316,7 +316,7 @@ export default function CoursePlayerPage() {
                     <CardBody className="space-y-4">
                       {(course.modules ?? []).map((module: any, index: number) => (
                         <div key={module.id}>
-                          <p className="text-sm font-bold">
+                          <p className="text-sm font-bold text-heading">
                             {index + 1}. {module.title}
                           </p>
                           <ul className="mt-2 space-y-1">
@@ -329,21 +329,21 @@ export default function CoursePlayerPage() {
                                   className={cn(
                                     'flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-base transition-all duration-150',
                                     lesson.id === activeId
-                                      ? 'bg-indigo-50 dark:bg-indigo-950/50 font-semibold text-indigo-600 dark:text-indigo-400 shadow-3d-card'
-                                      : 'hover:bg-slate-50 dark:hover:bg-white/[0.04]',
+                                      ? 'bg-accent/20 font-semibold text-accent-foreground border border-accent/40 shadow-xs'
+                                      : 'hover:bg-muted text-foreground',
                                   )}
                                 >
                                   {lesson.completed ? (
                                     <CheckCircle2
-                                      className="size-3.5 shrink-0 text-success"
+                                      className="size-3.5 shrink-0 text-primary"
                                       aria-hidden
                                     />
                                   ) : (
-                                    <Circle className="size-3.5 shrink-0 text-ink-3" aria-hidden />
+                                    <Circle className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                                   )}
                                   <span className="min-w-0 flex-1 truncate">{lesson.title}</span>
                                   {lesson.durationSeconds ? (
-                                    <span className="tnum shrink-0 text-xs text-ink-3">
+                                    <span className="tnum shrink-0 text-xs text-muted-foreground">
                                       {duration(lesson.durationSeconds)}
                                     </span>
                                   ) : null}
@@ -364,11 +364,11 @@ export default function CoursePlayerPage() {
                     </CardHeader>
                     <CardBody className="space-y-3">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-ink-2">Completion</span>
-                        <span className="font-bold text-ink-1">{percent}%</span>
+                        <span className="text-muted-foreground">Completion</span>
+                        <span className="font-bold text-heading">{percent}%</span>
                       </div>
-                      <ProgressBar value={percent} tone="indigo" />
-                      <p className="text-xs text-slate-500">
+                      <ProgressBar value={percent} />
+                      <p className="text-xs text-muted-foreground">
                         {lessons.filter((l) => l.completed).length} of {lessons.length} lessons finished.
                       </p>
                     </CardBody>
@@ -380,40 +380,40 @@ export default function CoursePlayerPage() {
             {/* TAB 2: CLASS MATERIALS */}
             {activeTab === 'materials' && (
               <Card elevated>
-                <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <FolderOpen className="size-4 text-indigo-500" />
+                <CardHeader className="p-5 border-b border-border">
+                  <CardTitle className="text-base flex items-center gap-2 text-heading">
+                    <FolderOpen className="size-4 text-primary" />
                     Class Notes, Handouts &amp; Reading Materials
                   </CardTitle>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     Course resources and documentation published by your assigned trainers.
                   </p>
                 </CardHeader>
                 <CardBody className="p-0">
                   {!hasAccess ? (
                     <div className="p-12 text-center space-y-2">
-                      <Lock className="size-8 text-slate-400 mx-auto" />
-                      <p className="font-bold text-sm text-slate-800 dark:text-slate-200">
+                      <Lock className="size-8 text-muted-foreground mx-auto" />
+                      <p className="font-bold text-sm text-heading">
                         Class Materials Locked
                       </p>
-                      <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                      <p className="text-xs text-muted-foreground max-w-sm mx-auto">
                         Enroll in this course or activate your free trial to download learning materials.
                       </p>
                     </div>
                   ) : materialsQuery.data && materialsQuery.data.length > 0 ? (
-                    <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                    <div className="divide-y divide-border text-xs">
                       {materialsQuery.data.map((m: any) => (
-                        <div key={m.id} className="p-4 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                        <div key={m.id} className="p-4 flex items-center justify-between hover:bg-muted/40">
                           <div className="flex items-center gap-3">
-                            <span className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600">
+                            <span className="p-2 rounded-lg bg-muted text-primary border border-border">
                               <FileText className="size-4" />
                             </span>
                             <div>
-                              <p className="font-semibold text-slate-900 dark:text-white text-sm">{m.title}</p>
-                              <p className="text-[11px] text-slate-500">
+                              <p className="font-semibold text-heading text-sm">{m.title}</p>
+                              <p className="text-[11px] text-muted-foreground">
                                 {m.materialType} · Uploaded by {m.trainerName || 'Trainer'} · {formatDate(m.createdAt)}
                               </p>
-                              {m.description && <p className="text-slate-600 dark:text-slate-400 mt-1">{m.description}</p>}
+                              {m.description && <p className="text-muted-foreground mt-1">{m.description}</p>}
                             </div>
                           </div>
                           <Button asChild size="sm" variant="secondary" className="text-xs">
@@ -426,7 +426,7 @@ export default function CoursePlayerPage() {
                       ))}
                     </div>
                   ) : (
-                    <div className="p-12 text-center text-xs text-slate-500">
+                    <div className="p-12 text-center text-xs text-muted-foreground">
                       No supplementary class materials uploaded for this course yet.
                     </div>
                   )}
@@ -437,37 +437,37 @@ export default function CoursePlayerPage() {
             {/* TAB 3: RECORDINGS */}
             {activeTab === 'recordings' && (
               <Card elevated>
-                <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Video className="size-4 text-indigo-500" />
+                <CardHeader className="p-5 border-b border-border">
+                  <CardTitle className="text-base flex items-center gap-2 text-heading">
+                    <Video className="size-4 text-primary" />
                     Archived Session Recordings
                   </CardTitle>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     Watch replay videos of past lecture sessions and lab walkthroughs.
                   </p>
                 </CardHeader>
                 <CardBody className="p-0">
                   {!hasAccess ? (
                     <div className="p-12 text-center space-y-2">
-                      <Lock className="size-8 text-slate-400 mx-auto" />
-                      <p className="font-bold text-sm text-slate-800 dark:text-slate-200">
+                      <Lock className="size-8 text-muted-foreground mx-auto" />
+                      <p className="font-bold text-sm text-heading">
                         Recordings Locked
                       </p>
-                      <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                      <p className="text-xs text-muted-foreground max-w-sm mx-auto">
                         Upgrade your account to watch recorded lectures and coding walkthroughs.
                       </p>
                     </div>
                   ) : recordingsQuery.data && recordingsQuery.data.length > 0 ? (
-                    <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                    <div className="divide-y divide-border text-xs">
                       {recordingsQuery.data.map((r: any) => (
-                        <div key={r.id} className="p-4 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                        <div key={r.id} className="p-4 flex items-center justify-between hover:bg-muted/40">
                           <div className="flex items-center gap-3">
-                            <span className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600">
+                            <span className="p-2 rounded-lg bg-muted text-primary border border-border">
                               <PlayCircle className="size-4" />
                             </span>
                             <div>
-                              <p className="font-semibold text-slate-900 dark:text-white text-sm">{r.title}</p>
-                              <p className="text-[11px] text-slate-500">
+                              <p className="font-semibold text-heading text-sm">{r.title}</p>
+                              <p className="text-[11px] text-muted-foreground">
                                 Faculty: {r.trainerName || 'Faculty'} · {formatDate(r.createdAt)}
                                 {r.durationSeconds ? ` · ${Math.round(r.durationSeconds / 60)} mins` : ''}
                               </p>
@@ -483,7 +483,7 @@ export default function CoursePlayerPage() {
                       ))}
                     </div>
                   ) : (
-                    <div className="p-12 text-center text-xs text-slate-500">
+                    <div className="p-12 text-center text-xs text-muted-foreground">
                       No class recordings available yet for this course.
                     </div>
                   )}
@@ -494,34 +494,34 @@ export default function CoursePlayerPage() {
             {/* TAB 4: LIVE CLASSES & MEETING LINKS */}
             {activeTab === 'sessions' && (
               <Card elevated>
-                <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Calendar className="size-4 text-indigo-500" />
+                <CardHeader className="p-5 border-b border-border">
+                  <CardTitle className="text-base flex items-center gap-2 text-heading">
+                    <Calendar className="size-4 text-primary" />
                     Live Virtual Classroom Schedule
                   </CardTitle>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     Interactive live training sessions. Meeting links are displayed exclusively to verified enrolled or active trial participants.
                   </p>
                 </CardHeader>
                 <CardBody className="p-0">
                   {sessionsQuery.data && sessionsQuery.data.length > 0 ? (
-                    <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                    <div className="divide-y divide-border text-xs">
                       {sessionsQuery.data.map((s: any) => (
-                        <div key={s.id} className="p-4 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                        <div key={s.id} className="p-4 flex items-center justify-between hover:bg-muted/40">
                           <div className="space-y-1">
-                            <p className="font-semibold text-slate-900 dark:text-white text-sm">{s.topic}</p>
-                            <p className="text-[11px] text-slate-500">
+                            <p className="font-semibold text-heading text-sm">{s.topic}</p>
+                            <p className="text-[11px] text-muted-foreground">
                               Date: {s.date || 'TBD'} · Time: {s.startTime || 'TBD'} - {s.endTime || 'TBD'}
                             </p>
                             {s.meetingPassword && hasAccess && (
-                              <p className="text-[11px] text-slate-600 dark:text-slate-400 font-mono">
+                              <p className="text-[11px] text-muted-foreground font-mono">
                                 Passcode: {s.meetingPassword}
                               </p>
                             )}
                           </div>
                           <div>
                             {hasAccess && s.meetingLink ? (
-                              <Button asChild size="sm" variant="primary" className="bg-emerald-600 hover:bg-emerald-700 text-xs">
+                              <Button asChild size="sm" variant="primary" className="text-xs">
                                 <a href={s.meetingLink} target="_blank" rel="noopener noreferrer">
                                   <Video className="size-3 mr-1" />
                                   Join Meeting
@@ -538,7 +538,7 @@ export default function CoursePlayerPage() {
                       ))}
                     </div>
                   ) : (
-                    <div className="p-12 text-center text-xs text-slate-500">
+                    <div className="p-12 text-center text-xs text-muted-foreground">
                       No live sessions currently scheduled for this course. Check back soon.
                     </div>
                   )}

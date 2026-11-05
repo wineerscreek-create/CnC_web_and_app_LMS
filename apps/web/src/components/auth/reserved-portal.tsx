@@ -36,75 +36,77 @@ export function ReservedPortal({
   return (
     <RouteGuard allow={role}>
       <PortalShell>
-        <div className="mx-auto max-w-[760px] animate-enter">
-          <header className="mb-5">
+        <div className="mx-auto max-w-[760px] animate-enter space-y-6">
+          <header className="pb-2 border-b border-border">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="amber">
-                <Construction className="size-3" aria-hidden />
-                Phase 2 portal
+              <Badge tone="mustard" className="font-semibold text-xs py-0.5 px-2.5">
+                <Construction className="size-3 mr-1" aria-hidden />
+                Phase 2 Portal
               </Badge>
-              <Badge tone="info">
-                <ShieldCheck className="size-3" aria-hidden />
-                Route protected &amp; role-enforced
+              <Badge tone="charcoal" className="font-semibold text-xs py-0.5 px-2.5">
+                <ShieldCheck className="size-3 mr-1" aria-hidden />
+                Role Protected &amp; Scoped
               </Badge>
             </div>
-            <h1 className="mt-3 text-[24px] font-bold leading-tight tracking-tight text-ink-1">
+            <h1 className="mt-3 text-2xl font-black font-heading tracking-tight text-heading">
               {title}
             </h1>
-            <p className="mt-1.5 text-base text-ink-2">
-              Signed in as <span className="font-semibold text-ink-1">{user?.name}</span> ({user?.roleLabel}).
+            <p className="mt-1 text-xs text-muted-foreground">
+              Authenticated as <span className="font-bold text-foreground">{user?.name}</span> ({user?.roleLabel}).
             </p>
           </header>
 
-          <Card className="card-interactive">
-            <CardHeader>
+          <Card className="border-border bg-card shadow-sm">
+            <CardHeader className="pb-3 border-b border-border">
               <div>
-                <CardTitle>What this portal is for</CardTitle>
-                <CardSubtitle>Its place in the platform is already decided</CardSubtitle>
+                <CardTitle className="text-base font-bold font-heading text-heading">Portal Architectural Scope</CardTitle>
+                <CardSubtitle className="text-xs text-muted-foreground">Formal capability placement within the SkillSharp ecosystem</CardSubtitle>
               </div>
             </CardHeader>
-            <CardBody>
-              <p className="text-base leading-relaxed text-ink-1">{purpose}</p>
+            <CardBody className="pt-4 space-y-5">
+              <p className="text-sm leading-relaxed text-muted-foreground">{purpose}</p>
 
-              <h2 className="mt-5 text-xs font-bold uppercase tracking-wider text-ink-3">
-                Planned in this portal
-              </h2>
-              <ul className="mt-2 space-y-1">
-                {planned.map((item) => (
-                  <li
-                    key={item}
-                    className="flex items-start gap-2.5 rounded-lg p-1.5 -mx-1.5 text-base text-ink-2 transition-colors hover:bg-slate-50/70"
-                  >
-                    <ArrowRight className="mt-1 size-3.5 shrink-0 text-indigo" aria-hidden />
-                    {item}
-                  </li>
-                ))}
-              </ul>
+              <div>
+                <h2 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Planned Platform Modules
+                </h2>
+                <ul className="mt-2.5 space-y-1.5">
+                  {planned.map((item) => (
+                    <li
+                      key={item}
+                      className="flex items-start gap-2.5 rounded-xl p-2 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+                    >
+                      <ArrowRight className="mt-0.5 size-3.5 shrink-0 text-accent" aria-hidden />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
 
-              <h2 className="mt-5 text-xs font-bold uppercase tracking-wider text-ink-3">
-                Data this role will be able to see
-              </h2>
-              <ul className="mt-2 space-y-1">
-                {dataAccess.map((item) => (
-                  <li
-                    key={item}
-                    className="flex items-start gap-2.5 rounded-lg p-1.5 -mx-1.5 text-base text-ink-2 transition-colors hover:bg-slate-50/70"
-                  >
-                    <ShieldCheck className="mt-1 size-3.5 shrink-0 text-info" aria-hidden />
-                    {item}
-                  </li>
-                ))}
-              </ul>
+              <div>
+                <h2 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Scoped Data Visibility
+                </h2>
+                <ul className="mt-2.5 space-y-1.5">
+                  {dataAccess.map((item) => (
+                    <li
+                      key={item}
+                      className="flex items-start gap-2.5 rounded-xl p-2 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+                    >
+                      <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-accent" aria-hidden />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
 
-              <p className="mt-5 rounded-[10px] bg-info-bg px-3.5 py-3 text-sm leading-relaxed text-info">
-                Nothing is shown here that the server would not already allow this role to read.
-                The scoping rules, session handling and audit trail are the same ones the live
-                portals use — only the screens are still to come.
-              </p>
+              <div className="rounded-2xl bg-muted border border-border p-4 text-xs leading-relaxed text-muted-foreground">
+                Data access strictly mirrors server authorization boundaries. Scoping parameters, session state, and audit trails remain actively enforced by the backend API.
+              </div>
 
-              <div className="mt-5 flex flex-wrap gap-2.5">
-                <Button asChild variant="secondary">
-                  <Link href="/contact">Ask about access</Link>
+              <div className="pt-2">
+                <Button asChild variant="secondary" size="sm" className="text-xs">
+                  <Link href="/contact">Inquire About Extended Role Access</Link>
                 </Button>
               </div>
             </CardBody>

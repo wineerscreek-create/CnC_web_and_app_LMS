@@ -375,11 +375,11 @@ export default function LiveClassRoomPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
+      <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
         <div className="flex flex-col items-center gap-4">
           <WinnersCreekLogo variant="full" priority />
           <div className="size-8 animate-spin rounded-full border-3 border-indigo-500 border-t-transparent" />
-          <p className="font-medium text-xs text-slate-400">Connecting to Winners Creek Live Classroom...</p>
+          <p className="font-medium text-xs text-muted-foreground">Connecting to SkillSharp Live Classroom...</p>
         </div>
       </div>
     );
@@ -387,14 +387,14 @@ export default function LiveClassRoomPage() {
 
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-white">
-        <div className="max-w-md rounded-2xl border border-red-500/20 bg-slate-900/80 p-6 text-center backdrop-blur-xl">
+      <div className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
+        <div className="max-w-md rounded-2xl border border-red-500/20 bg-card/80 p-6 text-center backdrop-blur-xl">
           <Shield className="mx-auto mb-4 size-12 text-red-400" />
-          <h2 className="text-xl font-bold text-white">Access Denied</h2>
-          <p className="mt-2 text-sm text-slate-400">{error}</p>
+          <h2 className="text-xl font-bold text-heading">Access Denied</h2>
+          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
           <button
             onClick={() => router.push('/student/live-classes')}
-            className="mt-6 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-2.5 font-semibold text-white shadow-lg transition hover:brightness-110"
+            className="mt-6 rounded-xl bg-primary px-6 py-2.5 font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
           >
             Return to Live Classes
           </button>
@@ -404,28 +404,28 @@ export default function LiveClassRoomPage() {
   }
 
   return (
-    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-slate-950 text-white">
+    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
       {/* 1. Header Bar */}
-      <header className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-slate-900/60 px-6 backdrop-blur-md">
+      <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card/60 px-6 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 rounded-full bg-red-500/20 px-3 py-1 text-xs font-semibold text-red-400">
             <Radio className="size-3.5 animate-pulse" />
             LIVE
           </div>
-          <h1 className="max-w-md truncate text-base font-bold text-white sm:text-lg">
+          <h1 className="max-w-md truncate text-base font-bold text-foreground sm:text-lg">
             {liveClass?.title}
           </h1>
-          <span className="hidden text-xs text-slate-400 sm:inline">
+          <span className="hidden text-xs text-muted-foreground sm:inline">
             ({liveClass?.batchName || liveClass?.courseMode || 'Cohort'})
           </span>
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-1.5 text-xs font-mono text-slate-300">
-            <Clock className="size-3.5 text-indigo-400" />
+          <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-1.5 text-xs font-mono text-foreground">
+            <Clock className="size-3.5 text-primary" />
             {formatTimer(elapsedSeconds)}
           </div>
-          <div className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-1.5 text-xs text-slate-300">
+          <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-1.5 text-xs text-foreground">
             <Users className="size-3.5 text-cyan-400" />
             <span>{peers.length + 1} present</span>
           </div>
@@ -438,14 +438,14 @@ export default function LiveClassRoomPage() {
         <div className="relative flex flex-1 flex-col p-4">
           {screenActive ? (
             /* Screen Share Layout */
-            <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-slate-900">
+            <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-card">
               <video
                 ref={screenVideoRef}
                 autoPlay
                 playsInline
                 className="size-full object-contain"
               />
-              <div className="absolute bottom-4 left-4 rounded-lg bg-slate-900/80 px-3 py-1.5 text-xs font-medium backdrop-blur-md">
+              <div className="absolute bottom-4 left-4 rounded-lg bg-card/80 px-3 py-1.5 text-xs font-medium backdrop-blur-md">
                 Screen Share (You)
               </div>
             </div>
@@ -453,7 +453,7 @@ export default function LiveClassRoomPage() {
             /* Grid View */
             <div className="grid flex-1 grid-cols-1 gap-4 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
               {/* Local User Tile */}
-              <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 to-indigo-950/40 shadow-inner">
+              <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-slate-900 to-indigo-950/40 shadow-inner">
                 {videoActive ? (
                   <video
                     ref={localVideoRef}
@@ -467,17 +467,17 @@ export default function LiveClassRoomPage() {
                     <div className="flex size-16 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-xl font-bold shadow-lg shadow-indigo-500/30">
                       You
                     </div>
-                    <span className="text-xs text-slate-400">Camera Off</span>
+                    <span className="text-xs text-muted-foreground">Camera Off</span>
                   </div>
                 )}
-                <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-lg bg-slate-900/80 px-2.5 py-1 text-xs backdrop-blur-md">
+                <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-lg bg-card/80 px-2.5 py-1 text-xs backdrop-blur-md">
                   <span>You {isHost && '(Host)'}</span>
                   {micActive ? (
                     <Mic className="size-3 text-green-400" />
                   ) : (
                     <MicOff className="size-3 text-red-400" />
                   )}
-                  {handRaised && <Hand className="size-3 text-amber-400" />}
+                  {handRaised && <Hand className="size-3 text-accent" />}
                 </div>
               </div>
 
@@ -485,22 +485,22 @@ export default function LiveClassRoomPage() {
               {peers.map((peer) => (
                 <div
                   key={peer.peerId}
-                  className="relative flex aspect-video items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 to-slate-800 shadow-inner"
+                  className="relative flex aspect-video items-center justify-center overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-slate-900 to-slate-800 shadow-inner"
                 >
                   <div className="flex flex-col items-center gap-2">
-                    <div className="flex size-16 items-center justify-center rounded-full bg-slate-700 text-xl font-bold text-slate-200">
+                    <div className="flex size-16 items-center justify-center rounded-full bg-slate-700 text-xl font-bold text-foreground">
                       {peer.userName?.slice(0, 2).toUpperCase() || 'ST'}
                     </div>
-                    <span className="text-xs text-slate-300">{peer.userName}</span>
+                    <span className="text-xs text-foreground">{peer.userName}</span>
                   </div>
-                  <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-lg bg-slate-900/80 px-2.5 py-1 text-xs backdrop-blur-md">
+                  <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-lg bg-card/80 px-2.5 py-1 text-xs backdrop-blur-md">
                     <span>{peer.userName}</span>
                     {peer.isHost && (
-                      <span className="rounded bg-indigo-500/30 px-1 py-0.5 text-[10px] text-indigo-300">
+                      <span className="rounded bg-indigo-500/30 px-1 py-0.5 text-[10px] text-primary">
                         Host
                       </span>
                     )}
-                    {peer.handRaised && <Hand className="size-3 animate-bounce text-amber-400" />}
+                    {peer.handRaised && <Hand className="size-3 animate-bounce text-accent" />}
                   </div>
                 </div>
               ))}
@@ -510,15 +510,15 @@ export default function LiveClassRoomPage() {
 
         {/* 3. Sliding Side Drawers (Chat / Participants) */}
         {activeDrawer && (
-          <aside className="relative flex w-80 shrink-0 flex-col border-l border-white/10 bg-slate-900/90 backdrop-blur-xl transition-all">
+          <aside className="relative flex w-80 shrink-0 flex-col border-l border-border bg-card/90 backdrop-blur-xl transition-all">
             {/* Drawer Header */}
-            <div className="flex h-14 items-center justify-between border-b border-white/10 px-4">
-              <h2 className="text-sm font-semibold capitalize text-white">
+            <div className="flex h-14 items-center justify-between border-b border-border px-4">
+              <h2 className="text-sm font-semibold capitalize text-foreground">
                 {activeDrawer === 'chat' ? 'Live Classroom Chat' : `Participants (${peers.length + 1})`}
               </h2>
               <button
                 onClick={() => setActiveDrawer(null)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white"
+                className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <X className="size-4" />
               </button>
@@ -529,7 +529,7 @@ export default function LiveClassRoomPage() {
               <div className="flex flex-1 flex-col overflow-hidden">
                 <div className="flex-1 space-y-3 overflow-y-auto p-4">
                   {chatMessages.length === 0 ? (
-                    <p className="pt-8 text-center text-xs text-slate-400">
+                    <p className="pt-8 text-center text-xs text-muted-foreground">
                       No messages yet. Say hello to your cohort!
                     </p>
                   ) : (
@@ -538,10 +538,10 @@ export default function LiveClassRoomPage() {
                         key={msg.id}
                         className={`flex flex-col ${msg.isMe ? 'items-end' : 'items-start'}`}
                       >
-                        <div className="mb-1 flex items-center gap-1.5 text-[11px] text-slate-400">
-                          <span className="font-medium text-slate-300">{msg.senderName}</span>
+                        <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span className="font-medium text-foreground">{msg.senderName}</span>
                           {msg.senderRole === 'TRAINER' && (
-                            <span className="rounded bg-indigo-500/20 px-1 text-[9px] text-indigo-300">
+                            <span className="rounded bg-indigo-500/20 px-1 text-[9px] text-primary">
                               Trainer
                             </span>
                           )}
@@ -549,8 +549,8 @@ export default function LiveClassRoomPage() {
                         <div
                           className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs ${
                             msg.isMe
-                              ? 'bg-indigo-600 text-white'
-                              : 'border border-white/10 bg-slate-800 text-slate-200'
+                              ? 'bg-primary text-primary-foreground'
+                              : 'border border-border bg-muted text-foreground'
                           }`}
                         >
                           {msg.message}
@@ -560,18 +560,18 @@ export default function LiveClassRoomPage() {
                   )}
                 </div>
 
-                <form onSubmit={sendChatMessage} className="border-t border-white/10 p-3">
-                  <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 focus-within:border-indigo-500">
+                <form onSubmit={sendChatMessage} className="border-t border-border p-3">
+                  <div className="flex items-center gap-2 rounded-xl border border-border bg-background/60 px-3 py-2 focus-within:ring-2 focus-within:ring-ring">
                     <input
                       type="text"
                       value={chatInput}
                       onChange={(e) => setChatInput(e.target.value)}
                       placeholder="Type a message..."
-                      className="flex-1 bg-transparent text-xs text-white placeholder:text-slate-500 focus:outline-none"
+                      className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
                     />
                     <button
                       type="submit"
-                      className="rounded-lg bg-indigo-600 p-1.5 text-white transition hover:bg-indigo-500 disabled:opacity-40"
+                      className="rounded-lg bg-primary text-primary-foreground p-1.5 text-primary-foreground transition hover:bg-primary/90 disabled:opacity-40"
                       disabled={!chatInput.trim()}
                     >
                       <Send className="size-3.5" />
@@ -588,7 +588,7 @@ export default function LiveClassRoomPage() {
                   <div className="mb-4">
                     <button
                       onClick={hostMuteAll}
-                      className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 py-2 text-xs font-semibold text-slate-300 hover:bg-white/10"
+                      className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-muted/40 py-2 text-xs font-semibold text-foreground hover:bg-muted"
                     >
                       <VolumeX className="size-3.5 text-red-400" />
                       Mute All Participants
@@ -598,38 +598,38 @@ export default function LiveClassRoomPage() {
 
                 <div className="space-y-2">
                   {/* Self */}
-                  <div className="flex items-center justify-between rounded-xl border border-white/5 bg-white/5 p-2.5">
+                  <div className="flex items-center justify-between rounded-xl border border-border bg-muted/40 p-2.5">
                     <div className="flex items-center gap-2.5">
-                      <div className="flex size-7 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold">
+                      <div className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
                         You
                       </div>
                       <div>
-                        <p className="text-xs font-medium text-white">You {isHost && '(Host)'}</p>
-                        <p className="text-[10px] text-slate-400">Active Presence</p>
+                        <p className="text-xs font-medium text-foreground">You {isHost && '(Host)'}</p>
+                        <p className="text-[10px] text-muted-foreground">Active Presence</p>
                       </div>
                     </div>
-                    {handRaised && <Hand className="size-4 text-amber-400" />}
+                    {handRaised && <Hand className="size-4 text-accent" />}
                   </div>
 
                   {/* Remote Peers */}
                   {peers.map((peer) => (
                     <div
                       key={peer.peerId}
-                      className="flex items-center justify-between rounded-xl border border-white/5 bg-slate-800/40 p-2.5"
+                      className="flex items-center justify-between rounded-xl border border-border bg-muted/40 p-2.5"
                     >
                       <div className="flex items-center gap-2.5">
                         <div className="flex size-7 items-center justify-center rounded-full bg-slate-700 text-xs font-bold">
                           {peer.userName?.slice(0, 2).toUpperCase()}
                         </div>
                         <div>
-                          <p className="text-xs font-medium text-white">{peer.userName}</p>
-                          <p className="text-[10px] text-slate-400">
+                          <p className="text-xs font-medium text-foreground">{peer.userName}</p>
+                          <p className="text-[10px] text-muted-foreground">
                             {peer.isHost ? 'Host' : 'Student'}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        {peer.handRaised && <Hand className="size-4 text-amber-400" />}
+                        {peer.handRaised && <Hand className="size-4 text-accent" />}
                       </div>
                     </div>
                   ))}
@@ -641,11 +641,11 @@ export default function LiveClassRoomPage() {
       </div>
 
       {/* 4. Bottom Controls Bar */}
-      <footer className="flex h-20 shrink-0 items-center justify-between border-t border-white/10 bg-slate-900/80 px-6 backdrop-blur-md">
+      <footer className="flex h-20 shrink-0 items-center justify-between border-t border-border bg-card/80 px-6 backdrop-blur-md">
         {/* Left: Device indicators */}
         <div className="hidden items-center gap-2.5 sm:flex">
           <WinnersCreekLogo variant="compact" />
-          <span className="text-xs text-slate-400 font-medium">Live Classroom</span>
+          <span className="text-xs text-muted-foreground font-medium">Live Classroom</span>
         </div>
 
         {/* Center: Essential Meeting Controls */}
@@ -655,7 +655,7 @@ export default function LiveClassRoomPage() {
             onClick={micActive ? stopMic : startMic}
             className={`flex size-11 items-center justify-center rounded-2xl transition shadow-md ${
               micActive
-                ? 'bg-slate-800 text-white hover:bg-slate-700'
+                ? 'bg-muted text-foreground hover:bg-muted/80'
                 : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
             }`}
             title={micActive ? 'Mute Mic' : 'Unmute Mic'}
@@ -668,7 +668,7 @@ export default function LiveClassRoomPage() {
             onClick={videoActive ? stopCamera : startCamera}
             className={`flex size-11 items-center justify-center rounded-2xl transition shadow-md ${
               videoActive
-                ? 'bg-slate-800 text-white hover:bg-slate-700'
+                ? 'bg-muted text-foreground hover:bg-muted/80'
                 : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
             }`}
             title={videoActive ? 'Turn Camera Off' : 'Turn Camera On'}
@@ -681,8 +681,8 @@ export default function LiveClassRoomPage() {
             onClick={toggleScreenShare}
             className={`flex size-11 items-center justify-center rounded-2xl transition shadow-md ${
               screenActive
-                ? 'bg-cyan-500 text-white shadow-cyan-500/20'
-                : 'bg-slate-800 text-white hover:bg-slate-700'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'bg-muted text-foreground hover:bg-muted/80'
             }`}
             title="Share Screen"
           >
@@ -694,8 +694,8 @@ export default function LiveClassRoomPage() {
             onClick={toggleHandRaise}
             className={`flex size-11 items-center justify-center rounded-2xl transition shadow-md ${
               handRaised
-                ? 'bg-amber-500 text-white shadow-amber-500/20'
-                : 'bg-slate-800 text-white hover:bg-slate-700'
+                ? 'bg-accent text-accent-foreground shadow-xs'
+                : 'bg-muted text-foreground hover:bg-muted/80'
             }`}
             title="Raise Hand"
           >
@@ -710,14 +710,14 @@ export default function LiveClassRoomPage() {
             }}
             className={`relative flex size-11 items-center justify-center rounded-2xl transition shadow-md ${
               activeDrawer === 'chat'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-slate-800 text-white hover:bg-slate-700'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-foreground hover:bg-muted/80'
             }`}
             title="Toggle Chat"
           >
             <MessageSquare className="size-5" />
             {unreadChatCount > 0 && (
-              <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white shadow">
+              <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground shadow-sm">
                 {unreadChatCount}
               </span>
             )}
@@ -728,8 +728,8 @@ export default function LiveClassRoomPage() {
             onClick={() => setActiveDrawer(activeDrawer === 'participants' ? null : 'participants')}
             className={`flex size-11 items-center justify-center rounded-2xl transition shadow-md ${
               activeDrawer === 'participants'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-slate-800 text-white hover:bg-slate-700'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-foreground hover:bg-muted/80'
             }`}
             title="Toggle Participants"
           >
@@ -742,7 +742,7 @@ export default function LiveClassRoomPage() {
           {isHost ? (
             <button
               onClick={handleEndClass}
-              className="flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-red-600/30 transition hover:bg-red-500"
+              className="flex items-center gap-2 rounded-xl bg-destructive px-4 py-2.5 text-xs font-semibold text-destructive-foreground shadow-sm transition hover:bg-destructive/90"
             >
               <LogOut className="size-4" />
               End Class
@@ -750,7 +750,7 @@ export default function LiveClassRoomPage() {
           ) : (
             <button
               onClick={handleLeaveClass}
-              className="flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-semibold text-slate-200 transition hover:bg-red-600 hover:text-white"
+              className="flex items-center gap-2 rounded-xl bg-muted px-4 py-2.5 text-xs font-semibold text-foreground transition hover:bg-destructive hover:text-destructive-foreground hover:text-destructive-foreground"
             >
               <LogOut className="size-4" />
               Leave

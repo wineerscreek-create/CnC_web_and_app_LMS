@@ -234,8 +234,8 @@ export default function TrainerClassesPage() {
         {/* Header */}
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3.5 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-300 backdrop-blur-md">
-              <Sparkles className="size-3.5 text-indigo-500 dark:text-indigo-400" />
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3.5 py-1.5 text-xs font-semibold text-primary backdrop-blur-md">
+              <Sparkles className="size-3.5 text-primary" />
               Trainer Instruction &amp; Live Cohorts
             </div>
             <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-ink-1 sm:text-3xl">
@@ -249,21 +249,21 @@ export default function TrainerClassesPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setMaterialModalOpen(true)}
-              className="inline-flex items-center gap-2 rounded-xl border border-line bg-card/80 px-4 py-2.5 text-xs font-semibold text-ink-1 backdrop-blur-md transition-all hover:bg-surface-hover dark:border-white/10 dark:bg-slate-900/80"
+              className="inline-flex items-center gap-2 rounded-xl border border-line bg-card/80 px-4 py-2.5 text-xs font-semibold text-ink-1 backdrop-blur-md transition-all hover:bg-surface-hover border-border bg-card"
             >
-              <FolderOpen className="size-3.5 text-indigo-500" />
+              <FolderOpen className="size-3.5 text-primary" />
               Add Notes / Materials
             </button>
             <button
               onClick={() => setRecordingModalOpen(true)}
-              className="inline-flex items-center gap-2 rounded-xl border border-line bg-card/80 px-4 py-2.5 text-xs font-semibold text-ink-1 backdrop-blur-md transition-all hover:bg-surface-hover dark:border-white/10 dark:bg-slate-900/80"
+              className="inline-flex items-center gap-2 rounded-xl border border-line bg-card/80 px-4 py-2.5 text-xs font-semibold text-ink-1 backdrop-blur-md transition-all hover:bg-surface-hover border-border bg-card"
             >
-              <Video className="size-3.5 text-indigo-500" />
+              <Video className="size-3.5 text-primary" />
               Add Recording
             </button>
             <button
               onClick={() => setScheduleModalOpen(true)}
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-indigo-500/25 transition-all hover:opacity-95"
+              className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-primary-foreground shadow-sm transition-all hover:bg-primary/90"
             >
               <Plus className="size-3.5" />
               Schedule Live Class
@@ -275,37 +275,37 @@ export default function TrainerClassesPage() {
         {assignedCourses.length > 0 && (
           <div className="space-y-3">
             <h2 className="text-base font-bold text-ink-1 flex items-center gap-2">
-              <CalendarCheck className="size-4 text-indigo-500" />
+              <CalendarCheck className="size-4 text-primary" />
               Your Assigned Teaching Courses ({assignedCourses.length})
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {assignedCourses.map((c) => (
                 <div
                   key={c.id}
-                  className="p-4 rounded-2xl border border-line bg-card/90 shadow-card backdrop-blur-md dark:border-white/10 dark:bg-slate-900/80 space-y-3"
+                  className="p-4 rounded-2xl border border-line bg-card/90 shadow-card backdrop-blur-md border-border bg-card space-y-3"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <span className="font-bold text-sm text-ink-1 line-clamp-1">{c.title}</span>
                       <span className="text-[11px] text-ink-3 font-mono">{c.code} · ₹{num(c.fee)}</span>
                     </div>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-500/10 text-primary border border-indigo-500/20">
                       {c.status || 'PUBLISHED'}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 py-2 px-3 rounded-xl bg-surface-muted dark:bg-slate-950/40 text-center text-xs">
+                  <div className="grid grid-cols-3 gap-2 py-2 px-3 rounded-xl bg-surface-muted bg-muted text-center text-xs">
                     <div>
                       <p className="text-[10px] text-ink-3">Total</p>
                       <p className="font-bold text-ink-1">{c.totalStudents ?? 0}</p>
                     </div>
                     <div>
-                      <p className="text-[10px] text-emerald-500 font-medium">Paid</p>
-                      <p className="font-bold text-emerald-600 dark:text-emerald-400">{c.paidStudents ?? 0}</p>
+                      <p className="text-[10px] text-primary font-medium">Paid</p>
+                      <p className="font-bold text-primary">{c.paidStudents ?? 0}</p>
                     </div>
                     <div>
-                      <p className="text-[10px] text-amber-500 font-medium">3D Trials</p>
-                      <p className="font-bold text-amber-600 dark:text-amber-400">{c.activeTrials ?? 0}</p>
+                      <p className="text-[10px] text-accent font-medium">3D Trials</p>
+                      <p className="font-bold text-gold-text">{c.activeTrials ?? 0}</p>
                     </div>
                   </div>
 
@@ -316,7 +316,7 @@ export default function TrainerClassesPage() {
                         setSelectedCourseId(c.id);
                         setScheduleModalOpen(true);
                       }}
-                      className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold text-[11px]"
+                      className="text-primary hover:underline font-semibold text-[11px]"
                     >
                       + Schedule Class →
                     </button>
@@ -337,7 +337,7 @@ export default function TrainerClassesPage() {
               <p className="mt-4 text-xs font-medium text-ink-3">Loading your sessions...</p>
             </div>
           ) : liveClasses.length === 0 ? (
-            <div className="rounded-3xl border border-line bg-card p-12 text-center shadow-card backdrop-blur-md dark:border-white/10 dark:bg-slate-900/50">
+            <div className="rounded-3xl border border-line bg-card p-12 text-center shadow-card backdrop-blur-md border-border bg-card">
               <Video className="mx-auto size-12 text-ink-3" />
               <h3 className="mt-3 text-base font-semibold text-ink-1">No Live Sessions Scheduled</h3>
               <p className="mt-1 text-xs text-ink-3">
@@ -379,7 +379,7 @@ export default function TrainerClassesPage() {
                           </span>
                         )}
 
-                        <span className="rounded-lg border border-line bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-ink-2 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+                        <span className="rounded-lg border border-line bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-ink-2 border-border bg-muted text-foreground">
                           {c.provider === 'WINNERS_CREEK' ? 'Native Room' : c.provider}
                         </span>
                       </div>
@@ -391,7 +391,7 @@ export default function TrainerClassesPage() {
                         )}
                       </div>
 
-                      <div className="space-y-1.5 rounded-xl border border-line bg-surface-muted p-3 text-xs text-ink-2 dark:border-white/5 dark:bg-slate-950/40 dark:text-slate-300">
+                      <div className="space-y-1.5 rounded-xl border border-line bg-surface-muted p-3 text-xs text-ink-2 dark:border-white/5 bg-muted dark:text-slate-300">
                         <div className="flex items-center justify-between">
                           <span className="text-ink-3">Batch / Cohort</span>
                           <span className="font-semibold text-ink-1">
@@ -411,7 +411,7 @@ export default function TrainerClassesPage() {
                         {c.meetingUrl && (
                           <div className="flex items-center justify-between font-mono text-[10px] pt-1">
                             <span className="text-ink-3">Link:</span>
-                            <span className="text-indigo-500 truncate max-w-[180px]">{c.meetingUrl}</span>
+                            <span className="text-primary truncate max-w-[180px]">{c.meetingUrl}</span>
                           </div>
                         )}
                       </div>
@@ -433,9 +433,9 @@ export default function TrainerClassesPage() {
 
                       <button
                         onClick={() => handleOpenAttendance(c.id)}
-                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface-muted py-2 text-xs font-semibold text-ink-2 transition hover:bg-surface-hover hover:text-ink-1 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"
+                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface-muted py-2 text-xs font-semibold text-ink-2 transition hover:bg-surface-hover hover:text-ink-1 border-border bg-muted text-foreground hover:bg-muted"
                       >
-                        <Eye className="size-3.5 text-indigo-500" />
+                        <Eye className="size-3.5 text-primary" />
                         View Attendance Analytics
                       </button>
                     </div>
@@ -448,8 +448,8 @@ export default function TrainerClassesPage() {
 
         {/* Schedule Modal */}
         {scheduleModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-8 sm:pt-14 backdrop-blur-sm">
-            <div className="w-full max-w-lg rounded-3xl border border-line bg-card p-6 shadow-2xl dark:border-white/10 dark:bg-slate-900">
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-background/80 p-4 pt-8 sm:pt-14 backdrop-blur-sm">
+            <div className="w-full max-w-lg rounded-3xl border border-line bg-card p-6 shadow-2xl border-border bg-card">
               <div className="flex items-center justify-between pb-3 border-b border-line">
                 <div>
                   <h2 className="text-lg font-bold text-ink-1">Schedule Live Class</h2>
@@ -579,7 +579,7 @@ export default function TrainerClassesPage() {
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-500/25 transition-all hover:opacity-95"
+                    className="rounded-xl bg-primary px-5 py-2 text-xs font-bold text-primary-foreground shadow-sm transition-all hover:bg-primary/90"
                   >
                     {submitting ? 'Publishing...' : 'Publish Session'}
                   </button>
@@ -591,8 +591,8 @@ export default function TrainerClassesPage() {
 
         {/* Upload Material Modal */}
         {materialModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-8 sm:pt-14 backdrop-blur-sm">
-            <div className="w-full max-w-md rounded-3xl border border-line bg-card p-6 shadow-2xl dark:border-white/10 dark:bg-slate-900">
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-background/80 p-4 pt-8 sm:pt-14 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-3xl border border-line bg-card p-6 shadow-2xl border-border bg-card">
               <div className="flex items-center justify-between pb-3 border-b border-line">
                 <div>
                   <h2 className="text-lg font-bold text-ink-1">Publish Class Material</h2>
@@ -673,7 +673,7 @@ export default function TrainerClassesPage() {
                   <button type="button" onClick={() => setMaterialModalOpen(false)} className="rounded-xl px-4 py-2 text-xs font-medium text-ink-3">
                     Cancel
                   </button>
-                  <button type="submit" disabled={submitting} className="rounded-xl bg-indigo-600 px-5 py-2 text-xs font-bold text-white shadow-lg">
+                  <button type="submit" disabled={submitting} className="rounded-xl bg-primary hover:bg-primary/90 px-5 py-2 text-xs font-bold text-primary-foreground shadow-lg">
                     {submitting ? 'Publishing...' : 'Publish Material'}
                   </button>
                 </div>
@@ -684,8 +684,8 @@ export default function TrainerClassesPage() {
 
         {/* Upload Recording Modal */}
         {recordingModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-8 sm:pt-14 backdrop-blur-sm">
-            <div className="w-full max-w-md rounded-3xl border border-line bg-card p-6 shadow-2xl dark:border-white/10 dark:bg-slate-900">
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-background/80 p-4 pt-8 sm:pt-14 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-3xl border border-line bg-card p-6 shadow-2xl border-border bg-card">
               <div className="flex items-center justify-between pb-3 border-b border-line">
                 <div>
                   <h2 className="text-lg font-bold text-ink-1">Publish Session Recording</h2>
@@ -752,7 +752,7 @@ export default function TrainerClassesPage() {
                   <button type="button" onClick={() => setRecordingModalOpen(false)} className="rounded-xl px-4 py-2 text-xs font-medium text-ink-3">
                     Cancel
                   </button>
-                  <button type="submit" disabled={submitting} className="rounded-xl bg-indigo-600 px-5 py-2 text-xs font-bold text-white shadow-lg">
+                  <button type="submit" disabled={submitting} className="rounded-xl bg-primary hover:bg-primary/90 px-5 py-2 text-xs font-bold text-primary-foreground shadow-lg">
                     {submitting ? 'Publishing...' : 'Publish Recording'}
                   </button>
                 </div>
@@ -763,8 +763,8 @@ export default function TrainerClassesPage() {
 
         {/* Attendance Report Modal */}
         {attendanceModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-8 sm:pt-14 backdrop-blur-sm">
-            <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-line bg-card p-6 shadow-2xl dark:border-white/10 dark:bg-slate-900">
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-background/80 p-4 pt-8 sm:pt-14 backdrop-blur-sm">
+            <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-line bg-card p-6 shadow-2xl border-border bg-card">
               <div className="flex items-center justify-between pb-3 border-b border-line">
                 <div>
                   <h2 className="text-lg font-bold text-ink-1">Live Attendance Analytics</h2>
@@ -796,17 +796,17 @@ export default function TrainerClassesPage() {
                     return (
                       <>
                         <div className="grid grid-cols-3 gap-3">
-                          <div className="rounded-2xl border border-line bg-surface-muted p-3 text-center dark:border-white/5 dark:bg-white/5">
+                          <div className="rounded-2xl border border-line bg-surface-muted p-3 text-center border-border bg-card">
                             <p className="text-xs text-ink-3">Total Joined</p>
                             <p className="text-lg font-bold text-ink-1">{totalParts}</p>
                           </div>
-                          <div className="rounded-2xl border border-line bg-surface-muted p-3 text-center dark:border-white/5 dark:bg-white/5">
+                          <div className="rounded-2xl border border-line bg-surface-muted p-3 text-center border-border bg-card">
                             <p className="text-xs text-ink-3">Threshold Met</p>
                             <p className="text-lg font-bold text-green-500">{attendedParts}</p>
                           </div>
-                          <div className="rounded-2xl border border-line bg-surface-muted p-3 text-center dark:border-white/5 dark:bg-white/5">
+                          <div className="rounded-2xl border border-line bg-surface-muted p-3 text-center border-border bg-card">
                             <p className="text-xs text-ink-3">Cohort Rate</p>
-                            <p className="text-lg font-bold text-indigo">
+                            <p className="text-lg font-bold text-primary">
                               {cohortRate}%
                             </p>
                           </div>
@@ -814,7 +814,7 @@ export default function TrainerClassesPage() {
 
                         <div className="overflow-x-auto rounded-2xl border border-line dark:border-white/10">
                           <table className="w-full text-left text-xs">
-                            <thead className="bg-surface-muted border-b border-line text-ink-3 uppercase font-semibold text-[10px] dark:bg-white/5">
+                            <thead className="bg-surface-muted border-b border-line text-ink-3 uppercase font-semibold text-[10px] bg-muted/50">
                               <tr>
                                 <th className="p-3">Participant</th>
                                 <th className="p-3">Join Time</th>
@@ -834,7 +834,7 @@ export default function TrainerClassesPage() {
                                         <CheckCircle2 className="size-3" /> Qualified
                                       </span>
                                     ) : (
-                                      <span className="text-[11px] text-amber-500 font-medium">
+                                      <span className="text-[11px] text-accent font-medium">
                                         {p.attendanceStatus} ({p.attendancePercentage}%)
                                       </span>
                                     )}

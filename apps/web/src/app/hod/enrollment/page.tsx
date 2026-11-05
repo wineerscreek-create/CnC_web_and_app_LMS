@@ -75,9 +75,9 @@ export default function HodEnrollmentPage() {
       key: 'student',
       header: 'Participant',
       render: (row) => (
-        <Link href={`/hod/participants/${row.studentUserId}`} className="hover:text-indigo-600">
+        <Link href={`/hod/participants/${row.studentUserId}`} className="hover:text-primary">
           <span className="block font-semibold">{row.studentName}</span>
-          <span className="block text-xs text-ink-3">{row.rollNumber}</span>
+          <span className="block text-xs text-muted-foreground">{row.rollNumber}</span>
         </Link>
       ),
     },
@@ -86,7 +86,7 @@ export default function HodEnrollmentPage() {
       key: 'type',
       header: 'Type',
       hideBelow: 'md',
-      render: (row) => <span className="text-ink-2">{titleCase(row.enrollmentType)}</span>,
+      render: (row) => <span className="text-muted-foreground">{titleCase(row.enrollmentType)}</span>,
     },
     {
       key: 'status',
@@ -97,7 +97,7 @@ export default function HodEnrollmentPage() {
       key: 'enrolledBy',
       header: 'Enrolled by',
       hideBelow: 'lg',
-      render: (row) => <span className="text-ink-2">{row.enrolledByLabel ?? '—'}</span>,
+      render: (row) => <span className="text-muted-foreground">{row.enrolledByLabel ?? '—'}</span>,
     },
     {
       key: 'enrolledAt',
@@ -124,7 +124,7 @@ export default function HodEnrollmentPage() {
             Change
           </Button>
         ) : (
-          <span className="text-sm text-ink-3">Final</span>
+          <span className="text-sm text-muted-foreground">Final</span>
         );
       },
     },
@@ -209,7 +209,7 @@ export default function HodEnrollmentPage() {
               <CardTitle>Recent status changes</CardTitle>
               <CardSubtitle>{summary.note ?? 'Full history preserved'}</CardSubtitle>
             </div>
-            <History className="size-4 text-ink-3" aria-hidden />
+            <History className="size-4 text-muted-foreground" aria-hidden />
           </CardHeader>
           <CardBody>
             <ul className="divide-y divide-line-soft">
@@ -223,7 +223,7 @@ export default function HodEnrollmentPage() {
                       → <span className="font-semibold">{titleCase(event.toStatus)}</span>
                       {event.reason ? ` — ${event.reason}` : ''}
                     </p>
-                    <p className="mt-0.5 text-xs text-ink-3">
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       {event.actorLabel} · {formatDate(event.at, true)}
                     </p>
                   </div>
@@ -267,7 +267,7 @@ export default function HodEnrollmentPage() {
             </SelectContent>
           </Select>
           {transitions.length === 0 && (
-            <p className="mt-1.5 text-sm text-ink-3">
+            <p className="mt-1.5 text-sm text-muted-foreground">
               This status is final — no further transition is permitted.
             </p>
           )}

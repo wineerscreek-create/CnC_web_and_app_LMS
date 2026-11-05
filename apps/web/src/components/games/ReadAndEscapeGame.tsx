@@ -438,7 +438,7 @@ export function ReadAndEscapeGame({
                 variant="primary"
                 size="md"
                 onClick={handleNextChamber}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold"
+                className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold"
               >
                 Enter Chamber {chamberLevel + 1}
               </Button>

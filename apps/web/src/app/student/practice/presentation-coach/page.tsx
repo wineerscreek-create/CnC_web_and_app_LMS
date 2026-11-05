@@ -329,11 +329,11 @@ export default function PresentationCoachPage() {
       {/* ================= STAGE 1: SETUP WIZARD ================= */}
       {stage === 'setup' && (
         <div className="mx-auto max-w-[800px] space-y-5">
-          <Card className="card-interactive bg-white dark:bg-slate-900 border-line dark:border-slate-800">
+          <Card className="card-interactive bg-card border-border">
             <CardHeader>
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="size-5 text-indigo" />
+                  <Sparkles className="size-5 text-primary" />
                   Presentation Rehearsal Configuration
                 </CardTitle>
                 <CardSubtitle>Configure your target audience, slide deck, and duration goals</CardSubtitle>
@@ -341,26 +341,26 @@ export default function PresentationCoachPage() {
             </CardHeader>
             <CardBody className="p-5 space-y-4">
               <div>
-                <label className="text-xs font-semibold text-ink-1 dark:text-slate-200">
+                <label className="text-xs font-semibold text-heading">
                   Presentation Title / Topic
                 </label>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="mt-1.5 w-full px-3.5 py-2.5 text-sm rounded-xl border border-line dark:border-slate-700 bg-app dark:bg-slate-950 text-ink-1 dark:text-white"
+                  className="mt-1.5 w-full px-3.5 py-2.5 text-sm rounded-xl border border-border bg-background text-heading"
                 />
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="text-xs font-semibold text-ink-1 dark:text-slate-200">
+                  <label className="text-xs font-semibold text-heading">
                     Target Audience
                   </label>
                   <select
                     value={audience}
                     onChange={(e) => setAudience(e.target.value)}
-                    className="mt-1.5 w-full px-3.5 py-2.5 text-sm rounded-xl border border-line dark:border-slate-700 bg-app dark:bg-slate-950 text-ink-1 dark:text-white"
+                    className="mt-1.5 w-full px-3.5 py-2.5 text-sm rounded-xl border border-border bg-background text-heading"
                   >
                     <option value="Hackathon Evaluators">Hackathon Evaluators & Jury</option>
                     <option value="Technical Recruiters">Technical Hiring Managers</option>
@@ -369,13 +369,13 @@ export default function PresentationCoachPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-ink-1 dark:text-slate-200">
+                  <label className="text-xs font-semibold text-heading">
                     Target Duration
                   </label>
                   <select
                     value={targetMinutes}
                     onChange={(e) => setTargetMinutes(Number(e.target.value))}
-                    className="mt-1.5 w-full px-3.5 py-2.5 text-sm rounded-xl border border-line dark:border-slate-700 bg-app dark:bg-slate-950 text-ink-1 dark:text-white"
+                    className="mt-1.5 w-full px-3.5 py-2.5 text-sm rounded-xl border border-border bg-background text-heading"
                   >
                     <option value={2}>2 Minutes (Quick Pitch)</option>
                     <option value={3}>3 Minutes (Elevator Presentation)</option>
@@ -385,12 +385,12 @@ export default function PresentationCoachPage() {
                 </div>
               </div>
 
-              <div className="p-4 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo/20 space-y-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-indigo flex items-center gap-1.5">
+              <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
                   <Award className="size-3.5" />
                   Active Slide Deck: SIH 2026 Bhoorakshak
                 </span>
-                <p className="text-xs text-ink-2 dark:text-slate-300">
+                <p className="text-xs text-muted-foreground">
                   {DEFAULT_SLIDES.length} curated high-impact slides covering Problem Statement, Geo-Spatial Solution, IoT Hardware Architecture, and Impact Feasibility.
                 </p>
               </div>
@@ -415,8 +415,8 @@ export default function PresentationCoachPage() {
         <div className="space-y-5">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-md font-bold text-ink-1 dark:text-white">Slide Deck Overview</h2>
-              <p className="text-xs text-ink-3 dark:text-slate-400">
+              <h2 className="text-md font-bold text-heading">Slide Deck Overview</h2>
+              <p className="text-xs text-muted-foreground">
                 Review key talking points before initiating camera and microphone calibration.
               </p>
             </div>
@@ -442,11 +442,11 @@ export default function PresentationCoachPage() {
             {DEFAULT_SLIDES.map((slide, idx) => (
               <Card
                 key={idx}
-                className="card-interactive bg-white dark:bg-slate-900 border-line dark:border-slate-800"
+                className="card-interactive bg-card border-border"
               >
                 <CardHeader>
                   <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
                       Slide {idx + 1} of {DEFAULT_SLIDES.length}
                     </span>
                     <CardTitle className="text-sm mt-0.5">{slide.title}</CardTitle>
@@ -454,10 +454,10 @@ export default function PresentationCoachPage() {
                   </div>
                 </CardHeader>
                 <CardBody className="p-4 pt-0">
-                  <ul className="space-y-1.5 text-xs text-ink-2 dark:text-slate-300">
+                  <ul className="space-y-1.5 text-xs text-muted-foreground">
                     {slide.points.map((pt, pIdx) => (
                       <li key={pIdx} className="flex items-start gap-1.5">
-                        <span className="text-indigo mt-0.5">•</span>
+                        <span className="text-primary mt-0.5">•</span>
                         <span>{pt}</span>
                       </li>
                     ))}
@@ -472,18 +472,18 @@ export default function PresentationCoachPage() {
       {/* ================= STAGE 3: CAMERA & MIC CALIBRATION ================= */}
       {stage === 'camera' && (
         <div className="mx-auto max-w-[700px] space-y-5">
-          <Card className="card-interactive bg-white dark:bg-slate-900 border-line dark:border-slate-800">
+          <Card className="card-interactive bg-card border-border">
             <CardHeader>
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <Camera className="size-5 text-indigo" />
+                  <Camera className="size-5 text-primary" />
                   Sensory Hardware & Audio Verification
                 </CardTitle>
                 <CardSubtitle>Verify your camera framing and microphone levels</CardSubtitle>
               </div>
             </CardHeader>
             <CardBody className="p-5 space-y-5">
-              <div className="relative aspect-video rounded-2xl bg-slate-950 overflow-hidden flex items-center justify-center border border-slate-800">
+              <div className="relative aspect-video rounded-2xl bg-foreground overflow-hidden flex items-center justify-center border border-border">
                 <video
                   ref={videoRef}
                   autoPlay
@@ -499,18 +499,18 @@ export default function PresentationCoachPage() {
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="p-3.5 rounded-xl bg-surface dark:bg-slate-850 border border-line dark:border-slate-800 flex items-center gap-3">
-                  <Video className="size-5 text-indigo" />
+                <div className="p-3.5 rounded-xl bg-muted/40 border border-border flex items-center gap-3">
+                  <Video className="size-5 text-primary" />
                   <div>
-                    <span className="text-xs font-semibold block text-ink-1 dark:text-white">Video Stream</span>
-                    <span className="text-[11px] text-ink-3 dark:text-slate-400">Centered posture detected</span>
+                    <span className="text-xs font-semibold block text-heading">Video Stream</span>
+                    <span className="text-[11px] text-muted-foreground">Centered posture detected</span>
                   </div>
                 </div>
-                <div className="p-3.5 rounded-xl bg-surface dark:bg-slate-850 border border-line dark:border-slate-800 flex items-center gap-3">
+                <div className="p-3.5 rounded-xl bg-muted/40 border border-border flex items-center gap-3">
                   <Mic className="size-5 text-success" />
                   <div>
-                    <span className="text-xs font-semibold block text-ink-1 dark:text-white">Speech Recognizer</span>
-                    <span className="text-[11px] text-ink-3 dark:text-slate-400">Web Speech API ready</span>
+                    <span className="text-xs font-semibold block text-heading">Speech Recognizer</span>
+                    <span className="text-[11px] text-muted-foreground">Web Speech API ready</span>
                   </div>
                 </div>
               </div>
@@ -545,9 +545,9 @@ export default function PresentationCoachPage() {
       {/* ================= STAGE 4: COUNTDOWN ================= */}
       {stage === 'countdown' && (
         <div className="h-[450px] flex flex-col items-center justify-center text-center space-y-4">
-          <span className="text-7xl font-black text-indigo animate-bounce">{countdown}</span>
-          <h2 className="text-lg font-bold text-ink-1 dark:text-white">Take a breath and get ready</h2>
-          <p className="text-xs text-ink-3 dark:text-slate-400">
+          <span className="text-7xl font-black text-primary animate-bounce">{countdown}</span>
+          <h2 className="text-lg font-bold text-heading">Take a breath and get ready</h2>
+          <p className="text-xs text-muted-foreground">
             Speaking naturally at 120–150 words per minute produces the highest EEDI pacing rating.
           </p>
         </div>
@@ -557,10 +557,10 @@ export default function PresentationCoachPage() {
       {stage === 'live' && (
         <div className="space-y-4">
           {/* Top Live Bar */}
-          <div className="px-5 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-line dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+          <div className="px-5 py-3 rounded-2xl bg-card border border-border flex flex-wrap items-center justify-between gap-3 shadow-xs">
             <div className="flex items-center gap-3">
               <span className="flex size-3 rounded-full bg-danger animate-pulse" />
-              <span className="text-sm font-bold text-ink-1 dark:text-white">
+              <span className="text-sm font-bold text-heading">
                 Live Rehearsal: {title}
               </span>
               <Badge tone="indigo">
@@ -569,15 +569,15 @@ export default function PresentationCoachPage() {
             </div>
 
             <div className="flex items-center gap-4 text-xs font-semibold">
-              <div className="flex items-center gap-1.5 text-ink-2 dark:text-slate-300">
-                <Clock className="size-4 text-indigo" />
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <Clock className="size-4 text-primary" />
                 <span>Elapsed: {formatSecs(elapsedSeconds)}</span>
               </div>
-              <div className="flex items-center gap-1.5 text-ink-2 dark:text-slate-300">
+              <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Gauge className="size-4 text-amber" />
                 <span>Cadence: {wpm} WPM</span>
               </div>
-              <div className="flex items-center gap-1.5 text-ink-2 dark:text-slate-300">
+              <div className="flex items-center gap-1.5 text-muted-foreground">
                 <AlertTriangle className="size-4 text-danger" />
                 <span>Fillers: {fillerCount}</span>
               </div>
@@ -590,15 +590,15 @@ export default function PresentationCoachPage() {
           {/* Center Stage: Slide Viewer with Picture-in-Picture Webcam */}
           <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
             {/* Slide Presentation Frame */}
-            <div className="relative rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 p-8 sm:p-12 text-white flex flex-col justify-between min-h-[440px] shadow-lg border border-slate-800">
+            <div className="relative rounded-2xl bg-card p-8 sm:p-12 text-foreground flex flex-col justify-between min-h-[440px] shadow-sm border border-border">
               <div className="space-y-3">
-                <span className="text-xs font-bold uppercase tracking-widest text-indigo-300">
+                <span className="text-xs font-bold uppercase tracking-widest text-accent">
                   {DEFAULT_SLIDES[currentSlide].tagline}
                 </span>
-                <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-white">
+                <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-heading">
                   {DEFAULT_SLIDES[currentSlide].title}
                 </h1>
-                <p className="text-base text-slate-300 font-medium">
+                <p className="text-base text-card/80 font-medium">
                   {DEFAULT_SLIDES[currentSlide].subtitle}
                 </p>
               </div>
@@ -606,16 +606,16 @@ export default function PresentationCoachPage() {
               <div className="my-8 space-y-3">
                 {DEFAULT_SLIDES[currentSlide].points.map((pt, pIdx) => (
                   <div key={pIdx} className="flex items-start gap-3">
-                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-indigo-300 font-bold text-xs mt-0.5">
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-accent font-bold text-xs mt-0.5">
                       {pIdx + 1}
                     </span>
-                    <p className="text-sm sm:text-base text-slate-200 leading-relaxed">{pt}</p>
+                    <p className="text-sm sm:text-base text-card leading-relaxed">{pt}</p>
                   </div>
                 ))}
               </div>
 
               {/* Bottom Slide Controls */}
-              <div className="pt-4 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+              <div className="pt-4 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
                 <span>Dwell time: {slideDwell[currentSlide] || 0}s</span>
                 <div className="flex items-center gap-2">
                   <Button
@@ -623,7 +623,7 @@ export default function PresentationCoachPage() {
                     size="sm"
                     disabled={currentSlide === 0}
                     onClick={() => setCurrentSlide((s) => Math.max(0, s - 1))}
-                    className="bg-slate-800 text-white hover:bg-slate-700"
+                    className="bg-card/15 text-card hover:bg-card/25"
                   >
                     <ChevronLeft className="size-4 mr-1" />
                     Previous
@@ -646,7 +646,7 @@ export default function PresentationCoachPage() {
             {/* Right Pane: Video Stream & Live Speech Transcript */}
             <div className="space-y-4">
               {/* Picture-in-picture video */}
-              <div className="aspect-video rounded-2xl bg-slate-950 overflow-hidden border border-line dark:border-slate-800 shadow-xs relative">
+              <div className="aspect-video rounded-2xl bg-foreground overflow-hidden border border-border shadow-xs relative">
                 <video
                   ref={videoRef}
                   autoPlay
@@ -654,29 +654,29 @@ export default function PresentationCoachPage() {
                   muted
                   className="w-full h-full object-cover"
                 />
-                <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md bg-black/60 text-white text-[10px] font-semibold">
+                <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md bg-card/80 text-foreground text-[10px] font-semibold">
                   Face Framing: Aligned
                 </span>
               </div>
 
               {/* Real-time speech transcript box */}
-              <Card className="card-interactive bg-white dark:bg-slate-900 border-line dark:border-slate-800 h-[260px] flex flex-col">
-                <CardHeader className="py-2.5 px-3.5 border-b border-line dark:border-slate-800">
+              <Card className="card-interactive bg-card border-border h-[260px] flex flex-col">
+                <CardHeader className="py-2.5 px-3.5 border-b border-border">
                   <div className="flex items-center justify-between w-full">
-                    <span className="text-xs font-bold text-ink-1 dark:text-white flex items-center gap-1.5">
-                      <Mic className="size-3.5 text-indigo" />
+                    <span className="text-xs font-bold text-heading flex items-center gap-1.5">
+                      <Mic className="size-3.5 text-primary" />
                       Live Speech-to-Text
                     </span>
-                    <span className="text-[10px] text-ink-3 dark:text-slate-400">
+                    <span className="text-[10px] text-muted-foreground">
                       {wordsSpoken} words
                     </span>
                   </div>
                 </CardHeader>
-                <CardBody className="p-3.5 overflow-y-auto flex-1 text-xs text-ink-2 dark:text-slate-300 leading-relaxed font-mono">
+                <CardBody className="p-3.5 overflow-y-auto flex-1 text-xs text-muted-foreground leading-relaxed font-mono">
                   {transcript ? (
                     <p className="whitespace-pre-wrap">{transcript}</p>
                   ) : (
-                    <p className="text-ink-3 dark:text-slate-500 italic">
+                    <p className="text-muted-foreground italic">
                       Begin speaking to analyze live cadence and transcription…
                     </p>
                   )}
@@ -692,11 +692,11 @@ export default function PresentationCoachPage() {
         const report = computeFinalScores();
         return (
           <div className="mx-auto max-w-[950px] space-y-6">
-            <Card className="card-interactive bg-white dark:bg-slate-900 border-line dark:border-slate-800">
+            <Card className="card-interactive bg-card border-border">
               <CardHeader>
                 <div>
                   <CardTitle className="flex items-center gap-2">
-                    <Sparkles className="size-5 text-amber-500" />
+                    <Sparkles className="size-5 text-accent" />
                     Presentation Employability Performance Report
                   </CardTitle>
                   <CardSubtitle>
@@ -706,10 +706,10 @@ export default function PresentationCoachPage() {
               </CardHeader>
               <CardBody className="p-6 space-y-6">
                 {/* Central Pipeline Persistence Notice */}
-                <div className="p-3.5 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo/20 flex flex-wrap items-center justify-between gap-2">
+                <div className="p-3.5 rounded-xl bg-muted/40 border border-border flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="size-4 text-success" />
-                    <span className="text-xs font-semibold text-ink-1 dark:text-white">
+                    <span className="text-xs font-semibold text-heading">
                       {persistedSessionId
                         ? `Session Evidence Persisted (#${persistedSessionId.slice(-8)})`
                         : sessionSubmitting
@@ -717,29 +717,29 @@ export default function PresentationCoachPage() {
                           : 'Local Audio Cadence Telemetry'}
                     </span>
                   </div>
-                  <span className="text-[11px] text-ink-3 dark:text-slate-400">
+                  <span className="text-[11px] text-muted-foreground">
                     Speech cadence derived directly from audio telemetry · Official EEDI scores routed via central pipeline
                   </span>
                 </div>
 
                 {/* Score Row */}
                 <div className="grid gap-5 sm:grid-cols-3 text-center">
-                  <div className="p-4 rounded-2xl bg-surface dark:bg-slate-850 border border-line dark:border-slate-800 flex flex-col items-center">
+                  <div className="p-4 rounded-2xl bg-muted/40 border border-border flex flex-col items-center">
                     <RadialScore value={report.overallScore} label="Overall Score" size={120} thickness={10} />
-                    <span className="text-xs font-bold text-ink-1 dark:text-white mt-2">
+                    <span className="text-xs font-bold text-heading mt-2">
                       Presentation Index
                     </span>
-                    <span className="text-[11px] text-ink-3 dark:text-slate-400">
+                    <span className="text-[11px] text-muted-foreground">
                       {report.overallScore >= 80 ? 'Mastery: Industry Ready' : 'Emerging Competence'}
                     </span>
                   </div>
 
-                  <div className="p-4 rounded-2xl bg-surface dark:bg-slate-850 border border-line dark:border-slate-800 flex flex-col items-center justify-center">
-                    <span className="text-4xl font-extrabold text-indigo">{report.finalWpm}</span>
-                    <span className="text-xs font-bold text-ink-1 dark:text-white mt-1">
+                  <div className="p-4 rounded-2xl bg-muted/40 border border-border flex flex-col items-center justify-center">
+                    <span className="text-4xl font-extrabold text-primary">{report.finalWpm}</span>
+                    <span className="text-xs font-bold text-heading mt-1">
                       Pacing Cadence (WPM)
                     </span>
-                    <span className="text-[11px] text-ink-3 dark:text-slate-400 mt-1">
+                    <span className="text-[11px] text-muted-foreground mt-1">
                       {report.finalWpm >= 120 && report.finalWpm <= 150
                         ? 'Optimal Professional Rhythm'
                         : report.finalWpm > 150
@@ -748,12 +748,12 @@ export default function PresentationCoachPage() {
                     </span>
                   </div>
 
-                  <div className="p-4 rounded-2xl bg-surface dark:bg-slate-850 border border-line dark:border-slate-800 flex flex-col items-center justify-center">
-                    <span className="text-4xl font-extrabold text-amber-500">{fillerCount}</span>
-                    <span className="text-xs font-bold text-ink-1 dark:text-white mt-1">
+                  <div className="p-4 rounded-2xl bg-muted/40 border border-border flex flex-col items-center justify-center">
+                    <span className="text-4xl font-extrabold text-accent">{fillerCount}</span>
+                    <span className="text-xs font-bold text-heading mt-1">
                       Filler Words Detected
                     </span>
-                    <span className="text-[11px] text-ink-3 dark:text-slate-400 mt-1">
+                    <span className="text-[11px] text-muted-foreground mt-1">
                       {fillerCount === 0
                         ? 'Exceptional clarity'
                         : `${fillerCount} verbal pauses flagged`}
@@ -763,19 +763,19 @@ export default function PresentationCoachPage() {
 
                 {/* 5 EEDI Dimensions */}
                 <div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-ink-3 dark:text-slate-400 mb-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
                     EEDI 5-Pillar Metric Alignment
                   </h3>
                   <div className="grid gap-3 sm:grid-cols-5">
                     {Object.entries(report.dimensions).map(([dim, score]) => (
                       <div
                         key={dim}
-                        className="p-3 rounded-xl bg-surface dark:bg-slate-850 border border-line dark:border-slate-800 text-center"
+                        className="p-3 rounded-xl bg-muted/40 border border-border text-center"
                       >
-                        <span className="text-[10px] font-bold uppercase text-ink-3 dark:text-slate-400 block truncate">
+                        <span className="text-[10px] font-bold uppercase text-muted-foreground block truncate">
                           {dim}
                         </span>
-                        <span className="text-lg font-bold text-ink-1 dark:text-white mt-0.5 block">
+                        <span className="text-lg font-bold text-heading mt-0.5 block">
                           {score}/100
                         </span>
                       </div>
@@ -785,20 +785,20 @@ export default function PresentationCoachPage() {
 
                 {/* Slide Dwell Breakdown */}
                 <div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-ink-3 dark:text-slate-400 mb-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
                     Slide Dwell Allocation
                   </h3>
                   <div className="grid gap-2 sm:grid-cols-5">
                     {DEFAULT_SLIDES.map((slide, idx) => (
                       <div
                         key={idx}
-                        className="p-3 rounded-xl bg-surface dark:bg-slate-850 border border-line dark:border-slate-800"
+                        className="p-3 rounded-xl bg-muted/40 border border-border"
                       >
-                        <span className="text-[10px] font-bold text-indigo block">Slide {idx + 1}</span>
-                        <span className="text-xs font-semibold text-ink-1 dark:text-white truncate block">
+                        <span className="text-[10px] font-bold text-primary block">Slide {idx + 1}</span>
+                        <span className="text-xs font-semibold text-heading truncate block">
                           {slide.title}
                         </span>
-                        <span className="text-xs font-bold text-ink-2 dark:text-slate-300 mt-1 block">
+                        <span className="text-xs font-bold text-muted-foreground mt-1 block">
                           {slideDwell[idx] || 0}s spent
                         </span>
                       </div>
@@ -807,16 +807,16 @@ export default function PresentationCoachPage() {
                 </div>
 
                 {/* Actionable Feedback */}
-                <div className="p-4 rounded-xl bg-app dark:bg-slate-950 border border-line dark:border-slate-800 space-y-2">
-                  <h4 className="text-xs font-bold text-ink-1 dark:text-white flex items-center gap-1.5">
+                <div className="p-4 rounded-xl bg-background border border-border space-y-2">
+                  <h4 className="text-xs font-bold text-heading flex items-center gap-1.5">
                     <CheckCircle2 className="size-4 text-success" />
                     Coach Strengths & Growth Directives
                   </h4>
-                  <ul className="space-y-1.5 text-xs text-ink-2 dark:text-slate-300">
+                  <ul className="space-y-1.5 text-xs text-muted-foreground">
                     <li>• Strong technical terminology retention aligned with SIH disaster management domain.</li>
                     <li>• Pacing maintained within standard recruitment presentation bounds ({report.finalWpm} WPM).</li>
                     {fillerCount > 3 && (
-                      <li className="text-amber-600 dark:text-amber-400">
+                      <li className="text-gold-text">
                         • Recommended: Substitute conversational verbal pauses ({FILLER_WORDS.slice(0, 3).join(', ')}) with deliberate 1-second strategic pauses.
                       </li>
                     )}

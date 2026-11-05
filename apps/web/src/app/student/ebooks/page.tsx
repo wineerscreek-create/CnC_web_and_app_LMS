@@ -82,7 +82,7 @@ export default function StudentEbooksPage() {
           className={cn(
             'rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
             tab === 'library'
-              ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300'
+              ? 'bg-accent/20 text-accent-foreground font-semibold'
               : 'text-ink-2 hover:text-ink-1'
           )}
         >
@@ -94,7 +94,7 @@ export default function StudentEbooksPage() {
           className={cn(
             'rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
             tab === 'my-uploads'
-              ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300'
+              ? 'bg-accent/20 text-accent-foreground font-semibold'
               : 'text-ink-2 hover:text-ink-1'
           )}
         >
@@ -119,7 +119,7 @@ export default function StudentEbooksPage() {
                 <Card key={book.id} className="p-4 flex flex-col justify-between">
                   <div>
                     <div className="flex items-start justify-between gap-2">
-                      <span className="text-2xs font-bold uppercase text-indigo-600">{book.category}</span>
+                      <span className="text-2xs font-bold uppercase text-primary">{book.category}</span>
                       <Badge
                         tone={
                           book.status === 'PUBLISHED'
@@ -154,7 +154,7 @@ export default function StudentEbooksPage() {
                         Request to Publish
                       </Button>
                     ) : book.status === 'PENDING_REVIEW' ? (
-                      <span className="text-xs text-indigo-600 font-medium">In Super Admin Review…</span>
+                      <span className="text-xs text-primary font-medium">In Super Admin Review…</span>
                     ) : (
                       <Button asChild variant="secondary" size="sm" className="w-full text-xs">
                         <Link href={`/ebooks/${book.id}`}>View Live eBook</Link>
@@ -196,16 +196,16 @@ export default function StudentEbooksPage() {
             {inProgress.length > 0 && (
               <div className="mb-6">
                 <div className="mb-3 flex items-center gap-2">
-                  <Clock className="size-4 text-indigo-600" />
+                  <Clock className="size-4 text-primary" />
                   <h2 className="text-base font-bold text-ink-1">Continue Reading</h2>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {inProgress.slice(0, 3).map((book) => (
-                    <Card key={book.id} className="card-interactive border-indigo/20 bg-indigo-50/20">
+                    <Card key={book.id} className="card-interactive border-border bg-muted/30">
                       <CardBody className="p-4">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <span className="text-2xs font-bold uppercase tracking-wider text-indigo-600">
+                            <span className="text-2xs font-bold uppercase tracking-wider text-primary">
                               {book.category}
                             </span>
                             <h3 className="truncate text-base font-bold text-ink-1">{book.title}</h3>
@@ -248,8 +248,8 @@ export default function StudentEbooksPage() {
                     className={cn(
                       'rounded-full px-3 py-1 text-xs font-semibold capitalize transition-colors',
                       category === cat
-                        ? 'bg-indigo text-white shadow-xs'
-                        : 'bg-white text-ink-2 hover:bg-slate-100 border border-line-soft',
+                        ? 'bg-accent text-accent-foreground shadow-xs'
+                        : 'bg-card text-muted-foreground hover:bg-muted border border-border',
                     )}
                   >
                     {cat}
@@ -271,7 +271,7 @@ export default function StudentEbooksPage() {
 
             {/* E-Book Grid */}
             {filtered.length === 0 ? (
-              <div className="rounded-card border border-line bg-card backdrop-blur-xl p-12 text-center shadow-card dark:border-white/10 dark:bg-slate-900/70">
+              <div className="rounded-card border border-line bg-card backdrop-blur-xl p-12 text-center shadow-card border-border bg-card">
                 <BookOpen className="mx-auto size-10 text-ink-3" />
                 <p className="mt-3 text-base font-bold text-ink-1">No e-books found</p>
                 <p className="mt-1 text-xs text-ink-3">Try adjusting your search or category filter.</p>
@@ -282,11 +282,11 @@ export default function StudentEbooksPage() {
                   <Card key={book.id} className="card-interactive flex flex-col justify-between overflow-hidden">
                     <CardBody className="p-4">
                       <div className="relative mb-3 flex h-36 items-center justify-center rounded-[10px] bg-gradient-to-br from-indigo-500/10 via-purple-500/10 to-pink-500/10 border border-line">
-                        <BookOpen className="size-12 text-indigo-500 opacity-60" />
+                        <BookOpen className="size-12 text-primary opacity-60" />
                         <button
                           type="button"
                           onClick={(e) => toggleBookmark(e, book.id)}
-                          className="absolute right-2 top-2 rounded-full bg-white/80 p-1.5 backdrop-blur-xs transition hover:bg-white"
+                          className="absolute right-2 top-2 rounded-full bg-card/80 p-1.5 backdrop-blur-xs transition hover:bg-card"
                           aria-label="Bookmark"
                         >
                           <Bookmark
@@ -294,14 +294,14 @@ export default function StudentEbooksPage() {
                           />
                         </button>
                         {book.completed && (
-                          <div className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-bold text-emerald-600">
+                          <div className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-2xs font-bold text-primary border border-border">
                             <CheckCircle className="size-3" />
                             Completed
                           </div>
                         )}
                       </div>
 
-                      <span className="text-2xs font-bold uppercase tracking-wider text-indigo-600">
+                      <span className="text-2xs font-bold uppercase tracking-wider text-primary">
                         {book.category}
                       </span>
                       <h3 className="line-clamp-1 text-base font-bold text-ink-1">{book.title}</h3>

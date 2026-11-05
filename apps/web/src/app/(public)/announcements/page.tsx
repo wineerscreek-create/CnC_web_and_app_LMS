@@ -25,10 +25,10 @@ export default function AnnouncementsPage() {
 
   return (
     <div className="mx-auto max-w-[920px] px-5 py-12 animate-enter">
-      <h1 className="font-serif heading-section font-semibold tracking-tight text-ink-1">
+      <h1 className="font-heading text-3xl font-bold tracking-tight text-heading">
         Announcements
       </h1>
-      <p className="mt-3 text-base sm:text-lg text-ink-2">
+      <p className="mt-3 text-base sm:text-lg text-muted-foreground">
         Public notices from the programme office. Batch-specific notices appear inside your portal.
       </p>
 
@@ -42,8 +42,8 @@ export default function AnnouncementsPage() {
             className={cn(
               'tactile-press rounded-full border px-3 py-1.5 text-sm font-semibold capitalize transition-all duration-150',
               kind === item
-                ? 'border-indigo bg-indigo text-white shadow-xs'
-                : 'border-line bg-card text-ink-2 hover:bg-surface-hover hover:text-ink-1 dark:border-white/15 dark:bg-white/10 dark:text-slate-300 dark:hover:bg-white/20 dark:hover:text-white',
+                ? 'border-accent bg-accent text-accent-foreground shadow-xs'
+                : 'border-border bg-card text-foreground hover:bg-muted',
             )}
           >
             {item}
@@ -62,14 +62,14 @@ export default function AnnouncementsPage() {
                       <Badge tone="info" className="capitalize">
                         {item.kind}
                       </Badge>
-                      <span className="flex items-center gap-1 text-xs text-ink-3">
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
                         <CalendarDays className="size-3.5" aria-hidden />
                         {formatDate(item.publishedAt)}
                       </span>
-                      {item.author && <span className="text-xs text-ink-3">· {item.author}</span>}
+                      {item.author && <span className="text-xs text-muted-foreground">· {item.author}</span>}
                     </div>
-                    <h2 className="mt-3 text-md font-semibold">{item.title}</h2>
-                    <p className="mt-1.5 text-sm leading-relaxed text-ink-2">{item.body}</p>
+                    <h2 className="mt-3 text-md font-semibold text-heading">{item.title}</h2>
+                    <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{item.body}</p>
                   </CardBody>
                 </Card>
               ))}

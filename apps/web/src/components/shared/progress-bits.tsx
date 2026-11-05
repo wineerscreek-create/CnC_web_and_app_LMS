@@ -23,8 +23,8 @@ export function ProgressBar({
     <div className={className}>
       {(label || showValue) && (
         <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
-          {label && <span className="text-ink-2">{label}</span>}
-          {showValue && <span className="tnum font-semibold text-ink-1">{pct(value, 0)}</span>}
+          {label && <span className="text-foreground">{label}</span>}
+          {showValue && <span className="tnum font-semibold text-foreground">{pct(value, 0)}</span>}
         </div>
       )}
       <Progress
@@ -44,7 +44,7 @@ export function ScoreCard({
   value,
   outOf = 100,
   band,
-  tone = 'var(--indigo)',
+  tone = 'hsl(var(--accent))',
   className,
 }: {
   label: string;
@@ -58,13 +58,13 @@ export function ScoreCard({
   return (
     <div className={cn('min-w-0', className)}>
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
-        <p className="truncate text-sm text-ink-2">{label}</p>
-        <p className="tnum shrink-0 text-base font-bold">
+        <p className="truncate text-sm text-foreground">{label}</p>
+        <p className="tnum shrink-0 text-base font-bold text-heading">
           {has ? Math.round(value! * 10) / 10 : '—'}
-          <span className="text-xs font-semibold text-ink-3">/{outOf}</span>
+          <span className="text-xs font-semibold text-muted-foreground">/{outOf}</span>
         </p>
       </div>
-      <div className="h-[7px] w-full overflow-hidden rounded-full bg-line-soft">
+      <div className="h-[7px] w-full overflow-hidden rounded-full bg-muted">
         <div
           className="h-full rounded-full transition-[width] duration-700 ease-out"
           style={{
@@ -73,7 +73,7 @@ export function ScoreCard({
           }}
         />
       </div>
-      {band && <p className="mt-1 text-xs text-ink-3">{band}</p>}
+      {band && <p className="mt-1 text-xs text-muted-foreground">{band}</p>}
     </div>
   );
 }
@@ -89,32 +89,32 @@ export function SkillBreakdown({
   showBand?: boolean;
 }) {
   const TONE: Record<string, string> = {
-    behaviour: 'var(--success)',
-    communication: 'var(--indigo)',
-    confidence: 'var(--amber)',
-    leadership: 'var(--teal)',
-    technical: 'var(--purple)',
-    problem_solving: 'var(--danger)',
-    career_readiness: 'var(--amber-dark)',
+    behaviour: 'hsl(var(--chart-1))',
+    communication: 'hsl(var(--chart-2))',
+    confidence: 'hsl(var(--chart-3))',
+    leadership: 'hsl(var(--chart-4))',
+    technical: 'hsl(var(--chart-5))',
+    problem_solving: 'hsl(var(--primary))',
+    career_readiness: 'hsl(var(--accent))',
   };
   return (
     <ul className={cn('space-y-3', className)}>
       {pillars.map((pillar) => (
         <li key={pillar.code} className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1">
-          <span className="truncate text-sm text-ink-2">{pillar.label}</span>
-          <span className="tnum text-sm font-bold">
+          <span className="truncate text-sm text-foreground">{pillar.label}</span>
+          <span className="tnum text-sm font-bold text-heading">
             {pillar.score !== null && pillar.score !== undefined ? Math.round(pillar.score) : '—'}
-            <span className="text-xs font-semibold text-ink-3">/100</span>
+            <span className="text-xs font-semibold text-muted-foreground">/100</span>
             {showBand && pillar.band && pillar.band !== 'No data' && (
-              <span className="ml-2 text-xs font-semibold text-ink-3">{pillar.band}</span>
+              <span className="ml-2 text-xs font-semibold text-muted-foreground">{pillar.band}</span>
             )}
           </span>
-          <div className="col-span-2 h-[7px] overflow-hidden rounded-full bg-line-soft">
+          <div className="col-span-2 h-[7px] overflow-hidden rounded-full bg-muted">
             <div
               className="h-full rounded-full transition-[width] duration-700 ease-out"
               style={{
                 width: `${Math.min(100, pillar.score ?? 0)}%`,
-                background: TONE[pillar.code] ?? 'var(--indigo)',
+                background: TONE[pillar.code] ?? 'hsl(var(--accent))',
               }}
             />
           </div>

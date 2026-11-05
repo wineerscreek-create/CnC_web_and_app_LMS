@@ -20,21 +20,20 @@ export default function PublicTrainersPage() {
       {/* ------------------------------------------------------------------ hero */}
       <section className="relative py-12 sm:py-16">
         <div className="relative mx-auto max-w-[1180px] px-5">
-          <Badge tone="indigo">
-            Institution Faculty
+          <Badge tone="mustard" className="font-semibold text-xs py-1 px-3">
+            Institutional Faculty
           </Badge>
-          <h1 className="mt-4 font-serif heading-hero text-ink-1 max-w-[700px]">
-            Expert Trainers Who Mentor & Assess You
+          <h1 className="mt-4 font-heading font-black text-4xl sm:text-5xl text-heading tracking-tight max-w-[700px]">
+            Expert Mentors &amp; Certified Trainers
           </h1>
-          <p className="mt-4 max-w-[640px] text-base sm:text-lg leading-relaxed text-ink-2">
-            Your own faculty members rate every parameter on evidence, never an anonymous
-            algorithm. Direct mentorship across core domains.
+          <p className="mt-4 max-w-[640px] text-base leading-relaxed text-muted-foreground">
+            Dedicated academic trainers evaluate performance across objective rubrics and evidence-backed assessments, providing targeted mentorship to build career readiness.
           </p>
         </div>
       </section>
 
       {/* ------------------------------------------------------------------ trainers grid */}
-      <div className="mx-auto max-w-[1180px] px-5 pt-10">
+      <div className="mx-auto max-w-[1180px] px-5">
         <AsyncSection query={query} skeleton="cards" isEmpty={(rows) => rows.length === 0}>
           {(allTrainers) => {
             const departments = Array.from(
@@ -56,22 +55,22 @@ export default function PublicTrainersPage() {
 
             return (
               <div>
-                <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-line-soft">
+                <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-border">
                   <SearchInput
                     value={search}
                     onChange={setSearch}
-                    placeholder="Search faculty by name or skill…"
-                    className="w-full sm:w-[320px]"
+                    placeholder="Search faculty by name or domain…"
+                    className="w-full sm:w-[320px] bg-card border-border rounded-xl"
                   />
-                  <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by department">
+                  <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by department">
                     <button
                       type="button"
                       onClick={() => setSelectedDept('all')}
                       className={cn(
-                        'rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-all duration-150',
+                        'rounded-xl border px-3.5 py-1.5 text-xs font-semibold transition-all duration-150',
                         selectedDept === 'all'
-                          ? 'border-indigo bg-indigo text-white shadow-xs'
-                          : 'border-line bg-card text-ink-2 hover:bg-slate-50',
+                          ? 'border-accent bg-accent text-accent-foreground shadow-xs'
+                          : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground',
                       )}
                     >
                       All Departments ({allTrainers.length})
@@ -82,10 +81,10 @@ export default function PublicTrainersPage() {
                         type="button"
                         onClick={() => setSelectedDept(dept)}
                         className={cn(
-                          'rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-all duration-150',
+                          'rounded-xl border px-3.5 py-1.5 text-xs font-semibold transition-all duration-150',
                           selectedDept === dept
-                            ? 'border-indigo bg-indigo text-white shadow-xs'
-                            : 'border-line bg-card text-ink-2 hover:bg-slate-50',
+                            ? 'border-accent bg-accent text-accent-foreground shadow-xs'
+                            : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground',
                         )}
                       >
                         {dept}
@@ -108,7 +107,7 @@ export default function PublicTrainersPage() {
                             setSelectedDept('all');
                           }}
                         >
-                          Clear filters
+                          Clear Filters
                         </Button>
                       }
                     />
@@ -118,33 +117,33 @@ export default function PublicTrainersPage() {
                     {filtered.map((trainer) => (
                       <Card
                         key={trainer.id}
-                        className="card-interactive group flex flex-col justify-between transition-all duration-200 hover:-translate-y-1 hover:border-indigo-200 hover:shadow-card-hover"
+                        className="group flex flex-col justify-between border border-border bg-card shadow-soft transition-all duration-300 hover:shadow-card hover:border-accent hover:-translate-y-0.5"
                       >
                         <CardBody className="p-5 flex flex-col h-full">
                           <div className="flex items-center gap-3">
-                            <Avatar name={trainer.name} color={trainer.avatarColor} size={48} />
+                            <Avatar name={trainer.name} color={trainer.avatarColor} size={48} className="shadow-xs" />
                             <div className="min-w-0 flex-1">
-                              <h2 className="text-base font-semibold text-ink-1 group-hover:text-indigo-600 transition-colors truncate">
+                              <h2 className="text-sm font-bold font-heading text-heading truncate">
                                 {trainer.name}
                               </h2>
-                              <p className="text-xs font-medium text-ink-3 truncate">{trainer.department}</p>
+                              <p className="text-xs text-muted-foreground truncate">{trainer.department}</p>
                               {trainer.institution && (
-                                <p className="text-[11px] text-ink-3/80 truncate mt-0.5">{trainer.institution}</p>
+                                <p className="text-[11px] text-muted-foreground truncate mt-0.5">{trainer.institution}</p>
                               )}
                             </div>
                           </div>
-                          <p className="mt-3 text-xs font-medium text-indigo-600 uppercase tracking-wide">
+                          <p className="mt-3 text-[11px] font-bold text-foreground uppercase tracking-wide">
                             {trainer.designation}
                           </p>
                           {trainer.bio && (
-                            <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-ink-2">
+                            <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
                               {trainer.bio}
                             </p>
                           )}
                           {trainer.expertise?.length > 0 && (
-                            <div className="mt-auto pt-4 flex flex-wrap gap-1.5">
+                            <div className="mt-auto pt-4 flex flex-wrap gap-1.5 border-t border-border">
                               {trainer.expertise.map((item: string) => (
-                                <Badge key={item} tone="indigo">
+                                <Badge key={item} tone="neutral" className="text-[10px] py-0 px-1.5 font-medium">
                                   {item}
                                 </Badge>
                               ))}

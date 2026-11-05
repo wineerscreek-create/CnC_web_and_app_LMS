@@ -36,7 +36,7 @@ export default function TrainerStudentsPage() {
       render: (row) => (
         <Link
           href={`/trainer/students/${row.userId}`}
-          className="flex items-center gap-2.5 hover:text-indigo-600"
+          className="flex items-center gap-2.5 hover:text-primary-600"
         >
           <Avatar name={row.name} color={row.avatarColor} size={28} />
           <span className="min-w-0">

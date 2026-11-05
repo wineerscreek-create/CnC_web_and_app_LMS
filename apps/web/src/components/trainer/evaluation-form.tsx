@@ -210,7 +210,7 @@ export function EvaluationForm({
                         key={label as string}
                         type="button"
                         onClick={() => fillPillar(pillar, fraction as number)}
-                        className="rounded-full border border-line bg-white px-2.5 py-1 text-xs font-semibold text-ink-2 hover:bg-app"
+                        className="rounded-full border border-border bg-card px-2.5 py-1 text-xs font-semibold text-muted-foreground hover:bg-muted"
                       >
                         {label as string}
                       </button>
@@ -254,8 +254,8 @@ export function EvaluationForm({
                                   className={cn(
                                     'tnum flex size-8 items-center justify-center rounded-[8px] border text-sm font-bold transition-colors',
                                     active
-                                      ? 'border-indigo bg-indigo text-white'
-                                      : 'border-line bg-white text-ink-2 hover:bg-app',
+                                      ? 'border-primary bg-primary text-primary-foreground'
+                                      : 'border-border bg-card text-muted-foreground hover:bg-muted',
                                   )}
                                 >
                                   {value}
@@ -303,8 +303,8 @@ export function EvaluationForm({
                           className={cn(
                             'tnum flex size-8 items-center justify-center rounded-[8px] border text-sm font-bold',
                             active
-                              ? 'border-teal bg-teal text-white'
-                              : 'border-line bg-white text-ink-2 hover:bg-app',
+                              ? 'border-accent bg-accent text-accent-foreground'
+                              : 'border-border bg-card text-muted-foreground hover:bg-muted',
                           )}
                         >
                           {value}

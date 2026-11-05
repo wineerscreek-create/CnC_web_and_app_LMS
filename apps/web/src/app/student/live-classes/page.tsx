@@ -76,9 +76,9 @@ export default function StudentLiveClassesPage() {
         {/* 1. Page Header & Live Telemetry Banner */}
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3.5 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-300 backdrop-blur-md">
-              <Sparkles className="size-3.5 text-indigo-500 dark:text-indigo-400" />
-              Winners Creek Live Cohorts
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3.5 py-1.5 text-xs font-semibold text-primary backdrop-blur-md">
+              <Sparkles className="size-3.5 text-primary" />
+              SkillSharp Live Cohorts
             </div>
             <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-ink-1 sm:text-3xl">
               Virtual Classrooms & Live Mentorship
@@ -90,7 +90,7 @@ export default function StudentLiveClassesPage() {
 
           {/* Quick Metrics */}
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2.5 rounded-2xl border border-line bg-card px-4 py-2.5 shadow-card backdrop-blur-md dark:border-white/10 dark:bg-slate-900/60">
+            <div className="flex items-center gap-2.5 rounded-2xl border border-line bg-card px-4 py-2.5 shadow-card backdrop-blur-md border-border bg-card">
               <div className="flex size-8 items-center justify-center rounded-xl bg-blue-500/20 text-blue-600 dark:text-blue-400">
                 <Video className="size-4" />
               </div>
@@ -100,7 +100,7 @@ export default function StudentLiveClassesPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5 rounded-2xl border border-line bg-card px-4 py-2.5 shadow-card backdrop-blur-md dark:border-white/10 dark:bg-slate-900/60">
+            <div className="flex items-center gap-2.5 rounded-2xl border border-line bg-card px-4 py-2.5 shadow-card backdrop-blur-md border-border bg-card">
               <div className="flex size-8 items-center justify-center rounded-xl bg-red-500/20 text-red-500 dark:text-red-400">
                 <Radio className="size-4 animate-pulse" />
               </div>
@@ -121,11 +121,11 @@ export default function StudentLiveClassesPage() {
                   <span className="size-2 animate-ping rounded-full bg-red-500" />
                   SESSION IN PROGRESS
                 </div>
-                <h2 className="text-xl font-bold text-white sm:text-2xl">
+                <h2 className="text-xl font-bold text-heading sm:text-2xl">
                   {liveNow[0].title}
                 </h2>
-                <p className="text-xs text-slate-300">
-                  Conducted by <span className="font-semibold text-indigo-300">{liveNow[0].trainerName}</span> ·{' '}
+                <p className="text-xs text-muted-foreground">
+                  Conducted by <span className="font-semibold text-primary">{liveNow[0].trainerName}</span> ·{' '}
                   {liveNow[0].batchName || 'Your Enrolled Cohort'}
                 </p>
               </div>
@@ -157,8 +157,8 @@ export default function StudentLiveClassesPage() {
               onClick={() => setFilter(tab.id as any)}
               className={`rounded-xl px-4 py-2 text-xs font-semibold transition ${
                 filter === tab.id
-                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-indigo-500/20'
-                  : 'border border-line bg-card text-ink-2 hover:bg-surface-hover hover:text-ink-1 dark:border-white/10 dark:bg-slate-900/40 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white'
+                  ? 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90'
+                  : 'border border-line bg-card text-ink-2 hover:bg-surface-hover hover:text-ink-1 border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground'
               }`}
             >
               {tab.label}
@@ -176,7 +176,7 @@ export default function StudentLiveClassesPage() {
           /* Recordings Tab */
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {recordings.length === 0 ? (
-              <div className="col-span-full rounded-2xl border border-line bg-card p-12 text-center shadow-card backdrop-blur-md dark:border-white/10 dark:bg-slate-900/50">
+              <div className="col-span-full rounded-2xl border border-line bg-card p-12 text-center shadow-card backdrop-blur-md border-border bg-card">
                 <PlayCircle className="mx-auto size-12 text-ink-3" />
                 <h3 className="mt-3 text-base font-semibold text-ink-1">No Recordings Available Yet</h3>
                 <p className="mt-1 text-xs text-ink-3">
@@ -188,7 +188,7 @@ export default function StudentLiveClassesPage() {
                 <GlassCard key={rec.id} hover className="flex flex-col justify-between">
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="inline-flex items-center gap-1.5 rounded-md bg-indigo-500/20 px-2 py-1 text-[11px] font-semibold text-indigo-600 dark:text-indigo-300">
+                      <span className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-[11px] font-semibold text-primary">
                         <PlayCircle className="size-3.5" />
                         Recorded Class
                       </span>
@@ -218,7 +218,7 @@ export default function StudentLiveClassesPage() {
           /* Class Cards Grid */
           <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
             {filteredClasses().length === 0 ? (
-              <div className="col-span-full rounded-2xl border border-line bg-card p-12 text-center shadow-card backdrop-blur-md dark:border-white/10 dark:bg-slate-900/50">
+              <div className="col-span-full rounded-2xl border border-line bg-card p-12 text-center shadow-card backdrop-blur-md border-border bg-card">
                 <Video className="mx-auto size-12 text-ink-3" />
                 <h3 className="mt-3 text-base font-semibold text-ink-1">No Live Classes Found</h3>
                 <p className="mt-1 text-xs text-ink-3">
@@ -266,7 +266,7 @@ export default function StudentLiveClassesPage() {
                           </span>
                         )}
 
-                        <span className="rounded-lg border border-line bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-ink-2 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+                        <span className="rounded-lg border border-line bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-ink-2 border-border bg-muted text-foreground">
                           {providerLabel}
                         </span>
                       </div>
@@ -280,7 +280,7 @@ export default function StudentLiveClassesPage() {
                       </div>
 
                       {/* Details Meta */}
-                      <div className="space-y-1.5 rounded-xl border border-line bg-surface-muted p-3 text-xs text-ink-2 dark:border-white/5 dark:bg-slate-950/40 dark:text-slate-300">
+                      <div className="space-y-1.5 rounded-xl border border-line bg-surface-muted p-3 text-xs text-ink-2 border-border bg-card text-muted-foreground">
                         <div className="flex items-center justify-between">
                           <span className="text-ink-3">Trainer</span>
                           <span className="font-semibold text-ink-1">{c.trainerName || 'Assigned Mentor'}</span>

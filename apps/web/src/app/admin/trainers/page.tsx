@@ -95,7 +95,7 @@ function AccessDialog({
           <DialogTitle>Permissions — {trainer?.name}</DialogTitle>
         </DialogHeader>
         <DialogBody>
-          <p className="text-sm leading-relaxed text-ink-2">
+          <p className="text-sm leading-relaxed text-muted-foreground">
             These are enforced on the server for every request. Removing one takes effect on the
             trainer&apos;s next action, not just in their menu.
           </p>
@@ -109,7 +109,7 @@ function AccessDialog({
                   >
                     {permission.label}
                   </label>
-                  <p className="mt-0.5 text-sm text-ink-2">{permission.help}</p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">{permission.help}</p>
                 </div>
                 <Switch
                   id={`perm-${permission.key}`}
@@ -152,7 +152,7 @@ export default function AdminTrainersPage() {
       render: (row) => (
         <>
           <span className="block font-semibold">{row.name}</span>
-          <span className="block text-xs text-ink-3">{row.email}</span>
+          <span className="block text-xs text-muted-foreground">{row.email}</span>
         </>
       ),
     },
@@ -163,7 +163,7 @@ export default function AdminTrainersPage() {
       render: (row) => (
         <>
           <span className="block">{row.departmentName ?? '—'}</span>
-          <span className="block text-xs text-ink-3">{row.designation ?? ''}</span>
+          <span className="block text-xs text-muted-foreground">{row.designation ?? ''}</span>
         </>
       ),
     },
@@ -181,7 +181,7 @@ export default function AdminTrainersPage() {
             ))}
           </div>
         ) : (
-          <span className="text-sm text-ink-3">None</span>
+          <span className="text-sm text-muted-foreground">None</span>
         ),
     },
     {
@@ -198,7 +198,7 @@ export default function AdminTrainersPage() {
             ))}
           </div>
         ) : (
-          <span className="text-sm text-ink-3">None</span>
+          <span className="text-sm text-muted-foreground">None</span>
         ),
     },
     {
@@ -206,7 +206,7 @@ export default function AdminTrainersPage() {
       header: 'Last active',
       hideBelow: 'lg',
       render: (row) => (
-        <span className="tnum text-sm text-ink-2">
+        <span className="tnum text-sm text-muted-foreground">
           {row.lastActiveAt ? formatDate(row.lastActiveAt) : 'Never'}
         </span>
       ),
@@ -350,54 +350,54 @@ function TrainerAssignmentsDialog({
           <DialogTitle>Batch assignments: {trainer?.name}</DialogTitle>
         </DialogHeader>
         <DialogBody className="space-y-4">
-          <p className="text-sm text-ink-2">
+          <p className="text-sm text-muted-foreground">
             Batches and teaching schedules assigned to this trainer across your institution.
           </p>
 
           {assignments.loading ? (
-            <p className="py-8 text-center text-sm text-ink-3">Loading assignments...</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">Loading assignments...</p>
           ) : !assignments.data || assignments.data.length === 0 ? (
-            <div className="rounded-[10px] border border-dashed border-line p-8 text-center">
-              <GraduationCap className="mx-auto size-8 text-ink-3" aria-hidden />
-              <p className="mt-2 text-base font-semibold text-ink-1">No batch assignments</p>
-              <p className="mt-1 text-sm text-ink-2">
+            <div className="rounded-[10px] border border-dashed border-border p-8 text-center">
+              <GraduationCap className="mx-auto size-8 text-muted-foreground" aria-hidden />
+              <p className="mt-2 text-base font-semibold text-foreground">No batch assignments</p>
+              <p className="mt-1 text-sm text-muted-foreground">
                 This trainer is currently not assigned to teach any active batches.
               </p>
             </div>
           ) : (
-            <ul className="divide-y divide-line-soft rounded-[10px] border border-line">
+            <ul className="divide-y divide-line-soft rounded-[10px] border border-border">
               {assignments.data.map((item: any) => (
                 <li key={item.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-base font-semibold text-ink-1">
+                      <span className="text-base font-semibold text-foreground">
                         {item.batchName} ({item.batchCode})
                       </span>
                       <StatusBadge status={item.status} />
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-2">
+                    <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       {item.departmentName && <span>Dept: {item.departmentName}</span>}
                       <span>Sem {item.semester} ({item.academicYear})</span>
                       <span>{item.studentCount} students</span>
                       {(item.startDate || item.endDate) && (
-                        <span className="flex items-center gap-1 font-medium text-ink-1">
-                          <Calendar className="size-3 text-ink-3" aria-hidden />
+                        <span className="flex items-center gap-1 font-medium text-foreground">
+                          <Calendar className="size-3 text-muted-foreground" aria-hidden />
                           {item.startDate ? formatDate(item.startDate) : 'Start'} – {item.endDate ? formatDate(item.endDate) : 'Ongoing'}
                         </span>
                       )}
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-medium text-ink-3">Days:</span>
+                      <span className="text-xs font-medium text-muted-foreground">Days:</span>
                       {(item.weekdays || []).map((w: number) => (
                         <span
                           key={w}
-                          className="rounded bg-indigo-500/10 px-1.5 py-0.5 text-xs font-semibold text-indigo-400"
+                          className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-semibold text-primary"
                         >
                           {WEEKDAY_NAMES[w] || `Day ${w}`}
                         </span>
                       ))}
                       {item.notes && (
-                        <span className="ml-2 rounded bg-panel-2 px-2 py-0.5 text-xs italic text-ink-2">
+                        <span className="ml-2 rounded bg-muted px-2 py-0.5 text-xs italic text-muted-foreground">
                           &ldquo;{item.notes}&rdquo;
                         </span>
                       )}

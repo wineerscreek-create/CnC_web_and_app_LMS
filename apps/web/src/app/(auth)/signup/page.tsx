@@ -80,10 +80,9 @@ export default function SignupPage() {
 
   return (
     <>
-      <h1 className="font-serif text-[26px] font-semibold tracking-tight">Create your account</h1>
-      <p className="mt-1.5 text-base text-ink-2">
-        Participant accounts only. Trainer, SPOC and administrator accounts are created by your
-        institution.
+      <h1 className="font-heading text-2xl font-bold tracking-tight text-heading">Create Student Account</h1>
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        Participant enrollment registration. Faculty, HOD, and administrative accounts are provisioned directly by your institution.
       </p>
 
       <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
@@ -94,6 +93,7 @@ export default function SignupPage() {
             autoComplete="name"
             value={form.name}
             onChange={(event) => set('name', event.target.value)}
+            className="rounded-xl text-sm"
           />
         </Field>
 
@@ -106,6 +106,7 @@ export default function SignupPage() {
             value={form.email}
             onChange={(event) => set('email', event.target.value)}
             placeholder="you@college.edu"
+            className="rounded-xl text-sm"
           />
         </Field>
 
@@ -118,12 +119,12 @@ export default function SignupPage() {
                 set('departmentCode', '');
               }}
             >
-              <SelectTrigger id="collegeCode" aria-label="Institution">
+              <SelectTrigger id="collegeCode" aria-label="Institution" className="rounded-xl text-xs">
                 <SelectValue placeholder="Select your college" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="rounded-xl">
                 {(institutions.data ?? []).map((item) => (
-                  <SelectItem key={item.code} value={item.code}>
+                  <SelectItem key={item.code} value={item.code} className="text-xs">
                     {item.name}
                   </SelectItem>
                 ))}
@@ -142,12 +143,12 @@ export default function SignupPage() {
               onValueChange={(value) => set('departmentCode', value)}
               disabled={!college}
             >
-              <SelectTrigger id="departmentCode" aria-label="Department">
-                <SelectValue placeholder={college ? 'Select your department' : 'Pick a college first'} />
+              <SelectTrigger id="departmentCode" aria-label="Department" className="rounded-xl text-xs">
+                <SelectValue placeholder={college ? 'Select your department' : 'Pick college first'} />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="rounded-xl">
                 {(college?.departments ?? []).map((item) => (
-                  <SelectItem key={item.code} value={item.code}>
+                  <SelectItem key={item.code} value={item.code} className="text-xs">
                     {item.name}
                   </SelectItem>
                 ))}
@@ -157,16 +158,17 @@ export default function SignupPage() {
         </div>
 
         <Field
-          label="Roll number / institution ID"
+          label="Roll number / Student ID"
           htmlFor="institutionId"
-          hint="Optional, but it lets you sign in with your roll number."
+          hint="Allows signing in with your student roll number."
           error={fieldErrors.institutionId}
         >
           <Input
             id="institutionId"
             value={form.institutionId}
             onChange={(event) => set('institutionId', event.target.value)}
-            placeholder="CSE21042"
+            placeholder="e.g. 21EC042"
+            className="rounded-xl text-sm"
           />
         </Field>
 
@@ -179,6 +181,7 @@ export default function SignupPage() {
               autoComplete="new-password"
               value={form.password}
               onChange={(event) => set('password', event.target.value)}
+              className="rounded-xl text-sm"
             />
           </Field>
           <PasswordStrength value={form.password} />
@@ -197,20 +200,21 @@ export default function SignupPage() {
             autoComplete="new-password"
             value={form.confirmPassword}
             onChange={(event) => set('confirmPassword', event.target.value)}
+            className="rounded-xl text-sm"
           />
         </Field>
 
         {error && (
-          <p role="alert" className="flex items-start gap-2 rounded-[10px] bg-danger-bg px-3.5 py-2.5 text-sm font-semibold text-danger">
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          <p role="alert" className="flex items-start gap-2 rounded-xl bg-destructive/10 border border-destructive/30 p-3 text-xs font-semibold text-destructive">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
             {error}
           </p>
         )}
 
         {institutions.data?.length === 0 && (
-          <p className="flex items-start gap-2 rounded-[10px] bg-amber-50 px-3.5 py-2.5 text-sm text-amber-dark">
-            <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-            No institution has opened public registration. Ask your programme office for an account.
+          <p className="flex items-start gap-2 rounded-xl bg-accent/20 border border-accent/40 p-3 text-xs text-foreground">
+            <Info className="mt-0.5 size-3.5 shrink-0 text-accent" aria-hidden />
+            No institutions have opened open self-registration. Contact your academic programme office.
           </p>
         )}
 
@@ -218,17 +222,17 @@ export default function SignupPage() {
           type="submit"
           variant="primary"
           size="lg"
-          className="w-full"
+          className="w-full mt-2 font-bold"
           loading={pending}
           disabled={passwordScore(form.password) < 2}
         >
-          Create account
+          Create Student Account
         </Button>
       </form>
 
-      <p className="mt-5 text-base text-ink-2">
+      <p className="mt-5 text-center text-xs text-muted-foreground">
         Already have an account?{' '}
-        <Link href="/login" className="font-semibold text-indigo hover:underline">
+        <Link href="/login" className="font-bold text-foreground hover:underline">
           Sign in
         </Link>
       </p>

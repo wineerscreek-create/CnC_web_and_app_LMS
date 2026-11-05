@@ -116,8 +116,8 @@ function CreateUserDialog({
                 <strong className="font-semibold">{created.email}</strong> can sign in with the
                 temporary password below. They will be asked to change it immediately.
               </p>
-              <div className="mt-3.5 flex items-center gap-2 rounded-[10px] bg-app px-3.5 py-3">
-                <KeyRound className="size-4 shrink-0 text-ink-3" aria-hidden />
+              <div className="mt-3.5 flex items-center gap-2 rounded-[10px] bg-muted px-3.5 py-3">
+                <KeyRound className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 <code className="min-w-0 flex-1 truncate text-base font-semibold">
                   {created.temporaryPassword}
                 </code>
@@ -135,7 +135,7 @@ function CreateUserDialog({
                   Copy
                 </Button>
               </div>
-              <p className="mt-2.5 text-sm text-ink-3">
+              <p className="mt-2.5 text-sm text-muted-foreground">
                 Share it over a channel you trust. It is shown once and is not stored in readable
                 form.
               </p>
@@ -408,7 +408,7 @@ export default function AdminUsersPage() {
           <Avatar name={row.name} color={row.avatarColor} size={28} />
           <span className="min-w-0">
             <span className="block truncate font-semibold">{row.name}</span>
-            <span className="block truncate text-xs text-ink-3">{row.email}</span>
+            <span className="block truncate text-xs text-muted-foreground">{row.email}</span>
           </span>
         </div>
       ),
@@ -433,10 +433,10 @@ export default function AdminUsersPage() {
           row.batchName ? (
             <Badge tone="teal">{row.batchName}</Badge>
           ) : (
-            <span className="text-xs text-ink-3">Unassigned</span>
+            <span className="text-xs text-muted-foreground">Unassigned</span>
           )
         ) : (
-          <span className="text-ink-3">—</span>
+          <span className="text-muted-foreground">—</span>
         ),
     },
     {
@@ -447,7 +447,7 @@ export default function AdminUsersPage() {
         row.institutionId ? (
           <span className="tnum text-sm">{row.institutionId}</span>
         ) : (
-          <span className="text-ink-3">—</span>
+          <span className="text-muted-foreground">—</span>
         ),
     },
     {
@@ -455,7 +455,7 @@ export default function AdminUsersPage() {
       header: 'Last active',
       hideBelow: 'lg',
       render: (row) => (
-        <span className="tnum text-sm text-ink-2">
+        <span className="tnum text-sm text-muted-foreground">
           {row.lastActiveAt ? formatDate(row.lastActiveAt) : 'Never'}
         </span>
       ),
@@ -558,7 +558,7 @@ export default function AdminUsersPage() {
         onFilterChange={table.setFilter}
         onReset={table.reset}
         actions={
-          <span className="text-sm text-ink-2">
+          <span className="text-sm text-muted-foreground">
             {query.data?.pagination?.total ?? 0} account(s)
           </span>
         }
@@ -577,7 +577,7 @@ export default function AdminUsersPage() {
         caption="User accounts in your institution"
         empty={
           <div className="px-6 py-12 text-center">
-            <UserPlus className="mx-auto size-6 text-ink-3" aria-hidden />
+            <UserPlus className="mx-auto size-6 text-muted-foreground" aria-hidden />
             <p className="mt-3 text-md font-bold">No accounts match those filters</p>
           </div>
         }

@@ -383,21 +383,21 @@ export default function SuperAdminEbooksPage() {
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line-soft pb-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-2">
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
               onClick={() => setActiveTab('pending')}
               className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all ${
                 activeTab === 'pending'
-                  ? 'bg-amber-500 text-white shadow-sm'
-                  : 'bg-white/80 text-ink-2 hover:bg-slate-100 dark:bg-slate-900/60 dark:text-slate-300'
+                  ? 'bg-accent text-accent-foreground shadow-sm'
+                  : 'bg-card text-muted-foreground hover:bg-muted'
               }`}
             >
               <Clock className="size-3.5" />
               Pending Requests
               {counts.pending > 0 && (
-                <span className="rounded-full bg-white/30 px-1.5 py-0.2 text-[10px] font-bold">
+                <span className="rounded-full bg-primary/20 px-1.5 py-0.2 text-[10px] font-bold">
                   {counts.pending}
                 </span>
               )}
@@ -408,8 +408,8 @@ export default function SuperAdminEbooksPage() {
               onClick={() => setActiveTab('published')}
               className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all ${
                 activeTab === 'published'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'bg-white/80 text-ink-2 hover:bg-slate-100 dark:bg-slate-900/60 dark:text-slate-300'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'bg-card text-muted-foreground hover:bg-muted'
               }`}
             >
               <Globe className="size-3.5" />
@@ -421,8 +421,8 @@ export default function SuperAdminEbooksPage() {
               onClick={() => setActiveTab('featured')}
               className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all ${
                 activeTab === 'featured'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'bg-white/80 text-ink-2 hover:bg-slate-100 dark:bg-slate-900/60 dark:text-slate-300'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'bg-card text-muted-foreground hover:bg-muted'
               }`}
             >
               <Flame className="size-3.5 text-amber-300" />
@@ -434,8 +434,8 @@ export default function SuperAdminEbooksPage() {
               onClick={() => setActiveTab('pinned')}
               className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all ${
                 activeTab === 'pinned'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'bg-white/80 text-ink-2 hover:bg-slate-100 dark:bg-slate-900/60 dark:text-slate-300'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'bg-card text-muted-foreground hover:bg-muted'
               }`}
             >
               <Pin className="size-3.5" />
@@ -447,8 +447,8 @@ export default function SuperAdminEbooksPage() {
               onClick={() => setActiveTab('drafts')}
               className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all ${
                 activeTab === 'drafts'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'bg-white/80 text-ink-2 hover:bg-slate-100 dark:bg-slate-900/60 dark:text-slate-300'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'bg-card text-muted-foreground hover:bg-muted'
               }`}
             >
               <FileText className="size-3.5" />
@@ -460,8 +460,8 @@ export default function SuperAdminEbooksPage() {
               onClick={() => setActiveTab('rejected')}
               className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all ${
                 activeTab === 'rejected'
-                  ? 'bg-rose-600 text-white shadow-sm'
-                  : 'bg-white/80 text-ink-2 hover:bg-slate-100 dark:bg-slate-900/60 dark:text-slate-300'
+                  ? 'bg-destructive text-destructive-foreground shadow-sm'
+                  : 'bg-card text-muted-foreground hover:bg-muted'
               }`}
             >
               <XCircle className="size-3.5" />
@@ -473,8 +473,8 @@ export default function SuperAdminEbooksPage() {
               onClick={() => setActiveTab('all')}
               className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all ${
                 activeTab === 'all'
-                  ? 'bg-slate-800 text-white shadow-sm'
-                  : 'bg-white/80 text-ink-2 hover:bg-slate-100 dark:bg-slate-900/60 dark:text-slate-300'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'bg-card text-muted-foreground hover:bg-muted'
               }`}
             >
               <BookOpen className="size-3.5" />
@@ -486,8 +486,8 @@ export default function SuperAdminEbooksPage() {
               onClick={() => setActiveTab('reports')}
               className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all ${
                 activeTab === 'reports'
-                  ? 'bg-rose-600 text-white shadow-sm'
-                  : 'bg-white/80 text-ink-2 hover:bg-slate-100 dark:bg-slate-900/60 dark:text-slate-300'
+                  ? 'bg-destructive text-destructive-foreground shadow-sm'
+                  : 'bg-card text-muted-foreground hover:bg-muted'
               }`}
             >
               <ShieldAlert className="size-3.5" />
@@ -498,13 +498,13 @@ export default function SuperAdminEbooksPage() {
           {/* Search Bar */}
           <div className="flex items-center gap-2">
             <div className="relative w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-ink-3" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
               <input
                 type="text"
                 placeholder="Search title, author, role..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-8 w-full rounded-lg border border-line-soft bg-white pl-8 pr-3 text-xs text-ink-1 focus:border-indigo focus:outline-none dark:bg-slate-900 dark:border-slate-700"
+                className="h-8 w-full rounded-lg border border-border bg-card pl-8 pr-3 text-xs text-foreground focus:border-primary focus:outline-none"
               />
             </div>
           </div>
@@ -515,9 +515,9 @@ export default function SuperAdminEbooksPage() {
           <div className="space-y-4">
             {requests.length === 0 ? (
               <Card>
-                <CardBody className="p-8 text-center text-ink-3">
+                <CardBody className="p-8 text-center text-muted-foreground">
                   <CheckCircle className="mx-auto size-12 text-emerald-500 mb-3" />
-                  <p className="text-sm font-semibold text-ink-1">All Caught Up!</p>
+                  <p className="text-sm font-semibold text-foreground">All Caught Up!</p>
                   <p className="text-xs mt-1">There are no pending eBook publish requests requiring review.</p>
                 </CardBody>
               </Card>
@@ -528,7 +528,7 @@ export default function SuperAdminEbooksPage() {
                     <CardBody className="p-5">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div className="flex items-start gap-4">
-                          <div className="relative size-16 rounded-lg bg-slate-900 border border-line-soft overflow-hidden flex items-center justify-center shrink-0">
+                          <div className="relative size-16 rounded-lg bg-slate-900 border border-border overflow-hidden flex items-center justify-center shrink-0">
                             {req.coverUrl ? (
                               <Image
                                 src={req.coverUrl}
@@ -543,20 +543,20 @@ export default function SuperAdminEbooksPage() {
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
-                              <h4 className="font-bold text-ink-1 text-sm">{req.title}</h4>
+                              <h4 className="font-bold text-foreground text-sm">{req.title}</h4>
                               <Badge tone="amber">Pending Review</Badge>
                               <Badge tone="neutral">{req.category}</Badge>
                             </div>
-                            <p className="text-xs text-ink-2 mt-1">
+                            <p className="text-xs text-muted-foreground mt-1">
                               By <span className="font-semibold">{req.author}</span> • Requested by{' '}
                               <span className="font-semibold text-indigo-600">{req.requesterName}</span> ({req.requesterRole})
                             </p>
                             {req.requestMessage && (
-                              <p className="mt-2 text-xs italic text-ink-3 bg-white/60 dark:bg-slate-800/60 p-2 rounded border border-line-soft">
+                              <p className="mt-2 text-xs italic text-muted-foreground bg-muted/60 p-2 rounded border border-border text-muted-foreground">
                                 &quot;{req.requestMessage}&quot;
                               </p>
                             )}
-                            <div className="flex items-center gap-4 text-2xs text-ink-3 mt-2">
+                            <div className="flex items-center gap-4 text-2xs text-muted-foreground mt-2">
                               <span>{req.pageCount} pages</span>
                               <span>{(req.fileSizeBytes / (1024 * 1024)).toFixed(1)} MB</span>
                               <span>Submitted {formatDate(req.createdAt)}</span>
@@ -606,12 +606,12 @@ export default function SuperAdminEbooksPage() {
             </CardHeader>
             <CardBody className="p-0 overflow-x-auto">
               {reports.length === 0 ? (
-                <div className="p-8 text-center text-ink-3 text-xs">
+                <div className="p-8 text-center text-muted-foreground text-xs">
                   No reports logged. The library content is clean.
                 </div>
               ) : (
                 <table className="w-full text-left text-xs">
-                  <thead className="border-b border-line-soft bg-slate-50/70 text-ink-3 uppercase font-semibold text-2xs tracking-wider dark:bg-slate-900/60">
+                  <thead className="border-b border-border bg-slate-50/70 text-muted-foreground uppercase font-semibold text-2xs tracking-wider dark:bg-slate-900/60">
                     <tr>
                       <th className="px-4 py-3">eBook ID</th>
                       <th className="px-4 py-3">Reason</th>
@@ -623,10 +623,10 @@ export default function SuperAdminEbooksPage() {
                   <tbody className="divide-y divide-line-soft">
                     {reports.map((rep) => (
                       <tr key={rep.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-4 py-3.5 font-mono text-ink-2">{rep.ebookId.slice(-8)}</td>
+                        <td className="px-4 py-3.5 font-mono text-muted-foreground">{rep.ebookId.slice(-8)}</td>
                         <td className="px-4 py-3.5 font-semibold text-rose-600">{rep.reason}</td>
-                        <td className="px-4 py-3.5 text-ink-2 max-w-xs truncate">{rep.details || '—'}</td>
-                        <td className="px-4 py-3.5 text-ink-3">{formatDate(rep.createdAt)}</td>
+                        <td className="px-4 py-3.5 text-muted-foreground max-w-xs truncate">{rep.details || '—'}</td>
+                        <td className="px-4 py-3.5 text-muted-foreground">{formatDate(rep.createdAt)}</td>
                         <td className="px-4 py-3.5 text-right">
                           <Link href={`/ebooks/${rep.ebookId}`} target="_blank">
                             <Button variant="secondary" size="sm">
@@ -649,7 +649,7 @@ export default function SuperAdminEbooksPage() {
           <Card>
             <CardBody className="p-0 overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="border-b border-line-soft bg-slate-50/70 text-ink-3 uppercase font-semibold text-2xs tracking-wider dark:bg-slate-900/60">
+                <thead className="border-b border-border bg-slate-50/70 text-muted-foreground uppercase font-semibold text-2xs tracking-wider dark:bg-slate-900/60">
                   <tr>
                     <th className="px-4 py-3">eBook & Details</th>
                     <th className="px-4 py-3">Category</th>
@@ -663,7 +663,7 @@ export default function SuperAdminEbooksPage() {
                 <tbody className="divide-y divide-line-soft">
                   {ebooks.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-ink-3">
+                      <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                         No eBooks found in this view.
                       </td>
                     </tr>
@@ -672,7 +672,7 @@ export default function SuperAdminEbooksPage() {
                       <tr key={book.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-4 py-3.5">
                           <div className="flex items-center gap-3">
-                            <div className="relative size-10 rounded-md bg-slate-900 border border-line-soft overflow-hidden flex items-center justify-center shrink-0">
+                            <div className="relative size-10 rounded-md bg-slate-900 border border-border overflow-hidden flex items-center justify-center shrink-0">
                               {book.coverUrl ? (
                                 <Image
                                 src={book.coverUrl}
@@ -687,7 +687,7 @@ export default function SuperAdminEbooksPage() {
                             </div>
                             <div>
                               <div className="flex items-center gap-1.5">
-                                <p className="font-bold text-ink-1 text-sm">{book.title}</p>
+                                <p className="font-bold text-foreground text-sm">{book.title}</p>
                                 {book.isPinned && (
                                   <span title="Pinned to top">
                                     <Pin className="size-3 text-indigo-600 fill-indigo-600" />
@@ -699,7 +699,7 @@ export default function SuperAdminEbooksPage() {
                                   </span>
                                 )}
                               </div>
-                              <p className="text-xs text-ink-3">by {book.author}</p>
+                              <p className="text-xs text-muted-foreground">by {book.author}</p>
                               {book.rejectionReason && (
                                 <p className="text-2xs text-rose-500 mt-0.5">
                                   Reason: {book.rejectionReason}
@@ -711,10 +711,10 @@ export default function SuperAdminEbooksPage() {
                         <td className="px-4 py-3.5">
                           <Badge tone="neutral">{book.category}</Badge>
                         </td>
-                        <td className="px-4 py-3.5 text-ink-2">
+                        <td className="px-4 py-3.5 text-muted-foreground">
                           {book.pageCount} pages
                           <br />
-                          <span className="text-2xs text-ink-3">
+                          <span className="text-2xs text-muted-foreground">
                             {(book.fileSizeBytes / (1024 * 1024)).toFixed(1)} MB
                           </span>
                         </td>
@@ -746,7 +746,7 @@ export default function SuperAdminEbooksPage() {
                             {book.status}
                           </Badge>
                         </td>
-                        <td className="px-4 py-3.5 text-center font-semibold text-ink-1">
+                        <td className="px-4 py-3.5 text-center font-semibold text-foreground">
                           {num(book.readsCount || 0)}
                         </td>
                         <td className="px-4 py-3.5 text-right">
@@ -850,7 +850,7 @@ export default function SuperAdminEbooksPage() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
-              <label className="block text-xs font-semibold text-ink-1 mb-1">
+              <label className="block text-xs font-semibold text-foreground mb-1">
                 Rejection Reason *
               </label>
               <textarea
@@ -859,7 +859,7 @@ export default function SuperAdminEbooksPage() {
                 value={rejectionReason}
                 onChange={(e) => setRejectionReason(e.target.value)}
                 placeholder="e.g. Please format table of contents, fix low-resolution diagrams, or replace copyrighted material on page 14."
-                className="w-full rounded-lg border border-line-soft bg-white p-2.5 text-xs text-ink-1 focus:border-indigo focus:outline-none dark:bg-slate-900"
+                className="w-full rounded-lg border border-border bg-card p-2.5 text-xs text-foreground focus:border-primary focus:outline-none"
               />
             </div>
             <div className="flex items-center justify-end gap-2">
@@ -895,21 +895,21 @@ export default function SuperAdminEbooksPage() {
           </DialogHeader>
           <form onSubmit={submitEdit} className="space-y-4 py-2">
             <div>
-              <label className="block text-xs font-semibold text-ink-1 mb-1">Title *</label>
+              <label className="block text-xs font-semibold text-foreground mb-1">Title *</label>
               <input
                 type="text"
                 required
                 value={editForm.title}
                 onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-                className="w-full rounded-lg border border-line-soft bg-white p-2 text-xs text-ink-1 focus:border-indigo focus:outline-none dark:bg-slate-900"
+                className="w-full rounded-lg border border-border bg-card p-2 text-xs text-foreground focus:border-primary focus:outline-none"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-ink-1 mb-1">Category</label>
+              <label className="block text-xs font-semibold text-foreground mb-1">Category</label>
               <select
                 value={editForm.category}
                 onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
-                className="w-full rounded-lg border border-line-soft bg-white p-2 text-xs text-ink-1 focus:border-indigo focus:outline-none dark:bg-slate-900"
+                className="w-full rounded-lg border border-border bg-card p-2 text-xs text-foreground focus:border-primary focus:outline-none"
               >
                 <option value="Programming">Programming</option>
                 <option value="DSA">DSA</option>
@@ -930,9 +930,9 @@ export default function SuperAdminEbooksPage() {
                 id="editAllowDownload"
                 checked={editForm.allowDownload}
                 onChange={(e) => setEditForm({ ...editForm, allowDownload: e.target.checked })}
-                className="rounded border-line-soft text-indigo focus:ring-0"
+                className="rounded border-border text-indigo focus:ring-0"
               />
-              <label htmlFor="editAllowDownload" className="text-xs text-ink-2 select-none">
+              <label htmlFor="editAllowDownload" className="text-xs text-muted-foreground select-none">
                 Allow authenticated users to download original PDF
               </label>
             </div>
