@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     AI_REQUIRE_EVIDENCE: bool = True
 
     # ---------- email ----------
+    EMAIL_VERIFICATION_ENABLED: bool = True
     EMAIL_PROVIDER: Literal["console", "smtp"] = "console"
     SMTP_HOST: str | None = None
     SMTP_PORT: int = 587

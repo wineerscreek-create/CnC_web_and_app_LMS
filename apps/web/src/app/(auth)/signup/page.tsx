@@ -25,9 +25,27 @@ interface Institution {
   departments: { code: string; name: string }[];
 }
 
+const DEFAULT_INSTITUTIONS: Institution[] = [
+  {
+    code: 'ABC',
+    name: 'ABC Engineering College',
+    city: 'Bengaluru',
+    departments: [
+      { code: 'CSE', name: 'Computer Science & Engineering' },
+      { code: 'AIDS', name: 'Artificial Intelligence & Data Science' },
+      { code: 'ECE', name: 'Electronics & Communication' },
+      { code: 'MECH', name: 'Mechanical Engineering' },
+    ],
+  },
+];
+
 export default function SignupPage() {
   const router = useRouter();
   const institutions = useApi<Institution[]>('/home/institutions');
+  const institutionList =
+    institutions.data && institutions.data.length > 0
+      ? institutions.data
+      : DEFAULT_INSTITUTIONS;
 
   const [form, setForm] = React.useState({
     name: '',
@@ -42,7 +60,7 @@ export default function SignupPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
 
-  const college = institutions.data?.find((item) => item.code === form.collegeCode);
+  const college = institutionList.find((item) => item.code === form.collegeCode);
 
   function set<K extends keyof typeof form>(key: K, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -79,13 +97,13 @@ export default function SignupPage() {
   }
 
   return (
-    <>
+    <div data-auth-wide className="w-full">
       <h1 className="font-heading text-2xl font-bold tracking-tight text-heading">Create Student Account</h1>
       <p className="mt-1.5 text-xs text-muted-foreground">
         Participant enrollment registration. Faculty, HOD, and administrative accounts are provisioned directly by your institution.
       </p>
 
-      <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
+      <form onSubmit={submit} className="mt-4 space-y-3" noValidate>
         <Field label="Full name" htmlFor="name" required error={fieldErrors.name}>
           <Input
             id="name"
@@ -110,8 +128,8 @@ export default function SignupPage() {
           />
         </Field>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Institution" htmlFor="collegeCode" required error={fieldErrors.collegeCode}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label="Institution" htmlFor="collegeCode" required error={fieldErrors.collegeCode} className="min-w-0">
             <Select
               value={form.collegeCode}
               onValueChange={(value) => {
@@ -123,7 +141,7 @@ export default function SignupPage() {
                 <SelectValue placeholder="Select your college" />
               </SelectTrigger>
               <SelectContent className="rounded-xl">
-                {(institutions.data ?? []).map((item) => (
+                {institutionList.map((item) => (
                   <SelectItem key={item.code} value={item.code} className="text-xs">
                     {item.name}
                   </SelectItem>
@@ -137,6 +155,7 @@ export default function SignupPage() {
             htmlFor="departmentCode"
             required
             error={fieldErrors.departmentCode}
+            className="min-w-0"
           >
             <Select
               value={form.departmentCode}
@@ -172,7 +191,7 @@ export default function SignupPage() {
           />
         </Field>
 
-        <div>
+        <div className="grid gap-2.5 sm:grid-cols-2 sm:gap-3">
           <Field label="Password" htmlFor="password" required error={fieldErrors.password}>
             <Input
               id="password"
@@ -184,25 +203,25 @@ export default function SignupPage() {
               className="rounded-xl text-sm"
             />
           </Field>
-          <PasswordStrength value={form.password} />
-        </div>
 
-        <Field
-          label="Confirm password"
-          htmlFor="confirmPassword"
-          required
-          error={fieldErrors.confirmPassword}
-        >
-          <Input
-            id="confirmPassword"
-            type="password"
+          <Field
+            label="Confirm password"
+            htmlFor="confirmPassword"
             required
-            autoComplete="new-password"
-            value={form.confirmPassword}
-            onChange={(event) => set('confirmPassword', event.target.value)}
-            className="rounded-xl text-sm"
-          />
-        </Field>
+            error={fieldErrors.confirmPassword}
+          >
+            <Input
+              id="confirmPassword"
+              type="password"
+              required
+              autoComplete="new-password"
+              value={form.confirmPassword}
+              onChange={(event) => set('confirmPassword', event.target.value)}
+              className="rounded-xl text-sm"
+            />
+          </Field>
+        </div>
+        <PasswordStrength value={form.password} />
 
         {error && (
           <p role="alert" className="flex items-start gap-2 rounded-xl bg-destructive/10 border border-destructive/30 p-3 text-xs font-semibold text-destructive">
@@ -211,7 +230,7 @@ export default function SignupPage() {
           </p>
         )}
 
-        {institutions.data?.length === 0 && (
+        {!institutions.loading && institutions.data && institutions.data.length === 0 && (
           <p className="flex items-start gap-2 rounded-xl bg-accent/20 border border-accent/40 p-3 text-xs text-foreground">
             <Info className="mt-0.5 size-3.5 shrink-0 text-accent" aria-hidden />
             No institutions have opened open self-registration. Contact your academic programme office.
@@ -236,6 +255,6 @@ export default function SignupPage() {
           Sign in
         </Link>
       </p>
-    </>
+    </div>
   );
 }

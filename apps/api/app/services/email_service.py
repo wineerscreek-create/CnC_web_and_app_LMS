@@ -110,14 +110,17 @@ async def send_verification_email(*, to: str, name: str, otp: str, link_token: s
     await get_email_provider().send(to=to, subject=f"Verify your {BRAND} account", body=body)
 
 
-async def send_password_reset_email(*, to: str, name: str, otp: str, link_token: str) -> None:
-    link = f"{settings.PUBLIC_WEB_URL}/reset-password?token={link_token}&email={to}"
+async def send_password_reset_email(
+    *, to: str, name: str, reset_link: str | None = None, otp: str = "", link_token: str = ""
+) -> None:
+    link = reset_link or f"{settings.PUBLIC_WEB_URL}/reset-password?token={link_token}"
     body = (
         f"Hi {name},\n\n"
-        f"Use this code to reset your {BRAND} password: {otp}\n"
-        f"It expires in {settings.OTP_TTL_MINUTES} minutes.\n\n"
-        f"Or reset directly: {link}\n\n"
-        f"For your security, all other sessions will be signed out once your password changes.\n"
+        f"We received a request to reset your {BRAND} password.\n\n"
+        f"Reset your password directly by visiting the following link:\n{link}\n\n"
+        f"This password reset link will expire in 15 minutes.\n\n"
+        f"For your security, all active sessions will be signed out once your password is changed.\n\n"
+        f"If you did not request a password reset, you can safely ignore this email.\n"
     )
     await get_email_provider().send(to=to, subject=f"Reset your {BRAND} password", body=body)
 

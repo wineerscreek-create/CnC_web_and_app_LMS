@@ -9,7 +9,7 @@ import { Field, Input } from '@/components/ui/input';
 import { ApiError, api } from '@/lib/api';
 
 export default function ForgotPasswordPage() {
-  const [email, setEmail] = React.useState('');
+  const [identifier, setIdentifier] = React.useState('');
   const [pending, setPending] = React.useState(false);
   const [sent, setSent] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -19,7 +19,7 @@ export default function ForgotPasswordPage() {
     setError(null);
     setPending(true);
     try {
-      await api.post('/auth/forgot-password', { email: email.trim().toLowerCase() });
+      await api.post('/auth/forgot-password', { identifier: identifier.trim() });
       setSent(true);
     } catch (caught) {
       setError((caught as ApiError).message);
@@ -36,19 +36,14 @@ export default function ForgotPasswordPage() {
         </span>
         <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-heading">Check your email</h1>
         <p className="mt-1.5 text-base text-muted-foreground">
-          If an account exists for {email.trim().toLowerCase()}, we’ve sent a reset code and a
-          one-click link. The code expires shortly, so use it soon.
+          If an account exists for <span className="font-semibold text-foreground">{identifier.trim()}</span>,
+          we’ve sent a secure password reset link to your registered email address. The link expires in 15 minutes.
         </p>
-        <Button asChild variant="primary" className="mt-5 w-full" size="lg">
-          <Link href={`/reset-password?email=${encodeURIComponent(email.trim().toLowerCase())}`}>
-            I have a code
-          </Link>
-        </Button>
-        <p className="mt-5 text-base text-muted-foreground">
-          <Link href="/login" className="font-semibold text-foreground hover:underline">
+        <Button asChild variant="primary" className="mt-5 w-full font-bold" size="lg">
+          <Link href="/login">
             Back to sign in
           </Link>
-        </p>
+        </Button>
       </>
     );
   }
@@ -60,19 +55,20 @@ export default function ForgotPasswordPage() {
       </span>
       <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-heading">Reset your password</h1>
       <p className="mt-1.5 text-base text-muted-foreground">
-        Enter the email address on your account and we’ll send a code. Resetting signs you out of
-        every device.
+        Enter your registered email address or institution ID (e.g. roll number) to receive a secure password reset link.
       </p>
 
       <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
-        <Field label="Email address" htmlFor="email" required>
+        <Field label="Email address or Institution ID" htmlFor="identifier" required>
           <Input
-            id="email"
-            type="email"
+            id="identifier"
+            type="text"
             required
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            autoComplete="username"
+            placeholder="e.g. name@college.edu or 23EARCS142"
+            value={identifier}
+            onChange={(event) => setIdentifier(event.target.value)}
+            className="rounded-xl text-sm"
           />
         </Field>
 
@@ -83,8 +79,8 @@ export default function ForgotPasswordPage() {
           </p>
         )}
 
-        <Button type="submit" variant="primary" size="lg" className="w-full" loading={pending}>
-          Send reset instructions
+        <Button type="submit" variant="primary" size="lg" className="w-full font-bold" loading={pending} disabled={!identifier.trim()}>
+          Send reset link
         </Button>
       </form>
 

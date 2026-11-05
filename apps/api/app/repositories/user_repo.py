@@ -17,6 +17,7 @@ class UserRepository:
                        u.phone, u.status, u.last_login_at, u.created_at, u.email_verified,
                        u.activation_token, u.activation_token_expires_at, u.must_change_password,
                        u.avatar_color, u.preferences,
+                       u.reset_password_token_hash, u.reset_password_token_expires_at,
                        i.name as college_name, d.name as department_name
                 FROM users u
                 LEFT JOIN institutions i ON i.id = u.institution_id
@@ -36,6 +37,7 @@ class UserRepository:
                        u.phone, u.status, u.last_login_at, u.created_at, u.email_verified,
                        u.activation_token, u.activation_token_expires_at, u.must_change_password,
                        u.avatar_color, u.preferences,
+                       u.reset_password_token_hash, u.reset_password_token_expires_at,
                        i.name as college_name, d.name as department_name
                 FROM users u
                 LEFT JOIN institutions i ON i.id = u.institution_id
@@ -57,6 +59,7 @@ class UserRepository:
                        u.phone, u.status, u.last_login_at, u.created_at, u.email_verified,
                        u.activation_token, u.activation_token_expires_at, u.must_change_password,
                        u.avatar_color, u.preferences,
+                       u.reset_password_token_hash, u.reset_password_token_expires_at,
                        sp.roll_number,
                        i.name as college_name, d.name as department_name
                 FROM users u
@@ -136,6 +139,53 @@ class UserRepository:
                 WHERE id = $2
                 """,
                 password_hash,
+                UUID(str(user_id)),
+            )
+
+    @staticmethod
+    async def set_password_reset_token(
+        user_id: UUID | str, token_hash: str, expires_at: datetime
+    ) -> None:
+        async with get_pg_connection() as conn:
+            await conn.execute(
+                """
+                UPDATE users
+                SET reset_password_token_hash = $1,
+                    reset_password_token_expires_at = $2,
+                    updated_at = NOW()
+                WHERE id = $3
+                """,
+                token_hash,
+                expires_at,
+                UUID(str(user_id)),
+            )
+
+    @staticmethod
+    async def get_by_reset_token_hash(token_hash: str) -> dict[str, Any] | None:
+        async with get_pg_connection() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT u.id, u.email, u.password_hash, u.name, u.role, u.institution_id, u.department_id,
+                       u.phone, u.status, u.reset_password_token_hash, u.reset_password_token_expires_at
+                FROM users u
+                WHERE u.reset_password_token_hash = $1
+                  AND u.deleted_at IS NULL
+                """,
+                token_hash.strip(),
+            )
+            return dict(row) if row else None
+
+    @staticmethod
+    async def clear_password_reset_token(user_id: UUID | str) -> None:
+        async with get_pg_connection() as conn:
+            await conn.execute(
+                """
+                UPDATE users
+                SET reset_password_token_hash = NULL,
+                    reset_password_token_expires_at = NULL,
+                    updated_at = NOW()
+                WHERE id = $1
+                """,
                 UUID(str(user_id)),
             )
 

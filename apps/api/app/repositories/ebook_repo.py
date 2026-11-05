@@ -290,7 +290,7 @@ class EbookRepository:
             count = await conn.fetchval(
                 """
                 SELECT COUNT(*) FROM enrollments
-                WHERE participant_user_id = $1 AND course_id = $2 AND access_status = 'GRANTED'
+                WHERE participant_user_id = $1 AND course_id = $2 AND (access_status = 'ACTIVE' OR enrollment_status = 'ACTIVE')
                 """,
                 UUID(str(user_id)),
                 UUID(str(course_id)),

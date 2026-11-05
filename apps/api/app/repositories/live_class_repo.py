@@ -62,7 +62,7 @@ class LiveClassRepository:
                     """
                     SELECT COUNT(*) FROM enrollments
                     WHERE participant_user_id = $1 AND course_id = $2
-                      AND (access_status = 'GRANTED' OR enrollment_status = 'ACTIVE')
+                      AND (access_status = 'ACTIVE' OR enrollment_status = 'ACTIVE')
                     """,
                     s_uuid,
                     course_id,
@@ -85,7 +85,7 @@ class LiveClassRepository:
                     """
                     SELECT COUNT(*) FROM enrollments
                     WHERE participant_user_id = $1 AND batch_id = $2
-                      AND (access_status = 'GRANTED' OR enrollment_status = 'ACTIVE')
+                      AND (access_status = 'ACTIVE' OR enrollment_status = 'ACTIVE')
                     """,
                     s_uuid,
                     cls["batch_id"],
@@ -116,7 +116,7 @@ class LiveClassRepository:
             enrollment_rows = await conn.fetch(
                 """
                 SELECT course_id, batch_id FROM enrollments
-                WHERE participant_user_id = $1 AND (access_status = 'GRANTED' OR enrollment_status = 'ACTIVE')
+                WHERE participant_user_id = $1 AND (access_status = 'ACTIVE' OR enrollment_status = 'ACTIVE')
                 """,
                 s_uuid,
             )

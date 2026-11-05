@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import * as React from 'react';
@@ -22,7 +22,6 @@ export default function LoginPage() {
   const [password, setPassword] = React.useState('');
   const [remember, setRemember] = React.useState(false);
   const [reveal, setReveal] = React.useState(false);
-  const [needsVerification, setNeedsVerification] = React.useState<string | null>(null);
 
   const hintedRole = params.get('role') as Role | null;
   const next = params.get('next');
@@ -38,14 +37,9 @@ export default function LoginPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    setNeedsVerification(null);
-    const result = await dispatch(
+    await dispatch(
       signIn({ identifier: identifier.trim(), password, rememberMe: remember }),
     );
-    const payload = result.payload as any;
-    if (result.meta.requestStatus === 'rejected' && payload?.verificationRequired) {
-      setNeedsVerification(payload.email ?? identifier.trim());
-    }
   }
 
   return (
@@ -57,7 +51,7 @@ export default function LoginPage() {
           : 'Enter your institutional email address or student roll ID.'}
       </p>
 
-      <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
+      <form onSubmit={submit} className="mt-4 sm:mt-5 space-y-3.5" noValidate>
         <Field label="Email or institution ID" htmlFor="identifier">
           <Input
             id="identifier"
@@ -105,25 +99,11 @@ export default function LoginPage() {
           Keep me signed in on this device
         </label>
 
-        {error && !needsVerification && (
+        {error && (
           <p role="alert" className="flex items-start gap-2 rounded-xl bg-destructive/10 border border-destructive/30 p-3 text-xs font-medium text-destructive">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
             {error}
           </p>
-        )}
-
-        {needsVerification && (
-          <div role="alert" className="rounded-xl bg-accent/20 border border-accent/40 p-3 text-xs text-foreground">
-            <p className="font-bold">Your email isn’t verified yet</p>
-            <p className="mt-0.5 text-muted-foreground">We’ve sent a fresh code to {needsVerification}.</p>
-            <Link
-              href={`/verify-email?email=${encodeURIComponent(needsVerification)}`}
-              className="mt-2 inline-flex items-center gap-1 font-bold underline"
-            >
-              Enter the code
-              <ArrowRight className="size-3.5" aria-hidden />
-            </Link>
-          </div>
         )}
 
         <Button type="submit" variant="primary" size="lg" className="w-full mt-2 font-bold" loading={signingIn}>

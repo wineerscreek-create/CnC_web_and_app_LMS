@@ -1,11 +1,10 @@
 'use client';
 
-import { AlertTriangle, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, KeyRound, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import * as React from 'react';
 
-import { OtpInput } from '@/components/auth/otp-input';
 import { PasswordStrength, passwordScore } from '@/components/auth/password-strength';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/input';
@@ -14,11 +13,8 @@ import { ApiError, api } from '@/lib/api';
 export default function ResetPasswordPage() {
   const router = useRouter();
   const params = useSearchParams();
-  const emailParam = params.get('email') ?? '';
-  const token = params.get('token');
+  const token = params.get('token') ?? '';
 
-  const [email, setEmail] = React.useState(emailParam);
-  const [otp, setOtp] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [confirm, setConfirm] = React.useState('');
   const [pending, setPending] = React.useState(false);
@@ -36,14 +32,21 @@ export default function ResetPasswordPage() {
     event.preventDefault();
     setError(null);
     setFieldErrors({});
+
+    if (!token) {
+      setError('A valid reset link is required. Please request a new link.');
+      return;
+    }
+
     if (password !== confirm) {
       setFieldErrors({ confirm: 'Passwords do not match' });
       return;
     }
+
     setPending(true);
     try {
       await api.post('/auth/reset-password', {
-        ...(token ? { token } : { email: email.trim().toLowerCase(), otp }),
+        token,
         password,
         confirmPassword: confirm,
       });
@@ -51,7 +54,7 @@ export default function ResetPasswordPage() {
     } catch (caught) {
       const apiError = caught as ApiError;
       setError(apiError.message);
-      setFieldErrors(apiError.fieldErrors);
+      setFieldErrors(apiError.fieldErrors || {});
     } finally {
       setPending(false);
     }
@@ -65,11 +68,33 @@ export default function ResetPasswordPage() {
         </span>
         <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-heading">Password updated</h1>
         <p className="mt-1.5 text-base text-muted-foreground">
-          Every other device has been signed out. Sign in with your new password.
+          Your password has been changed successfully. All active sessions have been signed out. Redirecting to sign in...
         </p>
-        <Button asChild variant="primary" className="mt-5">
-          <Link href="/login">Sign in</Link>
+        <Button asChild variant="primary" className="mt-5 font-bold" size="lg">
+          <Link href="/login">Sign in now</Link>
         </Button>
+      </div>
+    );
+  }
+
+  if (!token) {
+    return (
+      <div className="text-center">
+        <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-accent/15 text-gold-text">
+          <KeyRound className="size-5" aria-hidden />
+        </span>
+        <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-heading">Password reset link required</h1>
+        <p className="mt-2 text-base text-muted-foreground">
+          To reset your password, please use the reset link sent to your registered email address.
+        </p>
+        <div className="mt-6 flex flex-col gap-3">
+          <Button asChild variant="primary" size="lg" className="w-full font-bold">
+            <Link href="/forgot-password">Request password reset link</Link>
+          </Button>
+          <Button asChild variant="ghost" size="lg" className="w-full">
+            <Link href="/login">Back to sign in</Link>
+          </Button>
+        </div>
       </div>
     );
   }
@@ -81,33 +106,10 @@ export default function ResetPasswordPage() {
       </span>
       <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-heading">Choose a new password</h1>
       <p className="mt-1.5 text-base text-muted-foreground">
-        {token
-          ? 'Your reset link is valid. Pick a password you haven’t used here before.'
-          : 'Enter the code we emailed you, then pick a new password.'}
+        Pick a secure password you haven’t used here before.
       </p>
 
       <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
-        {!token && (
-          <>
-            <Field label="Email address" htmlFor="email" required error={fieldErrors.email}>
-              <Input
-                id="email"
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </Field>
-            <div>
-              <label htmlFor="otp" className="mb-1.5 block text-sm font-semibold text-foreground">
-                Reset code
-              </label>
-              <OtpInput value={otp} onChange={setOtp} invalid={Boolean(fieldErrors.otp)} />
-            </div>
-          </>
-        )}
-
         <div>
           <Field label="New password" htmlFor="password" required error={fieldErrors.password}>
             <Input
@@ -117,6 +119,7 @@ export default function ResetPasswordPage() {
               autoComplete="new-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
+              className="rounded-xl text-sm"
             />
           </Field>
           <PasswordStrength value={password} />
@@ -130,6 +133,7 @@ export default function ResetPasswordPage() {
             autoComplete="new-password"
             value={confirm}
             onChange={(event) => setConfirm(event.target.value)}
+            className="rounded-xl text-sm"
           />
         </Field>
 
@@ -144,13 +148,19 @@ export default function ResetPasswordPage() {
           type="submit"
           variant="primary"
           size="lg"
-          className="w-full"
+          className="w-full font-bold"
           loading={pending}
-          disabled={passwordScore(password) < 2 || (!token && otp.length < 4)}
+          disabled={passwordScore(password) < 2}
         >
           Update password
         </Button>
       </form>
+
+      <p className="mt-5 text-base text-muted-foreground">
+        <Link href="/login" className="font-semibold text-foreground hover:underline">
+          Back to sign in
+        </Link>
+      </p>
     </>
   );
 }
