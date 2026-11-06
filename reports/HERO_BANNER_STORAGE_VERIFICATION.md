@@ -71,3 +71,4 @@ To achieve complete, enterprise-grade persistence on Render:
 2. **Option B (Render Persistent Disk)**:
    - Attach a Render Persistent Disk mounted at `/opt/render/project/src/apps/api/static/banners`.
    - Note: Render persistent disks do not support horizontal zero-downtime multi-instance scaling. Option A (S3) is superior.
+

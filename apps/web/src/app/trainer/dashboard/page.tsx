@@ -137,44 +137,44 @@ export default function TrainerDashboardPage() {
               </div>
 
               {/* Bento Content Sections */}
-              <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
-                <div className="space-y-6">
+              <div className="grid gap-5 xl:grid-cols-[1.4fr_1fr]">
+                <div className="space-y-5">
                   {/* Today's Classes */}
-                  <Card className="border-border bg-card shadow-card">
-                    <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
+                  <Card className="border-border bg-card shadow-xs">
+                    <CardHeader className="pb-2.5 border-b border-border flex flex-row items-center justify-between">
                       <div>
-                        <CardTitle className="text-base font-bold font-heading text-heading">Today&apos;s Training Sessions</CardTitle>
+                        <CardTitle className="text-sm font-semibold font-heading text-foreground">Today&apos;s Training Sessions</CardTitle>
                         <CardSubtitle className="text-xs text-muted-foreground">
                           {data.todaysClasses.total} scheduled ·{' '}
                           {data.todaysClasses.attendanceNotMarked} without attendance marked
                         </CardSubtitle>
                       </div>
-                      <Button asChild variant="secondary" size="sm" className="text-xs">
+                      <Button asChild variant="secondary" size="sm" className="text-xs h-7">
                         <Link href="/trainer/classes">All Classes</Link>
                       </Button>
                     </CardHeader>
-                    <CardBody className="pt-4">
+                    <CardBody className="pt-3">
                       {data.todaysClasses.sessions.length === 0 ? (
-                        <p className="py-6 text-center text-xs text-muted-foreground">
+                        <p className="py-5 text-center text-xs text-muted-foreground">
                           No training classes scheduled for today.
                         </p>
                       ) : (
-                        <ul className="space-y-3">
+                        <ul className="space-y-2.5">
                           {data.todaysClasses.sessions.map((session: any) => (
                             <li
                               key={session.id}
-                              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-muted/40 p-4 transition-all duration-200 hover:bg-card hover:border-accent hover:shadow-card"
+                              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/20 p-3 transition-colors hover:bg-muted/40"
                             >
                               <div className="min-w-[180px] flex-1">
-                                <p className="text-sm font-bold font-heading text-heading">{session.topic}</p>
-                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                <p className="text-xs font-semibold text-foreground">{session.topic}</p>
+                                <p className="mt-0.5 text-[11px] text-muted-foreground">
                                   {session.batchName} · {session.trainingModuleName}
                                 </p>
                               </div>
-                              <p className="tnum text-xs font-mono font-bold text-heading">
+                              <p className="tnum text-xs font-mono font-medium text-foreground">
                                 {formatTime(session.date)} – {formatTime(session.endsAt)}
                               </p>
-                              <Button asChild variant="primary" size="sm" className="flex items-center gap-1.5 text-xs">
+                              <Button asChild variant="primary" size="sm" className="flex items-center gap-1.5 text-xs h-7">
                                 <Link href={`/trainer/attendance/${session.id}`}>
                                   <CalendarCheck className="size-3.5" aria-hidden />
                                   Mark Attendance

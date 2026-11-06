@@ -52,3 +52,4 @@
 | **Largest Contentful Paint (LCP)** | < 2.5s | **1.4s** | Optimized Hero Banner container with preloaded fallback colors |
 | **Cumulative Layout Shift (CLS)** | < 0.1 | **0.02** | Fixed aspect-ratio hero container (`min-h-[220px] md:min-h-[260px]`) prevents layout jumps |
 | **Interaction to Next Paint (INP)** | < 200ms | **< 50ms** | Client-side React 19 state transitions and lightweight modal overlays |
+

@@ -155,11 +155,11 @@ export default function AdminDashboardPage() {
               </div>
 
               {/* Class Monitoring & Infrastructure Telemetry */}
-              <div className="grid gap-6 xl:grid-cols-[1.3fr_1fr]">
-                <Card className="border-border bg-card shadow-sm">
-                  <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
+              <div className="grid gap-5 xl:grid-cols-[1.3fr_1fr]">
+                <Card className="border-border bg-card shadow-xs">
+                  <CardHeader className="pb-2.5 border-b border-border flex flex-row items-center justify-between">
                     <div>
-                      <CardTitle className="text-base font-bold font-heading text-heading">Live Class Operations</CardTitle>
+                      <CardTitle className="text-sm font-semibold font-heading text-foreground">Live Class Operations</CardTitle>
                       <CardSubtitle className="text-xs text-muted-foreground">
                         {num(data.classMonitoring.sessionsToday)} session(s) today ·{' '}
                         {num(data.classMonitoring.liveNow)} currently live
@@ -168,29 +168,29 @@ export default function AdminDashboardPage() {
                     <Radio
                       className={
                         data.classMonitoring.liveNow > 0
-                          ? 'size-4 text-accent animate-pulse'
+                          ? 'size-4 text-emerald-500 animate-pulse'
                           : 'size-4 text-muted-foreground'
                       }
                       aria-hidden
                     />
                   </CardHeader>
-                  <CardBody className="pt-4">
+                  <CardBody className="pt-3">
                     {data.classMonitoring.sessions.length === 0 ? (
-                      <p className="py-8 text-center text-xs text-muted-foreground">
+                      <p className="py-6 text-center text-xs text-muted-foreground">
                         No training sessions scheduled today across departments.
                       </p>
                     ) : (
                       <ul className="divide-y divide-border">
                         {data.classMonitoring.sessions.map((session: any) => (
-                          <li key={session.id} className="flex flex-wrap items-center justify-between gap-3 py-3 transition-colors hover:bg-muted rounded-xl px-2">
+                          <li key={session.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5 transition-colors hover:bg-muted/40 rounded-lg px-2">
                             <div className="min-w-[180px] flex-1">
-                              <p className="text-xs font-bold text-foreground">{session.topic}</p>
+                              <p className="text-xs font-semibold text-foreground">{session.topic}</p>
                               <p className="mt-0.5 text-[11px] text-muted-foreground">
                                 {session.batchName} · {session.trainerName}
                               </p>
                             </div>
                             <p className="tnum flex items-center gap-1.5 text-xs font-mono text-muted-foreground">
-                              <Clock className="size-3 text-accent" aria-hidden />
+                              <Clock className="size-3 text-muted-foreground" aria-hidden />
                               {formatTime(session.date)} – {formatTime(session.endsAt)}
                             </p>
                             <StatusBadge status={session.status} />
@@ -201,19 +201,19 @@ export default function AdminDashboardPage() {
                   </CardBody>
                 </Card>
 
-                <div className="space-y-6">
+                <div className="space-y-5">
                   {/* Enrollment Mix */}
-                  <Card className="border-border bg-card shadow-sm">
-                    <CardHeader className="pb-3 border-b border-border">
-                      <CardTitle className="text-base font-bold font-heading text-heading">Enrollment Status Breakdown</CardTitle>
+                  <Card className="border-border bg-card shadow-xs">
+                    <CardHeader className="pb-2.5 border-b border-border">
+                      <CardTitle className="text-sm font-semibold font-heading text-foreground">Enrollment Status Breakdown</CardTitle>
                       <CardSubtitle className="text-xs text-muted-foreground">Student status tally across the college</CardSubtitle>
                     </CardHeader>
-                    <CardBody className="pt-4">
-                      <ul className="space-y-2.5">
+                    <CardBody className="pt-3">
+                      <ul className="space-y-2">
                         {Object.entries(data.enrollments).map(([status, count]) => (
-                          <li key={status} className="flex items-center justify-between p-2.5 rounded-xl bg-muted border border-border">
+                          <li key={status} className="flex items-center justify-between p-2 rounded-lg bg-muted/30 border border-border">
                             <StatusBadge status={status} />
-                            <span className="tnum text-xs font-bold font-mono text-foreground">{num(count as number)}</span>
+                            <span className="tnum text-xs font-semibold font-mono text-foreground">{num(count as number)}</span>
                           </li>
                         ))}
                       </ul>

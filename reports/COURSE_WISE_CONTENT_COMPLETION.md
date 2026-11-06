@@ -58,3 +58,4 @@ The frontend component `apps/web/src/components/learning/StructuredContentRender
 - **Interactive Knowledge Check**: Radio selection, reveal answer, score feedback.
 - **Copy Code / Format Blocks**: Code blocks and ASCII diagrams rendered cleanly.
 - **Typography**: Responsive typography with dark/light mode CSS variable support.
+

@@ -57,3 +57,4 @@ An adversarial review was conducted across critical security attack vectors:
 | :--- | :---: | :---: | :--- |
 | **Local Disk Storage on Cloud Container** | Medium | Managed | Migrate upload destination from local disk to S3 bucket to prevent local file loss and enhance cloud security segmentation. |
 | **Rate Limiting on Banner Uploads** | Low | Recommended | Apply Redis-backed sliding window rate limit (e.g. max 10 banner uploads per hour per user) to mitigate spamming. |
+

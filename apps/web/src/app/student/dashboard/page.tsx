@@ -107,13 +107,13 @@ export default function StudentDashboardPage() {
             <div className="space-y-6">
               {/* Continue Learning */}
               {data.continueLearning && (
-                <div className="rounded-3xl border border-border bg-card p-6 sm:p-7 shadow-card">
-                  <div className="flex items-center justify-between pb-4 border-b border-border">
+                <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
+                  <div className="flex items-center justify-between pb-3.5 border-b border-border">
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-gold-text">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">
                         In Progress
                       </span>
-                      <h2 className="font-heading text-lg font-bold text-heading mt-0.5">
+                      <h2 className="font-heading text-base font-semibold text-foreground mt-0.5">
                         Continue Learning
                       </h2>
                     </div>
@@ -125,15 +125,15 @@ export default function StudentDashboardPage() {
                     </Button>
                   </div>
 
-                  <div className="mt-5 flex items-start gap-4">
-                    <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-muted text-primary border border-border">
-                      <BookOpen className="size-6" />
+                  <div className="mt-4 flex items-start gap-3.5">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary border border-primary/20">
+                      <BookOpen className="size-5" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h3 className="font-heading text-base font-bold text-heading">
+                      <h3 className="font-heading text-sm font-semibold text-foreground">
                         {data.continueLearning.courseTitle}
                       </h3>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className="mt-0.5 text-xs text-muted-foreground">
                         {data.continueLearning.nextLesson
                           ? `Next: ${data.continueLearning.nextLesson}`
                           : 'All syllabus modules completed'}
@@ -141,9 +141,9 @@ export default function StudentDashboardPage() {
                           ? ` · ${data.continueLearning.timeRemainingMinutes} mins remaining`
                           : ''}
                       </p>
-                      <div className="mt-4 flex items-center gap-3">
+                      <div className="mt-3 flex items-center gap-3">
                         <ProgressBar value={data.continueLearning.percent} className="flex-1" />
-                        <span className="text-xs font-bold text-heading tnum">
+                        <span className="text-xs font-semibold text-foreground tnum">
                           {Math.round(data.continueLearning.percent)}%
                         </span>
                       </div>
@@ -154,47 +154,47 @@ export default function StudentDashboardPage() {
 
               {/* Today's Practice Quest */}
               {data.dailyQuest && (
-                <div className="rounded-3xl border border-border bg-card p-6 sm:p-7 shadow-card">
-                  <div className="flex items-center justify-between pb-4 border-b border-border">
+                <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
+                  <div className="flex items-center justify-between pb-3.5 border-b border-border">
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-gold-text">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">
                         Daily Milestones
                       </span>
-                      <h2 className="font-heading text-lg font-bold text-heading mt-0.5">
+                      <h2 className="font-heading text-base font-semibold text-foreground mt-0.5">
                         Today&apos;s Practice Quest
                       </h2>
                     </div>
-                    <span className="rounded-xl bg-muted border border-border px-2.5 py-1 text-xs font-semibold text-foreground">
+                    <span className="rounded-md bg-muted border border-border px-2 py-0.5 text-xs font-medium text-foreground">
                       {data.dailyQuest.completed}/{data.dailyQuest.total} Done
                     </span>
                   </div>
 
-                  <div className="mt-4 space-y-2.5">
+                  <div className="mt-3.5 space-y-2">
                     {(data.dailyQuest.tasks ?? []).map((task: any) => (
                       <Link
                         key={task.code}
                         href={task.href}
                         className={cn(
-                          'flex items-center gap-3 rounded-2xl border p-3.5 transition-all duration-200',
+                          'flex items-center gap-3 rounded-lg border p-2.5 transition-colors',
                           task.done
-                            ? 'border-border bg-muted/40 opacity-70'
-                            : 'border-border bg-card hover:border-accent hover:shadow-xs',
+                            ? 'border-border/60 bg-muted/30 opacity-70'
+                            : 'border-border bg-card hover:border-primary/40 hover:bg-muted/30',
                         )}
                       >
                         {task.done ? (
-                          <CheckCircle2 className="size-4 shrink-0 text-primary" />
+                          <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />
                         ) : (
                           <Circle className="size-4 shrink-0 text-muted-foreground" />
                         )}
                         <span
                           className={cn(
-                            'min-w-0 flex-1 truncate text-xs sm:text-sm font-semibold text-foreground',
+                            'min-w-0 flex-1 truncate text-xs sm:text-sm font-medium text-foreground',
                             task.done && 'line-through text-muted-foreground',
                           )}
                         >
                           {task.label}
                         </span>
-                        <span className="rounded-lg bg-secondary text-secondary-foreground px-2 py-0.5 text-xs font-bold border border-border">
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground border border-border/80">
                           +{task.xp} XP
                         </span>
                       </Link>
@@ -204,36 +204,36 @@ export default function StudentDashboardPage() {
               )}
 
               {/* Week at a Glance */}
-              <div className="rounded-3xl border border-border bg-card p-6 sm:p-7 shadow-card">
-                <div className="flex items-center justify-between pb-4 border-b border-border">
+              <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
+                <div className="flex items-center justify-between pb-3.5 border-b border-border">
                   <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-gold-text">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       Schedule
                     </span>
-                    <h2 className="font-heading text-lg font-bold text-heading mt-0.5">
+                    <h2 className="font-heading text-base font-semibold text-foreground mt-0.5">
                       Your Week
                     </h2>
                   </div>
                   <Button asChild variant="ghost" size="sm">
                     <Link href="/student/live-classes">
-                      <CalendarDays className="size-4" />
-                      View Full Calendar
+                      <CalendarDays className="size-3.5 mr-1" />
+                      Calendar
                     </Link>
                   </Button>
                 </div>
 
-                <div className="mt-4 grid gap-2 sm:grid-cols-7">
+                <div className="mt-3.5 grid gap-2 sm:grid-cols-7">
                   {(data.weekAtAGlance ?? []).map((day: any) => (
                     <div
                       key={day.label}
                       className={cn(
-                        'min-h-[100px] rounded-2xl border p-3 flex flex-col justify-between transition-colors',
+                        'min-h-[85px] rounded-lg border p-2.5 flex flex-col justify-between transition-colors',
                         day.isToday
-                          ? 'border-accent bg-accent/20 shadow-xs'
-                          : 'border-border bg-muted/40',
+                          ? 'border-primary/50 bg-primary/5 shadow-xs'
+                          : 'border-border bg-muted/20',
                       )}
                     >
-                      <span className={cn('text-xs font-bold', day.isToday ? 'text-accent-foreground' : 'text-muted-foreground')}>
+                      <span className={cn('text-xs font-semibold', day.isToday ? 'text-primary' : 'text-muted-foreground')}>
                         {day.label}
                       </span>
                       {day.restDay ? (
@@ -243,7 +243,7 @@ export default function StudentDashboardPage() {
                           {(day.items ?? []).slice(0, 2).map((item: any, idx: number) => (
                             <div
                               key={idx}
-                              className="rounded-lg bg-card border border-border p-1 text-[10px] font-semibold text-foreground shadow-xs truncate"
+                              className="rounded bg-card border border-border p-1 text-[10px] font-medium text-foreground shadow-xs truncate"
                             >
                               {item.title}
                             </div>
@@ -259,24 +259,24 @@ export default function StudentDashboardPage() {
             {/* Right Column: Readiness Breakdown & Upcoming Session */}
             <div className="space-y-6">
               {/* Readiness Index Card */}
-              <div className="rounded-3xl border border-border bg-card p-6 sm:p-7 shadow-card">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-gold-text">
+              <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">
                   Diagnostic Evaluation
                 </span>
-                <h2 className="font-heading text-lg font-bold text-heading mt-0.5">
+                <h2 className="font-heading text-base font-semibold text-foreground mt-0.5">
                   Career Readiness Analysis
                 </h2>
 
-                <div className="mt-6 flex flex-col items-center justify-center p-4 rounded-2xl bg-muted/50 border border-border">
+                <div className="mt-4 flex flex-col items-center justify-center p-4 rounded-lg bg-muted/30 border border-border">
                   <ProgressRing
                     value={data.readiness?.hasData ? data.readiness.score : 0}
                     label={data.readiness?.hasData ? `${data.readiness.score}` : '—'}
                     sublabel="/ 100"
-                    size={110}
+                    size={100}
                     tone="mustard"
                   />
-                  <div className="mt-4 text-center">
-                    <p className="text-xs font-bold text-heading">
+                  <div className="mt-3 text-center">
+                    <p className="text-xs font-semibold text-foreground">
                       Overall Readiness Score
                     </p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
@@ -285,16 +285,16 @@ export default function StudentDashboardPage() {
                   </div>
                 </div>
 
-                <div className="mt-5 grid grid-cols-2 gap-3 pt-4 border-t border-border text-xs">
-                  <div className="rounded-xl border border-border bg-muted/30 p-3">
-                    <span className="text-muted-foreground">Faculty Rating</span>
-                    <p className="font-heading text-lg font-extrabold text-heading mt-1">
+                <div className="mt-4 grid grid-cols-2 gap-2.5 pt-3.5 border-t border-border text-xs">
+                  <div className="rounded-lg border border-border bg-muted/20 p-2.5">
+                    <span className="text-muted-foreground text-[11px]">Faculty Rating</span>
+                    <p className="font-heading text-base font-bold text-foreground mt-0.5">
                       {data.readiness?.trainerComponent ?? '—'}
                     </p>
                   </div>
-                  <div className="rounded-xl border border-border bg-muted/30 p-3">
-                    <span className="text-muted-foreground">AI Sim Score</span>
-                    <p className="font-heading text-lg font-extrabold text-heading mt-1">
+                  <div className="rounded-lg border border-border bg-muted/20 p-2.5">
+                    <span className="text-muted-foreground text-[11px]">AI Sim Score</span>
+                    <p className="font-heading text-base font-bold text-foreground mt-0.5">
                       {data.readiness?.aiComponent ?? '—'}
                     </p>
                   </div>
@@ -303,28 +303,28 @@ export default function StudentDashboardPage() {
 
               {/* Next Live Session */}
               {data.upcomingLiveSession && (
-                <div className="rounded-3xl border border-border bg-card p-6 sm:p-7 shadow-card">
+                <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
                   <div className="flex items-center justify-between pb-3 border-b border-border">
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-gold-text">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">
                         Live Masterclass
                       </span>
-                      <h2 className="font-heading text-base font-bold text-heading mt-0.5">
+                      <h2 className="font-heading text-sm font-semibold text-foreground mt-0.5">
                         Next Live Class
                       </h2>
                     </div>
-                    <Video className="size-5 text-primary" />
+                    <Video className="size-4 text-primary" />
                   </div>
 
-                  <div className="mt-4">
-                    <h3 className="font-heading text-sm font-bold text-heading">
+                  <div className="mt-3">
+                    <h3 className="font-heading text-sm font-semibold text-foreground">
                       {data.upcomingLiveSession.title}
                     </h3>
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       Conducted by {data.upcomingLiveSession.trainerName}
                     </p>
-                    <div className="mt-4 flex items-center justify-between">
-                      <span className="text-xs font-semibold text-foreground">
+                    <div className="mt-3 flex items-center justify-between">
+                      <span className="text-xs font-medium text-foreground">
                         {data.upcomingLiveSession.startsIn ?? 'Scheduled today'}
                       </span>
                       <Button asChild variant="primary" size="sm">
@@ -338,33 +338,33 @@ export default function StudentDashboardPage() {
               )}
 
               {/* Quick Practice Modes Launcher */}
-              <div className="rounded-3xl bg-foreground p-6 text-card shadow-card">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-accent">
+              <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Skill Accelerators
                 </span>
-                <h3 className="font-heading text-base font-bold text-card mt-1">
+                <h3 className="font-heading text-sm font-semibold text-foreground mt-0.5">
                   Self-Paced Practice Modes
                 </h3>
-                <p className="mt-2 text-xs text-card/70 leading-relaxed">
+                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
                   Test your articulation, speed of thought, and elevator pitch with instantaneous AI critique.
                 </p>
 
-                <div className="mt-5 grid grid-cols-2 gap-2.5">
+                <div className="mt-3.5 grid grid-cols-2 gap-2">
                   <Link
                     href="/student/practice"
-                    className="flex flex-col rounded-xl bg-card/10 p-3 hover:bg-card/20 transition-colors"
+                    className="flex flex-col rounded-lg border border-border bg-muted/30 p-2.5 hover:border-primary/40 hover:bg-muted/60 transition-colors"
                   >
-                    <Mic className="size-4 text-accent" />
-                    <span className="mt-2 text-xs font-bold text-card">Public Speaking</span>
-                    <span className="text-[10px] text-card/70">AI Pacing &amp; Fillers</span>
+                    <Mic className="size-4 text-primary" />
+                    <span className="mt-1.5 text-xs font-semibold text-foreground">Public Speaking</span>
+                    <span className="text-[10px] text-muted-foreground">AI Pacing &amp; Fillers</span>
                   </Link>
                   <Link
                     href="/student/games"
-                    className="flex flex-col rounded-xl bg-card/10 p-3 hover:bg-card/20 transition-colors"
+                    className="flex flex-col rounded-lg border border-border bg-muted/30 p-2.5 hover:border-primary/40 hover:bg-muted/60 transition-colors"
                   >
-                    <Sparkles className="size-4 text-accent" />
-                    <span className="mt-2 text-xs font-bold text-card">Skill Games</span>
-                    <span className="text-[10px] text-card/70">6 Fast Challenges</span>
+                    <Sparkles className="size-4 text-primary" />
+                    <span className="mt-1.5 text-xs font-semibold text-foreground">Skill Games</span>
+                    <span className="text-[10px] text-muted-foreground">6 Fast Challenges</span>
                   </Link>
                 </div>
               </div>

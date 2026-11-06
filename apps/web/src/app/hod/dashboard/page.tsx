@@ -127,18 +127,18 @@ export default function HodDashboardPage() {
 
               {/* Alerts Grid */}
               {data.alerts?.length > 0 && (
-                <div className="grid gap-4 sm:grid-cols-3">
+                <div className="grid gap-3.5 sm:grid-cols-3">
                   {data.alerts.map((alert: any) => (
                     <Link key={alert.code} href={alert.href} className="group">
-                      <Card className="h-full border-border bg-card p-5 shadow-sm transition-all duration-300 hover:shadow-md hover:border-accent hover:-translate-y-0.5">
+                      <Card className="h-full border-border bg-card p-4 shadow-xs transition-colors hover:border-primary/40 hover:bg-muted/20">
                         <CardBody className="p-0">
-                          <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                             {alert.label}
                           </p>
-                          <p className="tnum mt-2 flex items-baseline justify-between text-2xl font-bold font-mono text-foreground">
+                          <p className="tnum mt-1.5 flex items-baseline justify-between text-xl font-bold font-mono text-foreground">
                             <AnimatedCounter value={alert.count} />
                             <ChevronRight
-                              className="size-4 text-accent transition-transform group-hover:translate-x-1"
+                              className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground"
                               aria-hidden
                             />
                           </p>

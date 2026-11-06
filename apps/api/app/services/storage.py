@@ -23,12 +23,16 @@ log = get_logger("app.storage")
 
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 ALLOWED_PREFIXES = ("students/", "assignments/", "reports/", "certificates/", "imports/")
-ALLOWED_PREFIXES = ("students/", "assignments/", "reports/", "certificates/", "imports/", "ebooks/")
+ALLOWED_PREFIXES = ("students/", "assignments/", "reports/", "certificates/", "imports/", "ebooks/", "banners/")
 
 
 # --------------------------------------------------------------------------- key builders
 class Keys:
     """Logical, private key layout (master prompt §18)."""
+
+    @staticmethod
+    def user_banner(user_id: str, filename: str) -> str:
+        return f"banners/{user_id}/{filename}"
 
     @staticmethod
     def practice_audio(student_id: str, session_id: str) -> str:

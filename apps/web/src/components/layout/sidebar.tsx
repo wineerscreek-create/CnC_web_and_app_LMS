@@ -151,21 +151,27 @@ export function Sidebar({
                           title={collapsed ? item.label : undefined}
                           aria-current={active ? 'page' : undefined}
                           className={cn(
-                            'group relative flex items-center gap-2.5 rounded-xl text-sm font-medium transition-all duration-200',
-                            collapsed ? 'px-2.5 py-2.5 justify-center' : 'px-3 py-2.5',
+                            'group relative flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors duration-150',
+                            collapsed ? 'px-2 py-2 justify-center' : 'px-2.5 py-2',
                             active
-                              ? 'bg-gradient-to-r from-primary to-accent text-white font-semibold shadow-xs'
-                              : 'text-foreground hover:bg-muted hover:text-foreground',
+                              ? 'bg-primary/10 text-primary font-semibold'
+                              : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground',
                           )}
                         >
                           <Icon
                             className={cn(
-                              'size-4 shrink-0 transition-transform duration-200 group-hover:scale-105',
-                              active ? 'text-white' : 'text-muted-foreground group-hover:text-foreground',
+                              'size-4 shrink-0 transition-colors',
+                              active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground',
                             )}
                             aria-hidden
                           />
                           {!collapsed && <span className="truncate">{item.label}</span>}
+                          {active && (
+                            <span
+                              className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-1 rounded-r-full bg-primary"
+                              aria-hidden="true"
+                            />
+                          )}
                         </Link>
                       )}
                     </li>

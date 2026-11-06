@@ -62,3 +62,4 @@ To make hero banner storage permanently durable across all cloud restarts and mu
 - [x] All 15 hero banner lifecycle tests passing
 - [x] 12-section curriculum populated in PostgreSQL
 - [ ] AWS S3 credentials configured in Render Dashboard (Pending DevOps config)
+

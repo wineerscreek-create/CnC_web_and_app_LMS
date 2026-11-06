@@ -94,3 +94,4 @@ $ npm run build
 - **Participant** role verified for student views.
 - **SPOC** role verified for HOD / institutional views.
 - **Trainer**, **Admin**, and **Super Admin** dashboards render their respective role-isolated sidebars without layout shift.
+

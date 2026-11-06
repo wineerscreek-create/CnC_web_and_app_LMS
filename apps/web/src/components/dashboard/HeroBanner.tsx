@@ -67,9 +67,8 @@ export function HeroBanner({
     <>
       <div
         className={cn(
-          'group relative overflow-hidden rounded-2xl border border-border shadow-card transition-all duration-300',
-          !hasImage &&
-            'bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white dark:from-slate-950 dark:via-slate-900 dark:to-slate-950',
+          'group relative overflow-hidden rounded-xl border border-border shadow-xs transition-all',
+          !hasImage && 'bg-card border-t-2 border-t-primary text-card-foreground',
           className,
         )}
       >
@@ -87,67 +86,72 @@ export function HeroBanner({
         )}
 
         {/* Smart Calibrated Overlay Layer */}
-        <div
-          aria-hidden="true"
-          className={cn(
-            'absolute inset-0 pointer-events-none transition-opacity duration-300',
-            hasImage
-              ? banner.overlayType === 'dark'
-                ? 'bg-gradient-to-r from-black/85 via-black/50 to-transparent'
-                : 'bg-gradient-to-r from-white/90 via-white/60 to-transparent'
-              : 'bg-gradient-to-r from-indigo-900/30 via-slate-900/20 to-transparent',
-          )}
-          style={hasImage ? { opacity: banner.overlayOpacity / 100 } : undefined}
-        />
-
-        {/* Ambient Glow Orb for default theme */}
-        {!hasImage && (
+        {hasImage && (
           <div
             aria-hidden="true"
-            className="absolute -right-16 -top-16 size-80 rounded-full bg-accent/20 blur-3xl pointer-events-none animate-pulse"
+            className={cn(
+              'absolute inset-0 pointer-events-none transition-opacity duration-300',
+              banner.overlayType === 'dark'
+                ? 'bg-gradient-to-r from-black/85 via-black/55 to-transparent'
+                : 'bg-gradient-to-r from-white/90 via-white/60 to-transparent',
+            )}
+            style={{ opacity: banner.overlayOpacity / 100 }}
           />
         )}
 
         {/* Content Container */}
-        <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 p-6 sm:p-8">
+        <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-5 p-5 sm:p-6">
           <div
             className={cn(
               'max-w-2xl transition-all',
               hasImage &&
                 banner.glassmorphism &&
                 (banner.overlayType === 'dark'
-                  ? 'p-5 rounded-2xl bg-black/40 backdrop-blur-md border border-white/10 shadow-lg'
-                  : 'p-5 rounded-2xl bg-white/45 backdrop-blur-md border border-black/10 shadow-lg'),
+                  ? 'p-4 rounded-xl bg-black/40 backdrop-blur-md border border-white/10'
+                  : 'p-4 rounded-xl bg-white/60 backdrop-blur-md border border-black/10'),
             )}
             style={{ color: hasImage ? banner.textColor : undefined }}
           >
-            <div className="flex items-center gap-2 mb-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold tracking-wider uppercase bg-accent/20 text-accent border border-accent/30">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase',
+                  hasImage && banner.textColor === '#FFFFFF'
+                    ? 'bg-white/15 text-white border border-white/20'
+                    : 'bg-primary/10 text-primary border border-primary/20',
+                )}
+              >
                 <Sparkles className="size-3" />
                 {roleSubtitle || userRole}
               </span>
             </div>
 
-            <h1 className="font-heading text-2xl sm:text-3xl font-extrabold tracking-tight text-inherit">
+            <h1 className="font-heading text-xl sm:text-2xl font-bold tracking-tight text-inherit">
               Welcome back, {userName}
             </h1>
 
-            <p className="mt-2 text-sm sm:text-base leading-relaxed opacity-90 max-w-xl">
+            <p
+              className={cn(
+                'mt-1 text-xs sm:text-sm leading-relaxed max-w-xl',
+                hasImage && banner.textColor === '#FFFFFF' ? 'text-white/80' : 'text-muted-foreground',
+              )}
+            >
               Track your readiness index, master core soft-skills competencies, and achieve your
               professional placement milestones.
             </p>
 
             {/* CTAs */}
             {(primaryAction || secondaryAction) && (
-              <div className="mt-5 flex flex-wrap items-center gap-3">
+              <div className="mt-4 flex flex-wrap items-center gap-2.5">
                 {primaryAction && (
                   <Button
                     asChild
                     variant="primary"
-                    className="shadow-md bg-gradient-to-r from-primary to-accent border-0 text-white font-semibold hover:brightness-110"
+                    size="sm"
+                    className="font-medium shadow-xs"
                   >
-                    <Link href={primaryAction.href} className="flex items-center gap-2">
-                      {primaryAction.icon || <Play className="size-4" />}
+                    <Link href={primaryAction.href} className="flex items-center gap-1.5">
+                      {primaryAction.icon || <Play className="size-3.5" />}
                       <span>{primaryAction.label}</span>
                     </Link>
                   </Button>
@@ -157,15 +161,16 @@ export function HeroBanner({
                   <Button
                     asChild
                     variant="secondary"
+                    size="sm"
                     className={cn(
-                      'font-semibold backdrop-blur-xs',
+                      'font-medium',
                       hasImage && banner.textColor === '#FFFFFF'
                         ? 'bg-white/15 hover:bg-white/25 text-white border-white/20'
-                        : 'bg-card/80 hover:bg-card text-foreground border-border',
+                        : 'bg-muted/60 hover:bg-muted text-foreground border-border',
                     )}
                   >
-                    <Link href={secondaryAction.href} className="flex items-center gap-2">
-                      {secondaryAction.icon || <Compass className="size-4" />}
+                    <Link href={secondaryAction.href} className="flex items-center gap-1.5">
+                      {secondaryAction.icon || <Compass className="size-3.5" />}
                       <span>{secondaryAction.label}</span>
                     </Link>
                   </Button>
@@ -174,25 +179,25 @@ export function HeroBanner({
             )}
           </div>
 
-          {/* Quick Stat Pill (Right Side) */}
-          <div className="flex items-center gap-4 self-stretch md:self-auto justify-between md:justify-end">
+          {/* Quick Stat Pill & Customization Trigger */}
+          <div className="flex items-center gap-3 self-stretch md:self-auto justify-between md:justify-end">
             {statLabel && (
               <div
                 className={cn(
-                  'rounded-2xl border p-4 text-center min-w-[130px] backdrop-blur-md shadow-sm',
+                  'rounded-lg border px-4 py-2.5 text-center min-w-[120px] shadow-xs',
                   hasImage && banner.glassmorphism
                     ? banner.overlayType === 'dark'
                       ? 'bg-black/40 border-white/15'
-                      : 'bg-white/45 border-black/10'
-                    : 'bg-card/75 border-border/60 text-foreground',
+                      : 'bg-white/50 border-black/10'
+                    : 'bg-muted/40 border-border text-foreground',
                 )}
                 style={{ color: hasImage ? banner.textColor : undefined }}
               >
-                <p className="text-[10px] font-bold uppercase tracking-wider opacity-80">
+                <p className="text-[10px] font-semibold uppercase tracking-wider opacity-70">
                   {statLabel}
                 </p>
-                <p className="mt-0.5 text-2xl font-extrabold tracking-tight">{statValue}</p>
-                {statSubtext && <p className="text-[10px] opacity-75 mt-0.5">{statSubtext}</p>}
+                <p className="mt-0.5 text-xl font-bold tracking-tight">{statValue}</p>
+                {statSubtext && <p className="text-[9px] opacity-70 mt-0.5">{statSubtext}</p>}
               </div>
             )}
 
@@ -203,14 +208,14 @@ export function HeroBanner({
               aria-label="Customize dashboard banner"
               title="Customize dashboard banner image, text color, and overlay"
               className={cn(
-                'flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 border shadow-xs',
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border shadow-xs',
                 hasImage && banner.textColor === '#FFFFFF'
                   ? 'bg-black/40 text-white border-white/20 hover:bg-black/60'
-                  : 'bg-card text-foreground border-border hover:bg-muted hover:border-primary/40',
+                  : 'bg-card text-foreground border-border hover:bg-muted',
               )}
             >
-              <Camera className="size-3.5 text-accent" />
-              <span className="hidden sm:inline">Customize Banner</span>
+              <Camera className="size-3.5 text-muted-foreground" />
+              <span className="hidden sm:inline">Customize</span>
             </button>
           </div>
         </div>

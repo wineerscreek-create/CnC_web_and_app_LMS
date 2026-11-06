@@ -122,3 +122,4 @@ Test Script: `apps/api/test_banner_lifecycle.py`
 - IDOR isolation: PASS (User B cannot see or overwrite User A's banner)
 - PostgreSQL persistence: PASS (Validated against table `user_banners`)
 - Deletion & default reset: PASS (Record deleted from DB)
+

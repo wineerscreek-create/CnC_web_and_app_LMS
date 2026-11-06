@@ -11,9 +11,9 @@ export const Card = React.forwardRef<HTMLDivElement, CardProps>(
     <div
       ref={ref}
       className={cn(
-        'rounded-2xl border border-border bg-card text-card-foreground shadow-xs transition-all duration-200',
-        elevated && 'shadow-md border-border',
-        interactive && 'cursor-pointer hover:-translate-y-0.5 hover:shadow-card-hover hover:border-accent/40 active:translate-y-0',
+        'rounded-xl border border-border bg-card text-card-foreground shadow-xs transition-colors duration-150',
+        elevated && 'shadow-sm border-border',
+        interactive && 'cursor-pointer hover:border-primary/40 hover:bg-muted/30',
         className,
       )}
       {...props}
@@ -25,7 +25,7 @@ Card.displayName = 'Card';
 export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('flex items-start justify-between gap-4 px-6 pt-6 pb-3', className)}
+      className={cn('flex items-start justify-between gap-4 px-5 pt-5 pb-2.5', className)}
       {...props}
     />
   );
@@ -35,7 +35,7 @@ export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLPara
   return (
     <p
       className={cn(
-        'font-heading text-[16px] sm:text-[17px] font-bold tracking-tight text-heading leading-snug',
+        'font-heading text-[15px] sm:text-[16px] font-semibold tracking-tight text-foreground leading-snug',
         className,
       )}
       {...props}
@@ -53,13 +53,13 @@ export function CardSubtitle({ className, ...props }: React.HTMLAttributes<HTMLP
 }
 
 export function CardBody({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('px-6 pb-6 pt-2', className)} {...props} />;
+  return <div className={cn('px-5 pb-5 pt-2', className)} {...props} />;
 }
 
 export function CardFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('flex items-center gap-3 border-t border-border px-6 py-4', className)}
+      className={cn('flex items-center gap-3 border-t border-border px-5 py-3', className)}
       {...props}
     />
   );

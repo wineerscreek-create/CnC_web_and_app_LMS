@@ -18,6 +18,7 @@ from app.authz.guards import get_scope_context
 from app.core.config import settings
 from app.core.errors import ValidationError
 from app.db.postgres import get_pg_connection
+from app.services.storage import Keys, get_storage
 
 router = APIRouter(prefix="/user/banner", tags=["User Banner"])
 
@@ -145,17 +146,20 @@ async def upload_user_banner(
 
     ext = _validate_image_bytes(content, filename, content_type)
 
-    user_folder = os.path.join(BANNER_UPLOAD_DIR, str(user_uuid))
-    os.makedirs(user_folder, exist_ok=True)
-
     unique_filename = f"{uuid.uuid4().hex[:12]}{ext}"
-    file_path = os.path.join(user_folder, unique_filename)
 
-    with open(file_path, "wb") as f:
-        f.write(content)
-
-    # Relative static path served by API static mount
-    banner_url = f"/static/banners/{user_uuid}/{unique_filename}"
+    if settings.STORAGE_DRIVER == "s3":
+        storage = get_storage()
+        key = Keys.user_banner(str(user_uuid), unique_filename)
+        await storage.put(key, content, content_type)
+        banner_url = await storage.signed_download_url(key, ttl=86400 * 7)
+    else:
+        user_folder = os.path.join(BANNER_UPLOAD_DIR, str(user_uuid))
+        os.makedirs(user_folder, exist_ok=True)
+        file_path = os.path.join(user_folder, unique_filename)
+        with open(file_path, "wb") as f:
+            f.write(content)
+        banner_url = f"/static/banners/{user_uuid}/{unique_filename}"
 
     async with get_pg_connection() as conn:
         row = await conn.fetchrow(

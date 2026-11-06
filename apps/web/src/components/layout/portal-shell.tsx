@@ -42,12 +42,12 @@ export function PortalShell({
         <Sidebar user={user} open={sidebarOpen} onClose={() => dispatch(toggleSidebar(false))} />
 
         <div className="flex min-w-0 flex-1 flex-col h-full overflow-hidden">
-          <header className="shrink-0 z-20 flex items-center gap-3 border-b border-border bg-card/90 px-4 py-3 backdrop-blur-md sm:px-6 sm:py-3.5">
+          <header className="shrink-0 z-20 flex h-14 items-center gap-3 border-b border-border bg-card/95 px-4 backdrop-blur-md sm:px-6">
             <button
               type="button"
               onClick={() => dispatch(toggleSidebar(true))}
               aria-label="Open navigation"
-              className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-foreground transition-all hover:bg-muted active:scale-95 lg:hidden"
+              className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-foreground transition-colors hover:bg-muted lg:hidden"
             >
               <Menu className="size-4" aria-hidden />
             </button>
@@ -61,34 +61,39 @@ export function PortalShell({
 
             <form
               role="search"
-              className="relative hidden min-w-0 flex-1 sm:block sm:max-w-[400px]"
+              className="relative hidden min-w-0 flex-1 sm:block sm:max-w-[360px]"
               onSubmit={(event) => event.preventDefault()}
             >
               <label htmlFor="global-search" className="sr-only">
                 {searchPlaceholder}
               </label>
               <Search
-                className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
                 aria-hidden
               />
               <Input
                 id="global-search"
                 type="search"
                 placeholder={searchPlaceholder}
-                className="rounded-xl bg-card border-border text-foreground placeholder:text-muted-foreground pl-10 h-9.5 text-xs transition-all duration-200 focus:border-ring focus:ring-1 focus:ring-ring"
+                className="rounded-lg bg-muted/40 border-border/80 text-foreground placeholder:text-muted-foreground/70 pl-9 pr-12 h-8.5 text-xs transition-colors focus:bg-card focus:border-primary focus:ring-1 focus:ring-primary"
               />
+              <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center">
+                <kbd className="hidden sm:inline-flex select-none items-center rounded border border-border bg-muted/80 px-1.5 py-0.5 font-mono text-[9px] font-medium text-muted-foreground">
+                  ⌘K
+                </kbd>
+              </div>
             </form>
 
-            <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
+            <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
               {headerSlot}
               <ThemeToggle />
               <NotificationMenu />
               <Link
                 href="/contact"
                 aria-label="Help & Support"
-                className="hidden size-9 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition-all hover:bg-muted hover:text-foreground active:scale-95 sm:flex"
+                className="hidden size-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:flex"
               >
-                <HelpCircle className="size-4" aria-hidden />
+                <HelpCircle className="size-3.5" aria-hidden />
               </Link>
               <ProfileMenu user={user} />
             </div>
