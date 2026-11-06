@@ -19,7 +19,7 @@ from app.authz.context import ScopeContext
 from app.authz.guards import require_role
 from app.authz.roles import Role
 from app.core.config import settings
-from app.core.errors import BusinessRuleViolation, Conflict, NotFound, ValidationError
+from app.core.errors import BusinessRuleViolation, Conflict, NotFound, ValidationError, ScopeForbidden
 from app.db.mongo import as_utc, get_db, serialize
 from app.repositories.base import _clean_doc
 from app.repositories.collections import (
@@ -3483,14 +3483,22 @@ async def enroll_course(course_id: str, ctx: ScopeContext = StudentCtx) -> dict[
             if not cid:
                 raise NotFound("Course not found")
 
-            # 1. Verify course exists and is published
-            course = await conn.fetchrow("SELECT * FROM courses WHERE id = $1 AND deleted_at IS NULL", cid)
+            # 1. Verify course exists, is published, and enrollment is open
+            course = await conn.fetchrow("""
+                SELECT id, title, slug, published, status, enrollment_open,
+                       visibility_mode, target_institution_ids, target_campus_ids, target_branch_ids,
+                       allowed_enrollment_methods
+                FROM courses
+                WHERE id = $1 AND deleted_at IS NULL
+            """, cid)
             if not course:
                 raise NotFound("Course not found")
-            if not course["published"]:
+            if not course["published"] or course["status"] != "PUBLISHED":
                 raise BusinessRuleViolation("Course is not currently published for enrollment")
+            if course.get("enrollment_open") is False:
+                raise BusinessRuleViolation("Enrollment is currently closed for this course")
 
-            # 2. Check duplicate enrollment
+            # 2. Check duplicate active enrollment
             existing = await conn.fetchrow("""
                 SELECT id, enrollment_status, access_status 
                 FROM enrollments 
@@ -3499,20 +3507,63 @@ async def enroll_course(course_id: str, ctx: ScopeContext = StudentCtx) -> dict[
             if existing:
                 raise Conflict("You are already enrolled in this course")
 
-            # 3. Retrieve student's profile details
+            # 3. Retrieve student's profile details & institutional affiliation
             profile = await conn.fetchrow("""
-                SELECT u.institution_id, u.department_id, sp.batch_id, sp.current_semester
+                SELECT u.institution_id, u.department_id, u.campus, u.affiliation_status,
+                       sp.batch_id, sp.current_semester,
+                       inst.institution_category
                 FROM users u
                 LEFT JOIN student_profiles sp ON sp.user_id = u.id
+                LEFT JOIN institutions inst ON inst.id = u.institution_id
                 WHERE u.id = $1
             """, student_uid)
 
             inst_id = profile["institution_id"] if profile else None
             dept_id = profile["department_id"] if profile else None
+            campus = profile.get("campus") if profile else None
             batch_id = profile["batch_id"] if profile else None
             semester = (profile["current_semester"] if profile and profile.get("current_semester") else 1) or 1
+            inst_cat = str(profile.get("institution_category") or "").upper() if profile else ""
+            aff_status = str(profile.get("affiliation_status") or "ACTIVE").upper() if profile else "ACTIVE"
 
-            # 4. Insert enrollment
+            # 4. Enforce enrollment method: Must permit 'SELF' for participant self-enrollment
+            allowed_methods = course.get("allowed_enrollment_methods") or ["SELF", "ADMIN", "SPOC", "SUPER_ADMIN"]
+            if "SELF" not in allowed_methods:
+                raise ScopeForbidden("Self-enrollment is not enabled for this course. Please contact your institution administrator or SPOC.")
+
+            # 5. Enforce tenant affiliation standing
+            if aff_status == "ACTION_REQUIRED" and course.get("visibility_mode") != "EVERYONE":
+                raise ScopeForbidden("Your institutional affiliation is pending update. Please update your profile with your current institution before enrolling in restricted courses.")
+
+            # 6. Enforce server-side course visibility & tenant isolation
+            vis_mode = str(course.get("visibility_mode") or "EVERYONE").upper()
+            if vis_mode == "EVERYONE":
+                pass  # Open to all participants
+            elif vis_mode in ("COLLEGE", "ALL_COLLEGES"):
+                if inst_cat not in ("COLLEGE", "UNIVERSITY", "HIGHER_ED"):
+                    raise ScopeForbidden("This course is restricted to college and university participants.")
+            elif vis_mode == "SCHOOL":
+                if inst_cat not in ("SCHOOL", "K12"):
+                    raise ScopeForbidden("This course is restricted to school participants.")
+            elif vis_mode == "CORPORATE":
+                if inst_cat not in ("COMPANY", "CORPORATE", "ENTERPRISE"):
+                    raise ScopeForbidden("This course is restricted to corporate training participants.")
+            elif vis_mode in ("SELECTED_INSTITUTIONS", "SELECTED_COLLEGES"):
+                targets = [str(i) for i in (course.get("target_institution_ids") or [])]
+                if not inst_id or str(inst_id) not in targets:
+                    raise ScopeForbidden("This course is only available to participants affiliated with participating partner institutions.")
+            elif vis_mode == "SELECTED_CAMPUSES":
+                targets = [str(cp).strip().lower() for cp in (course.get("target_campus_ids") or [])]
+                if not campus or str(campus).strip().lower() not in targets:
+                    raise ScopeForbidden("This course is restricted to participants at designated campuses.")
+            elif vis_mode == "SELECTED_BRANCHES":
+                targets = [str(b) for b in (course.get("target_branch_ids") or [])]
+                if not dept_id or str(dept_id) not in targets:
+                    raise ScopeForbidden("This course is restricted to participants in selected academic departments/branches.")
+            elif vis_mode in ("INVITE_ONLY", "INTERNAL_ONLY"):
+                raise ScopeForbidden("This course is private / invite-only and cannot be self-enrolled.")
+
+            # 7. Insert verified enrollment record
             enrollment_id = uuid.uuid4()
             await conn.execute("""
                 INSERT INTO enrollments (

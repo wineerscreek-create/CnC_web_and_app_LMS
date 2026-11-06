@@ -159,12 +159,51 @@ async def stats() -> dict[str, Any]:
 
 @router.get("/courses")
 async def courses(
+    request: Request,
     search: str | None = Query(None, max_length=120),
     category: str | None = Query(None, max_length=60),
     limit: int = Query(12, ge=1, le=50),
 ) -> dict[str, Any]:
+    ctx = await optional_context(request)
+    caller_role = ctx.role.value if (ctx and ctx.role) else None
+    caller_user_id = ctx.user_id if ctx else None
+    caller_inst_id = ctx.college_id if ctx else None
+    caller_dept_id = ctx.department_id if ctx else None
+    is_platform_wide = bool(ctx and ctx.is_platform_wide)
+    caller_inst_cat = None
+    caller_campus = None
+
     if settings.USE_POSTGRES:
-        pg_courses = await CourseRepository.list_courses(search=search, category=category, limit=limit)
+        from app.db.postgres import get_pg_connection
+        from uuid import UUID
+        async with get_pg_connection() as conn:
+            if caller_inst_id:
+                try:
+                    i_row = await conn.fetchrow("SELECT institution_category FROM institutions WHERE id = $1::uuid", UUID(str(caller_inst_id)))
+                    if i_row:
+                        caller_inst_cat = i_row.get("institution_category")
+                except Exception:
+                    pass
+            if caller_user_id:
+                try:
+                    u_row = await conn.fetchrow("SELECT campus FROM users WHERE id = $1::uuid", UUID(str(caller_user_id)))
+                    if u_row:
+                        caller_campus = u_row.get("campus")
+                except Exception:
+                    pass
+
+        pg_courses = await CourseRepository.list_courses(
+            search=search,
+            category=category,
+            limit=limit,
+            caller_role=caller_role,
+            caller_institution_id=caller_inst_id,
+            caller_institution_category=caller_inst_cat,
+            caller_campus=caller_campus,
+            caller_department_id=caller_dept_id,
+            caller_user_id=caller_user_id,
+            is_platform_wide=is_platform_wide,
+        )
         categories = await CourseRepository.get_categories()
         serialized = []
         for c in pg_courses:
@@ -216,11 +255,59 @@ async def courses(
 
 
 @router.get("/courses/{slug}")
-async def course_detail(slug: str) -> dict[str, Any]:
+async def course_detail(slug: str, request: Request) -> dict[str, Any]:
+    ctx = await optional_context(request)
+    caller_role = ctx.role.value if (ctx and ctx.role) else None
+    caller_user_id = ctx.user_id if ctx else None
+    caller_inst_id = ctx.college_id if ctx else None
+    caller_dept_id = ctx.department_id if ctx else None
+    is_platform_wide = bool(ctx and ctx.is_platform_wide)
+    caller_inst_cat = None
+    caller_campus = None
+
     if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        from uuid import UUID
         course = await CourseRepository.get_by_slug(slug)
         if not course:
             raise NotFound("We couldn't find that course")
+
+        is_enrolled = False
+        async with get_pg_connection() as conn:
+            if caller_inst_id:
+                try:
+                    i_row = await conn.fetchrow("SELECT institution_category FROM institutions WHERE id = $1::uuid", UUID(str(caller_inst_id)))
+                    if i_row:
+                        caller_inst_cat = i_row.get("institution_category")
+                except Exception:
+                    pass
+            if caller_user_id:
+                try:
+                    u_row = await conn.fetchrow("SELECT campus FROM users WHERE id = $1::uuid", UUID(str(caller_user_id)))
+                    if u_row:
+                        caller_campus = u_row.get("campus")
+                    enr = await conn.fetchrow(
+                        "SELECT id FROM enrollments WHERE participant_user_id = $1::uuid AND course_id = $2::uuid AND enrollment_status = 'ACTIVE'",
+                        UUID(str(caller_user_id)), course["id"]
+                    )
+                    is_enrolled = bool(enr)
+                except Exception:
+                    pass
+
+        # Server-side visibility determination
+        accessible = CourseRepository.is_course_accessible(
+            course,
+            caller_role=caller_role,
+            caller_institution_id=caller_inst_id,
+            caller_institution_category=caller_inst_cat,
+            caller_campus=caller_campus,
+            caller_department_id=caller_dept_id,
+            is_platform_wide=is_platform_wide,
+            is_enrolled=is_enrolled,
+        )
+        if not accessible:
+            raise NotFound("We couldn't find that course")
+
         modules = await CourseRepository.get_modules_with_lessons(course["id"])
         mode = str(course.get("delivery_mode") or "HYBRID").upper()
         course_mode = "BOTH" if mode == "HYBRID" else mode

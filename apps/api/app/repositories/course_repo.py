@@ -1,12 +1,84 @@
-"""Course, Module, and Lesson PostgreSQL repository."""
+"""Course, Module, and Lesson PostgreSQL repository with Tenant Scoping & Visibility Safeguards."""
 from __future__ import annotations
 
+import json
 from typing import Any
 from uuid import UUID
 from app.db.postgres import get_pg_connection
 
 
 class CourseRepository:
+    @staticmethod
+    def is_course_accessible(
+        course: dict[str, Any],
+        *,
+        caller_role: str | None = None,
+        caller_institution_id: UUID | str | None = None,
+        caller_institution_category: str | None = None,
+        caller_campus: str | None = None,
+        caller_department_id: UUID | str | None = None,
+        is_platform_wide: bool = False,
+        is_enrolled: bool = False,
+    ) -> bool:
+        """Determines whether a course is visible/accessible to a given caller."""
+        # Platform-wide administrators can access any course
+        if is_platform_wide or str(caller_role).upper() in ("SUPER_ADMIN", "PLATFORM_OWNER"):
+            return True
+
+        # Deleted courses are never accessible
+        if course.get("deleted_at") is not None:
+            return False
+
+        # Existing enrolled participants can always access their course
+        if is_enrolled:
+            return True
+
+        vis = str(course.get("visibility_mode") or "EVERYONE").upper()
+
+        # Public open courses
+        if vis == "EVERYONE":
+            return True
+
+        # If course is restricted and caller is unauthenticated
+        if not caller_role:
+            return False
+
+        # Institutional category-wide visibility
+        inst_cat = str(caller_institution_category or "").upper()
+        if vis in ("COLLEGE", "ALL_COLLEGES") and inst_cat in ("COLLEGE", "UNIVERSITY", "HIGHER_ED"):
+            return True
+        if vis == "SCHOOL" and inst_cat in ("SCHOOL", "K12"):
+            return True
+        if vis == "CORPORATE" and inst_cat in ("COMPANY", "CORPORATE", "ENTERPRISE"):
+            return True
+
+        # Specific institution / tenant scoping
+        if vis in ("SELECTED_INSTITUTIONS", "SELECTED_COLLEGES"):
+            if not caller_institution_id:
+                return False
+            targets = [str(i) for i in (course.get("target_institution_ids") or [])]
+            return str(caller_institution_id) in targets
+
+        # Specific campus scoping
+        if vis == "SELECTED_CAMPUSES":
+            if not caller_campus:
+                return False
+            targets = [str(cp).strip().lower() for cp in (course.get("target_campus_ids") or [])]
+            return str(caller_campus).strip().lower() in targets
+
+        # Specific department / branch scoping
+        if vis == "SELECTED_BRANCHES":
+            if not caller_department_id:
+                return False
+            targets = [str(b) for b in (course.get("target_branch_ids") or [])]
+            return str(caller_department_id) in targets
+
+        # Invite-only courses are restricted to pre-enrolled participants
+        if vis in ("INVITE_ONLY", "INTERNAL_ONLY"):
+            return is_enrolled
+
+        return False
+
     @staticmethod
     async def list_courses(
         search: str | None = None,
@@ -16,24 +88,71 @@ class CourseRepository:
         published_only: bool = True,
         limit: int = 50,
         offset: int = 0,
+        caller_role: str | None = None,
+        caller_institution_id: UUID | str | None = None,
+        caller_institution_category: str | None = None,
+        caller_campus: str | None = None,
+        caller_department_id: UUID | str | None = None,
+        caller_user_id: UUID | str | None = None,
+        is_platform_wide: bool = False,
     ) -> list[dict[str, Any]]:
         conditions = ["deleted_at IS NULL"]
         params: list[Any] = []
 
         if published_only:
             conditions.append("published = TRUE")
+            conditions.append("status = 'PUBLISHED'")
+
         if category and category.lower() != "all":
             params.append(category)
             conditions.append(f"category = ${len(params)}")
+
         if training_type:
             params.append(training_type)
             conditions.append(f"training_type = ${len(params)}")
+
         if delivery_mode:
             params.append(delivery_mode)
             conditions.append(f"delivery_mode = ${len(params)}")
+
         if search:
             params.append(f"%{search.strip()}%")
             conditions.append(f"(title ILIKE ${len(params)} OR description ILIKE ${len(params)})")
+
+        # Server-side visibility enforcement
+        if not is_platform_wide and str(caller_role).upper() != "SUPER_ADMIN":
+            if not caller_role:
+                # Public unauthenticated visitors ONLY see courses intended for EVERYONE
+                conditions.append("visibility_mode = 'EVERYONE'")
+            else:
+                # Authenticated users see EVERYONE + their tenant scoped courses
+                vis_clauses = ["visibility_mode = 'EVERYONE'"]
+
+                inst_cat = str(caller_institution_category or "").upper()
+                if inst_cat in ("COLLEGE", "UNIVERSITY", "HIGHER_ED"):
+                    vis_clauses.append("visibility_mode IN ('COLLEGE', 'ALL_COLLEGES')")
+                elif inst_cat in ("SCHOOL", "K12"):
+                    vis_clauses.append("visibility_mode = 'SCHOOL'")
+                elif inst_cat in ("COMPANY", "CORPORATE", "ENTERPRISE"):
+                    vis_clauses.append("visibility_mode = 'CORPORATE'")
+
+                if caller_institution_id:
+                    params.append(UUID(str(caller_institution_id)))
+                    vis_clauses.append(f"(visibility_mode IN ('SELECTED_INSTITUTIONS', 'SELECTED_COLLEGES') AND ${len(params)} = ANY(target_institution_ids))")
+
+                if caller_campus:
+                    params.append(str(caller_campus).strip())
+                    vis_clauses.append(f"(visibility_mode = 'SELECTED_CAMPUSES' AND ${len(params)} = ANY(target_campus_ids))")
+
+                if caller_department_id:
+                    params.append(UUID(str(caller_department_id)))
+                    vis_clauses.append(f"(visibility_mode = 'SELECTED_BRANCHES' AND ${len(params)} = ANY(target_branch_ids))")
+
+                if caller_user_id:
+                    params.append(UUID(str(caller_user_id)))
+                    vis_clauses.append(f"(visibility_mode IN ('INVITE_ONLY', 'INTERNAL_ONLY') AND id IN (SELECT course_id FROM enrollments WHERE participant_user_id = ${len(params)} AND enrollment_status = 'ACTIVE'))")
+
+                conditions.append(f"({' OR '.join(vis_clauses)})")
 
         params.append(limit)
         limit_clause = f"LIMIT ${len(params)}"
@@ -44,7 +163,9 @@ class CourseRepository:
             SELECT id, title, slug, code, description, category, training_type, delivery_mode,
                    duration_hours, fee, published, order_index, created_at,
                    trial_duration_days, trial_enabled, payment_methods, upi_id, merchant_name,
-                   qr_code_url, payment_instructions, refund_policy, enrollment_open, status
+                   qr_code_url, payment_instructions, refund_policy, enrollment_open, status,
+                   visibility_mode, target_institution_ids, target_campus_ids, target_branch_ids,
+                   portal_distribution, allowed_enrollment_methods
             FROM courses
             WHERE {' AND '.join(conditions)}
             ORDER BY order_index ASC, created_at DESC
@@ -62,7 +183,9 @@ class CourseRepository:
                 SELECT id, title, slug, code, description, category, training_type, delivery_mode,
                        duration_hours, fee, published, order_index, created_at,
                        trial_duration_days, trial_enabled, payment_methods, upi_id, merchant_name,
-                       qr_code_url, payment_instructions, refund_policy, enrollment_open, status
+                       qr_code_url, payment_instructions, refund_policy, enrollment_open, status,
+                       visibility_mode, target_institution_ids, target_campus_ids, target_branch_ids,
+                       portal_distribution, allowed_enrollment_methods
                 FROM courses
                 WHERE id = $1 AND deleted_at IS NULL
                 """,
@@ -78,7 +201,9 @@ class CourseRepository:
                 SELECT id, title, slug, code, description, category, training_type, delivery_mode,
                        duration_hours, fee, published, order_index, created_at,
                        trial_duration_days, trial_enabled, payment_methods, upi_id, merchant_name,
-                       qr_code_url, payment_instructions, refund_policy, enrollment_open, status
+                       qr_code_url, payment_instructions, refund_policy, enrollment_open, status,
+                       visibility_mode, target_institution_ids, target_campus_ids, target_branch_ids,
+                       portal_distribution, allowed_enrollment_methods
                 FROM courses
                 WHERE LOWER(slug) = LOWER($1) AND deleted_at IS NULL
                 """,
@@ -90,7 +215,7 @@ class CourseRepository:
     async def count_courses(published_only: bool = True) -> int:
         cond = "WHERE deleted_at IS NULL"
         if published_only:
-            cond += " AND published = TRUE"
+            cond += " AND published = TRUE AND status = 'PUBLISHED'"
         query = f"SELECT COUNT(*) FROM courses {cond}"
         async with get_pg_connection() as conn:
             return await conn.fetchval(query) or 0
@@ -99,7 +224,7 @@ class CourseRepository:
     async def get_categories() -> list[str]:
         async with get_pg_connection() as conn:
             rows = await conn.fetch(
-                "SELECT DISTINCT category FROM courses WHERE deleted_at IS NULL AND published = TRUE ORDER BY category ASC"
+                "SELECT DISTINCT category FROM courses WHERE deleted_at IS NULL AND published = TRUE AND status = 'PUBLISHED' ORDER BY category ASC"
             )
             return [r["category"] for r in rows if r["category"]]
 
@@ -159,56 +284,11 @@ class CourseRepository:
             if not set_clauses:
                 return await CourseRepository.get_by_id(cid)
 
-            set_clauses.append("updated_at = NOW()")
             query = f"""
                 UPDATE courses
-                SET {', '.join(set_clauses)}
+                SET {', '.join(set_clauses)}, updated_at = NOW()
                 WHERE id = $1 AND deleted_at IS NULL
-                RETURNING *;
+                RETURNING id
             """
-            row = await conn.fetchrow(query, *params)
-            return dict(row) if row else None
-
-    @staticmethod
-    async def get_course_trainers(course_id: UUID | str) -> list[dict[str, Any]]:
-        async with get_pg_connection() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT ct.id, ct.course_id, ct.trainer_user_id, ct.assigned_at,
-                       u.name as trainer_name, u.email as trainer_email,
-                       tp.title as trainer_title, tp.rating as trainer_rating
-                FROM course_trainers ct
-                JOIN users u ON u.id = ct.trainer_user_id
-                LEFT JOIN trainer_profiles tp ON tp.user_id = u.id
-                WHERE ct.course_id = $1
-                ORDER BY ct.assigned_at ASC
-                """,
-                UUID(str(course_id)),
-            )
-            return [dict(r) for r in rows]
-
-    @staticmethod
-    async def assign_course_trainer(course_id: UUID | str, trainer_user_id: UUID | str) -> dict[str, Any]:
-        async with get_pg_connection() as conn:
-            row = await conn.fetchrow(
-                """
-                INSERT INTO course_trainers (course_id, trainer_user_id)
-                VALUES ($1, $2)
-                ON CONFLICT (course_id, trainer_user_id) DO UPDATE SET assigned_at = NOW()
-                RETURNING id, course_id, trainer_user_id, assigned_at;
-                """,
-                UUID(str(course_id)),
-                UUID(str(trainer_user_id)),
-            )
-            return dict(row)
-
-    @staticmethod
-    async def remove_course_trainer(course_id: UUID | str, trainer_user_id: UUID | str) -> bool:
-        async with get_pg_connection() as conn:
-            res = await conn.execute(
-                "DELETE FROM course_trainers WHERE course_id = $1 AND trainer_user_id = $2",
-                UUID(str(course_id)),
-                UUID(str(trainer_user_id)),
-            )
-            return "DELETE 1" in res
-
+            await conn.execute(query, *params)
+            return await CourseRepository.get_by_id(cid)

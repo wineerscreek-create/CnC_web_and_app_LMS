@@ -163,11 +163,16 @@ def create_app() -> FastAPI:
 
     @app.get(f"{prefix}/courses", tags=["courses"])
     async def get_courses_alias(
+        request: Request,
         search: str | None = None,
         category: str | None = None,
         limit: int = 12,
     ):
-        return await home.courses(search=search, category=category, limit=limit)
+        return await home.courses(request, search=search, category=category, limit=limit)
+
+    @app.get(f"{prefix}/courses/{{slug}}", tags=["courses"])
+    async def get_course_detail_alias(slug: str, request: Request):
+        return await home.course_detail(slug, request)
 
     app.include_router(student.router, prefix=f"{prefix}/student", tags=["student"])
     app.include_router(trainer.router, prefix=f"{prefix}/trainer", tags=["trainer"])

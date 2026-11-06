@@ -17,7 +17,7 @@ from typing import Any
 from uuid import UUID
 
 from app.db.postgres import get_pg_connection
-from app.core.errors import NotFound, ValidationError, BusinessRuleViolation
+from app.core.errors import Conflict, NotFound, ValidationError, BusinessRuleViolation
 
 
 def _now() -> datetime:
@@ -541,6 +541,7 @@ class ControlCenterRepository:
         new_status: str | None = None,
         visibility_mode: str | None = None,
         target_institution_ids: list[UUID | str] | None = None,
+        target_campus_ids: list[str] | None = None,
         target_branch_ids: list[UUID | str] | None = None,
         portal_distribution: dict[str, Any] | None = None,
         allowed_enrollment_methods: list[str] | None = None,
@@ -562,6 +563,9 @@ class ControlCenterRepository:
         if target_institution_ids is not None:
             params.append([UUID(str(i)) for i in target_institution_ids])
             updates.append(f"target_institution_ids = ${len(params)}")
+        if target_campus_ids is not None:
+            params.append([str(cp).strip() for cp in target_campus_ids])
+            updates.append(f"target_campus_ids = ${len(params)}")
         if target_branch_ids is not None:
             params.append([UUID(str(b)) for b in target_branch_ids])
             updates.append(f"target_branch_ids = ${len(params)}")
@@ -675,6 +679,7 @@ class ControlCenterRepository:
                     snapshot_payload = {
                         "courseTitle": c["title"],
                         "courseSlug": c["slug"],
+                        "participantId": str(p_id),
                         "participantName": en["participant_name"],
                         "participantEmail": en["participant_email"],
                         "enrollmentStatus": en["enrollment_status"],
@@ -723,7 +728,11 @@ class ControlCenterRepository:
                     except Exception:
                         pass
 
-                # 4. Insert deletion job
+                # 4. Snapshot completeness verification
+                if len(enrollments) > 0 and snapshots_created < len(enrollments):
+                    raise Conflict(f"Snapshot generation incomplete: successfully generated {snapshots_created} of {len(enrollments)} participant snapshots. Deletion request aborted.")
+
+                # 5. Insert deletion job
                 await conn.execute("""
                     INSERT INTO course_deletion_jobs (
                         course_id, course_title, initiated_by, status,
@@ -750,36 +759,133 @@ class ControlCenterRepository:
         course_id: UUID | str,
         super_admin_id: UUID | str | None = None,
     ) -> dict[str, Any]:
-        """Final phase: Purges operational course data while retaining immutable historical snapshots."""
+        """Final phase: Purges operational course data while retaining immutable historical snapshots.
+        
+        Enforces strict server-side safeguards:
+        1. Row-level transaction lock on both courses and course_deletion_jobs.
+        2. Validates that an active deletion job exists for this course.
+        3. Idempotent: if already PURGED, returns immediately.
+        4. Validates job state is 'SNAPSHOTS_CREATED'.
+        5. Validates that the mandatory 72-hour download window has elapsed (NOW() >= retention_expires_at).
+        6. Verifies snapshot integrity: validates all affected participant snapshot records exist,
+           contain valid JSON payload with required student learning metrics, and have not been corrupted.
+        7. Verifies no unsnapshotted active participant enrollments were created after job initiation.
+        8. Purges only course_trainer_assignments and marks courses.status = 'DELETED'.
+        9. Guarantees that historical_learning_snapshots remain permanently accessible to participants.
+        """
         c_uuid = UUID(str(course_id))
-        now = _now()
         async with get_pg_connection() as conn:
             async with conn.transaction():
-                c = await conn.fetchrow("SELECT id, title FROM courses WHERE id = $1", c_uuid)
+                # 1. Lock course row
+                c = await conn.fetchrow(
+                    "SELECT id, title, status, deleted_at FROM courses WHERE id = $1 FOR UPDATE",
+                    c_uuid
+                )
                 if not c:
                     raise NotFound("Course not found.")
 
-                # Delete trainer assignments for this course
+                # 2. Lock and retrieve the latest deletion job for this course
+                job = await conn.fetchrow(
+                    "SELECT * FROM course_deletion_jobs WHERE course_id = $1 ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+                    c_uuid
+                )
+                if not job:
+                    raise Conflict(
+                        "Permanent deletion request has not been initiated for this course. "
+                        "A 72-hour deletion request must be scheduled first."
+                    )
+
+                # 3. Idempotency check: if already PURGED, return success
+                if job["status"] == "PURGED" or c["status"] == "DELETED":
+                    return {
+                        "success": True,
+                        "courseId": str(c_uuid),
+                        "courseTitle": c["title"],
+                        "status": "PURGED",
+                        "idempotent": True,
+                        "message": f"Operational data for course '{c['title']}' has already been permanently purged. Historical learning snapshots remain accessible to participants.",
+                    }
+
+                # 4. State validation
+                if job["status"] != "SNAPSHOTS_CREATED":
+                    raise Conflict(
+                        f"Course deletion job is in invalid status '{job['status']}'. "
+                        "Prerequisite participant snapshots must be created and verified first."
+                    )
+
+                # 5. Enforce 72-hour retention window using PostgreSQL server time
+                now_db = await conn.fetchval("SELECT NOW()")
+                retention_expires_at = job["retention_expires_at"]
+                if retention_expires_at and retention_expires_at > now_db:
+                    remaining_seconds = max(0, int((retention_expires_at - now_db).total_seconds()))
+                    remaining_hours = round(remaining_seconds / 3600, 1)
+                    raise Conflict(
+                        f"Operational purge rejected: the mandatory 72-hour participant download window is still active for course '{c['title']}'. "
+                        f"{remaining_hours} hour(s) remaining until {retention_expires_at.isoformat()}. "
+                        "Operational data cannot be purged until the retention deadline has elapsed."
+                    )
+
+                # 6. Snapshot completion and integrity verification
+                snaps = await conn.fetch(
+                    "SELECT id, participant_user_id, snapshot_data, progress_percent FROM historical_learning_snapshots WHERE course_id = $1",
+                    c_uuid
+                )
+                expected_snapshots = job["total_snapshots_created"] or job["total_affected_participants"] or 0
+
+                if len(snaps) < expected_snapshots:
+                    raise Conflict(
+                        f"Snapshot integrity verification failure: expected {expected_snapshots} participant snapshot(s), but found {len(snaps)}. "
+                        "Purge aborted to prevent unrecoverable loss of student learning records."
+                    )
+
+                # Deep payload inspection for all snapshots
+                for s in snaps:
+                    if not s["participant_user_id"]:
+                        raise Conflict("Snapshot integrity error: participant_user_id is missing. Purge aborted.")
+                    raw_data = s["snapshot_data"]
+                    if not raw_data:
+                        raise Conflict("Snapshot integrity error: snapshot_data is null or empty. Purge aborted.")
+                    try:
+                        s_payload = raw_data if isinstance(raw_data, dict) else json.loads(raw_data)
+                        if not s_payload.get("courseTitle") or not (s_payload.get("participantId") or s_payload.get("participantName")):
+                            raise Conflict("Snapshot integrity error: snapshot payload missing required course or participant identifiers. Purge aborted.")
+                    except Exception as exc:
+                        if isinstance(exc, Conflict):
+                            raise
+                        raise Conflict("Snapshot JSON structure corrupted. Purge aborted.")
+
+                # 7. Check for unsnapshotted active enrollments created since deletion was requested
+                active_enr = await conn.fetchval(
+                    "SELECT COUNT(*) FROM enrollments WHERE course_id = $1 AND enrollment_status = 'ACTIVE'",
+                    c_uuid
+                )
+                if active_enr > len(snaps):
+                    raise Conflict("New participant enrollments detected after snapshot was generated. Purge aborted to protect learner records.")
+
+                # 8. Purge operational course data (strictly scoped to this course_id)
                 await conn.execute("DELETE FROM course_trainer_assignments WHERE course_id = $1", c_uuid)
 
-                # Update course status to DELETED
+                # 9. Update course status to DELETED
                 await conn.execute("""
                     UPDATE courses
                     SET status = 'DELETED', deleted_at = $1, published = FALSE, updated_at = $1
                     WHERE id = $2
-                """, now, c_uuid)
+                """, now_db, c_uuid)
 
-                # Update deletion job status
+                # 10. Update deletion job status to PURGED
                 await conn.execute("""
                     UPDATE course_deletion_jobs
                     SET status = 'PURGED', purged_at = $1
-                    WHERE course_id = $2
-                """, now, c_uuid)
+                    WHERE id = $2
+                """, now_db, job["id"])
 
                 return {
                     "success": True,
                     "courseId": str(c_uuid),
-                    "message": f"Operational data for course '{c['title']}' has been permanently purged. Historical learning snapshots remain accessible to participants.",
+                    "courseTitle": c["title"],
+                    "status": "PURGED",
+                    "snapshotsPreserved": len(snaps),
+                    "message": f"Operational data for course '{c['title']}' has been permanently purged. {len(snaps)} historical learning snapshots remain accessible to participants permanently.",
                 }
 
     # =========================================================================

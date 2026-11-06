@@ -2016,6 +2016,7 @@ async def super_admin_set_course_lifecycle(
     status_val = payload.get("status")
     visibility_mode = payload.get("visibilityMode")
     target_inst_ids = [UUID(str(i)) for i in payload.get("targetInstitutionIds", [])] if payload.get("targetInstitutionIds") else None
+    target_campus_ids = [str(cp).strip() for cp in payload.get("targetCampusIds", [])] if payload.get("targetCampusIds") else None
     target_br_ids = [UUID(str(b)) for b in payload.get("targetBranchIds", [])] if payload.get("targetBranchIds") else None
     portal_dist = payload.get("portalDistribution")
     enr_methods = payload.get("allowedEnrollmentMethods")
@@ -2025,6 +2026,7 @@ async def super_admin_set_course_lifecycle(
         status=status_val,
         visibility_mode=visibility_mode,
         target_institution_ids=target_inst_ids,
+        target_campus_ids=target_campus_ids,
         target_branch_ids=target_br_ids,
         portal_distribution=portal_dist,
         allowed_enrollment_methods=enr_methods,
