@@ -119,7 +119,7 @@ export default function AssignmentSubmissionsPage() {
                   </caption>
                   <thead>
                     <Tr>
-                      <Th>Student</Th>
+                      <Th>Participant</Th>
                       <Th>State</Th>
                       <Th hideBelow="md">Submitted</Th>
                       <Th hideBelow="lg">Note &amp; files</Th>

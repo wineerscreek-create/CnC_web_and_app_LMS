@@ -28,6 +28,7 @@ const BarCompare = dynamic(
   },
 );
 
+import { HeroBanner } from '@/components/dashboard/HeroBanner';
 import { PageHeader } from '@/components/shared/page-header';
 import { ProgressBar } from '@/components/shared/progress-bits';
 import { StatCard } from '@/components/shared/stat-card';
@@ -77,25 +78,26 @@ export default function TrainerDashboardPage() {
             moduleScores: Array.isArray(rawData?.moduleScores) ? rawData.moduleScores : [],
           };
           return (
-            <>
-              {/* Header with Batches Overview */}
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border">
-                <div>
-                  <h1 className="text-2xl font-black font-heading tracking-tight text-heading">
-                    Trainer Command Studio
-                  </h1>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Comprehensive pedagogical oversight across your assigned student cohorts and institutional training batches.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {data.assignedBatches.map((batch: any) => (
-                    <Badge key={batch.id} tone="mustard" className="font-semibold text-xs py-1 px-3">
-                      {batch.name}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
+            <div className="space-y-6">
+              {/* Customizable Hero Banner (P0) */}
+              <HeroBanner
+                userName={rawData?.trainer?.name || 'Trainer'}
+                userRole="Trainer"
+                roleSubtitle={`${data.assignedBatches.length} Assigned Batches · ${num(data.studentCount)} Participants`}
+                statLabel="Attendance"
+                statValue={pct(data.attendance.percentage, 1)}
+                statSubtext={`${num(data.attendance.present)}/${num(data.attendance.total)} present`}
+                primaryAction={{
+                  label: "Today's Classes",
+                  href: '/trainer/classes',
+                  icon: <CalendarCheck className="size-4" />,
+                }}
+                secondaryAction={{
+                  label: 'Evaluations',
+                  href: '/trainer/evaluations',
+                  icon: <ClipboardCheck className="size-4" />,
+                }}
+              />
 
               {/* KPI Stat Cards */}
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -302,7 +304,7 @@ export default function TrainerDashboardPage() {
                   </Card>
                 </div>
               </div>
-            </>
+            </div>
           );
         }}
       </AsyncSection>

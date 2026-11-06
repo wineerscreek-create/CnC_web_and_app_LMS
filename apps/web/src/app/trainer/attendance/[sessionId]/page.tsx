@@ -167,7 +167,7 @@ export default function MarkAttendancePage() {
                   </caption>
                   <thead>
                     <Tr>
-                      <Th>Student</Th>
+                      <Th>Participant</Th>
                       <Th>Status</Th>
                       <Th hideBelow="md">Remark</Th>
                     </Tr>

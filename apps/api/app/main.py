@@ -44,6 +44,7 @@ from app.routers import (
     student,
     super_admin,
     trainer,
+    user_banner,
 )
 from app.services import report_datasets  # noqa: F401  (registers report builders)
 from app.workers import jobs  # noqa: F401  (registers job handlers)
@@ -186,6 +187,12 @@ def create_app() -> FastAPI:
     app.include_router(
         live_classes.router, prefix=f"{prefix}/live-classes", tags=["live-classes"]
     )
+    app.include_router(user_banner.router, prefix=prefix, tags=["user-banner"])
+
+    from fastapi.staticfiles import StaticFiles
+    from app.routers.user_banner import BANNER_UPLOAD_DIR
+    app.mount("/static/banners", StaticFiles(directory=BANNER_UPLOAD_DIR), name="banners")
+
     return app
 
 

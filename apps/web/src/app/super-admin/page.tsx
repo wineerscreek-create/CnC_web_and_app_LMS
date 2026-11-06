@@ -15,6 +15,7 @@ import {
 import Link from 'next/link';
 import * as React from 'react';
 
+import { HeroBanner } from '@/components/dashboard/HeroBanner';
 import { StatCard } from '@/components/shared/stat-card';
 import { AsyncSection } from '@/components/shared/state';
 import { Badge } from '@/components/ui/badge';
@@ -71,37 +72,25 @@ export default function SuperAdminDashboardPage() {
       <AsyncSection query={query} skeleton="kpis">
         {(data) => (
           <div className="space-y-6">
-            {/* Platform Command Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border">
-              <div>
-                <div className="flex items-center gap-2.5">
-                  <h1 className="text-2xl font-black font-heading tracking-tight text-heading">
-                    Platform Command Center
-                  </h1>
-                  <Badge tone="mustard" className="font-semibold text-xs py-0.5 px-2.5 flex items-center gap-1">
-                    <ShieldCheck className="size-3.5" />
-                    Super Admin Authority
-                  </Badge>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Global operational governance across all {data.institutions} higher education institutions, direct online cohorts, and financial settlement channels.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-                <Button asChild variant="primary" size="sm" className="text-xs">
-                  <Link href="/super-admin/courses" className="flex items-center gap-1.5">
-                    <BookOpen className="size-3.5" />
-                    Deploy Course
-                  </Link>
-                </Button>
-                <Button asChild variant="secondary" size="sm" className="text-xs">
-                  <Link href="/super-admin/payments" className="flex items-center gap-1.5">
-                    <CreditCard className="size-3.5" />
-                    Payment Queue ({data.pendingPayments})
-                  </Link>
-                </Button>
-              </div>
-            </div>
+            {/* Customizable Platform Hero Banner (P0) */}
+            <HeroBanner
+              userName="Super Admin"
+              userRole="Super Admin"
+              roleSubtitle={`Global Governance · ${data.institutions} Institutions · ${num(data.students)} Participants`}
+              statLabel="Platform Revenue"
+              statValue={`₹${(data.totalRevenue || 0).toLocaleString('en-IN')}`}
+              statSubtext={`${data.pendingPayments} Pending Verifications`}
+              primaryAction={{
+                label: 'Deploy Course',
+                href: '/super-admin/courses',
+                icon: <BookOpen className="size-4" />,
+              }}
+              secondaryAction={{
+                label: `Payments Queue (${data.pendingPayments})`,
+                href: '/super-admin/payments',
+                icon: <CreditCard className="size-4" />,
+              }}
+            />
 
             {/* 8 Primary Platform KPIs */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

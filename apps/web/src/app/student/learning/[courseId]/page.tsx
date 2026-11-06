@@ -23,6 +23,7 @@ import { useParams } from 'next/navigation';
 import * as React from 'react';
 import { toast } from 'sonner';
 
+import { StructuredContentRenderer } from '@/components/learning/StructuredContentRenderer';
 import { PageHeader } from '@/components/shared/page-header';
 import { ProgressBar } from '@/components/shared/progress-bits';
 import { AsyncSection } from '@/components/shared/state';
@@ -271,11 +272,13 @@ export default function CoursePlayerPage() {
                                 </p>
                               </div>
                             ) : (
-                              <p className="text-base leading-relaxed text-foreground">
-                                {active.content ??
+                              <StructuredContentRenderer
+                                content={
+                                  active.content ??
                                   active.summary ??
-                                  'Lesson material for this session is delivered in class by your trainer. Use the practice lab to rehearse what it covers, then mark the lesson complete to keep your path up to date.'}
-                              </p>
+                                  'Lesson material for this session is delivered in class by your trainer. Use the practice lab to rehearse what it covers, then mark the lesson complete to keep your path up to date.'
+                                }
+                              />
                             )}
                           </div>
 

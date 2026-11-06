@@ -31,6 +31,7 @@ ENDPOINTS_BY_ROLE = {
         "/api/v1/super-admin/ebooks/reports",
         "/api/v1/super-admin/games",
         "/api/v1/super-admin/system",
+        "/api/v1/user/banner",
         "/api/v1/auth/me",
         "/api/v1/home/courses",
         "/api/v1/home/announcements",
@@ -52,6 +53,7 @@ ENDPOINTS_BY_ROLE = {
         "/api/v1/admin/import/jobs",
         "/api/v1/admin/semesters",
         "/api/v1/admin/training-modules",
+        "/api/v1/user/banner",
         "/api/v1/auth/me",
     ],
     "TRAINER": [
@@ -72,6 +74,7 @@ ENDPOINTS_BY_ROLE = {
         "/api/v1/trainer/games",
         "/api/v1/trainer/profile",
         "/api/v1/trainer/training-modules",
+        "/api/v1/user/banner",
         "/api/v1/auth/me",
     ],
     "STUDENT": [
@@ -98,6 +101,7 @@ ENDPOINTS_BY_ROLE = {
         "/api/v1/student/recommendations/courses",
         "/api/v1/live-classes/my",
         "/api/v1/live-classes/recordings/my",
+        "/api/v1/user/banner",
         "/api/v1/auth/me",
     ],
 }

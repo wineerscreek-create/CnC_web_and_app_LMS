@@ -170,7 +170,7 @@ export default function HomePage() {
 
                 <div className="mt-5 grid gap-3">
                   {(data?.roleAccess ?? [
-                    { role: 'STUDENT', label: 'Participant / Student Portal', href: '/student/dashboard' },
+                    { role: 'STUDENT', label: 'Participant Portal', href: '/student/dashboard' },
                     { role: 'TRAINER', label: 'Faculty / Trainer Portal', href: '/trainer/dashboard' },
                     { role: 'HOD', label: 'Department Head (HOD) Portal', href: '/hod/dashboard' },
                     { role: 'ADMIN', label: 'College Administrator Portal', href: '/admin/dashboard' },

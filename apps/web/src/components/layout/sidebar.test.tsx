@@ -18,7 +18,7 @@ const hod = {
   id: '1',
   name: 'Priya Kulkarni',
   role: 'HOD',
-  roleLabel: 'Head of Department',
+  roleLabel: 'SPOC',
   collegeName: 'ABC Engineering College',
   departmentName: 'Computer Science',
   home: '/hod/dashboard',
@@ -47,7 +47,7 @@ describe('portal sidebar', () => {
   it('gives a student their own navigation and none of the staff routes', () => {
     render(
       <Sidebar
-        user={{ ...hod, role: 'STUDENT', roleLabel: 'Student', home: '/student/dashboard' }}
+        user={{ ...hod, role: 'STUDENT', roleLabel: 'Participant', home: '/student/dashboard' }}
         open
         onClose={() => {}}
       />,

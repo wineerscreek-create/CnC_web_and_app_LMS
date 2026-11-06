@@ -3,6 +3,8 @@
 import * as React from 'react';
 import { cn } from '@/lib/cn';
 
+import { ConstellationCanvas } from './ConstellationCanvas';
+
 export interface BackgroundConfig {
   image?: string;
   imageAlt?: string;
@@ -11,6 +13,7 @@ export interface BackgroundConfig {
   overlayOpacity?: number;
   withGrid?: boolean;
   withOrbs?: boolean;
+  withConstellation?: boolean;
   orbTone?: 'mustard' | 'charcoal' | 'indigo' | 'cyan' | 'purple' | 'amber';
 }
 
@@ -68,7 +71,7 @@ export const useGlobalBackground = useBackground;
  * Strictly adheres to the 4-color system: Warm Ivory, Pure White, Charcoal, Warm Mustard.
  */
 export function GlobalBackgroundLayer({ config }: { config: BackgroundConfig }) {
-  const { withGrid = false } = config;
+  const { withGrid = false, withConstellation = true } = config;
 
   return (
     <div
@@ -85,6 +88,9 @@ export function GlobalBackgroundLayer({ config }: { config: BackgroundConfig }) 
           }}
         />
       )}
+
+      {/* Interactive Constellation Particle Canvas (Part 4) */}
+      {withConstellation && <ConstellationCanvas />}
     </div>
   );
 }

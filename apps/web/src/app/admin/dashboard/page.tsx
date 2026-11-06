@@ -14,6 +14,7 @@ import {
 import Link from 'next/link';
 
 import { BarCompare, ChartCard, LineTrend } from '@/components/charts';
+import { HeroBanner } from '@/components/dashboard/HeroBanner';
 import { PageHeader } from '@/components/shared/page-header';
 import { StatCard } from '@/components/shared/stat-card';
 import { AsyncSection } from '@/components/shared/state';
@@ -59,30 +60,26 @@ export default function AdminDashboardPage() {
             },
           };
           return (
-            <>
-              {/* Institutional Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border">
-                <div>
-                  <div className="flex items-center gap-2.5">
-                    <h1 className="text-2xl font-black font-heading tracking-tight text-heading">
-                      {data.institution.name}
-                    </h1>
-                    <Badge tone="mustard" className="font-semibold text-xs py-0.5 px-2.5">
-                      Code: {data.institution.code}
-                    </Badge>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Institutional governance node — cross-department administration, batch operations, and system telemetry.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {(data.quickActions ?? []).map((action: any) => (
-                    <Button key={action.code} asChild variant="secondary" size="sm" className="text-xs">
-                      <Link href={action.href}>{action.label}</Link>
-                    </Button>
-                  ))}
-                </div>
-              </div>
+            <div className="space-y-6">
+              {/* Customizable Hero Banner (P0) */}
+              <HeroBanner
+                userName={data.institution.name}
+                userRole="Institution Admin"
+                roleSubtitle={`Institution Code: ${data.institution.code || 'Active Node'}`}
+                statLabel="Total Cohort"
+                statValue={num(data.kpis.totalStudents)}
+                statSubtext={`${num(data.kpis.departments)} Departments · ${num(data.kpis.activeBatches)} Batches`}
+                primaryAction={{
+                  label: 'Departments & Batches',
+                  href: '/admin/departments',
+                  icon: <Building2 className="size-4" />,
+                }}
+                secondaryAction={{
+                  label: 'Trainers & Access',
+                  href: '/admin/trainers',
+                  icon: <GraduationCap className="size-4" />,
+                }}
+              />
 
               {/* 5 KPI Stat Cards */}
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
@@ -273,7 +270,7 @@ export default function AdminDashboardPage() {
                   </Card>
                 </div>
               </div>
-            </>
+            </div>
           );
         }}
       </AsyncSection>

@@ -12,6 +12,7 @@ import {
 import Link from 'next/link';
 
 import { BarCompare, ChartCard, LineTrend, attendanceColor } from '@/components/charts';
+import { HeroBanner } from '@/components/dashboard/HeroBanner';
 import { PageHeader } from '@/components/shared/page-header';
 import { StatCard } from '@/components/shared/stat-card';
 import { AsyncSection } from '@/components/shared/state';
@@ -68,27 +69,26 @@ export default function HodDashboardPage() {
             recentEnrollments: Array.isArray(rawData?.recentEnrollments) ? rawData.recentEnrollments : [],
           };
           return (
-            <>
-              {/* Department Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border">
-                <div>
-                  <h1 className="text-2xl font-black font-heading tracking-tight text-heading">
-                    {data.scope.departmentName} Dashboard
-                  </h1>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {data.scope.breadcrumb} — academic department oversight, cohort metrics, and faculty coordination.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone="mustard" className="font-semibold text-xs py-1 px-3 flex items-center gap-1.5">
-                    <ShieldCheck className="size-3.5" aria-hidden />
-                    Department Scoped
-                  </Badge>
-                  {data.scope.readOnly && (
-                    <Badge tone="neutral" className="text-xs">Read-Only</Badge>
-                  )}
-                </div>
-              </div>
+            <div className="space-y-6">
+              {/* Customizable Hero Banner (P0) */}
+              <HeroBanner
+                userName={data.scope.departmentName}
+                userRole="SPOC"
+                roleSubtitle={`${data.scope.collegeName || 'Institution'} · ${data.scope.departmentName}`}
+                statLabel="Cohort Size"
+                statValue={num(data.kpis.participants.value)}
+                statSubtext="Active Participants"
+                primaryAction={{
+                  label: 'View Participants',
+                  href: '/hod/participants',
+                  icon: <Users className="size-4" />,
+                }}
+                secondaryAction={{
+                  label: 'Session Attendance',
+                  href: '/hod/attendance',
+                  icon: <CalendarCheck className="size-4" />,
+                }}
+              />
 
               {/* KPI Stat Cards */}
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -249,7 +249,7 @@ export default function HodDashboardPage() {
                   </p>
                 </CardBody>
               </Card>
-            </>
+            </div>
           );
         }}
       </AsyncSection>

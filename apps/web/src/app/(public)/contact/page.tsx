@@ -21,7 +21,7 @@ const ROUTES = [
   {
     icon: ShieldQuestion,
     title: 'My batch, department or scores look wrong',
-    body: 'Enrollment and competency ratings are evaluated by your certified trainers and Head of Department. Corrections are preserved in the institutional audit trail.',
+    body: 'Enrollment and competency ratings are evaluated by your certified trainers and department SPOC. Corrections are preserved in the institutional audit trail.',
     action: null,
   },
   {

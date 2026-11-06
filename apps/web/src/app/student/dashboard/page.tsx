@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
+import { HeroBanner } from '@/components/dashboard/HeroBanner';
 import { PageHeader } from '@/components/shared/page-header';
 import { ProgressBar } from '@/components/shared/progress-bits';
 import { StatCard } from '@/components/shared/stat-card';
@@ -40,42 +41,25 @@ export default function StudentDashboardPage() {
     <AsyncSection query={query} skeleton="kpis">
       {(data) => (
         <div className="space-y-6 sm:space-y-8 animate-enter">
-          {/* 1. Welcome Bento Banner */}
-          <div className="rounded-3xl border border-border bg-card p-6 sm:p-8 shadow-card">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary text-secondary-foreground px-3 py-1 text-xs font-bold border border-border">
-                    <Flame className="size-3.5 fill-accent text-accent" />
-                    {data.streak?.days ?? 0}-Day Streak
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {data.student?.rollNumber} · {data.student?.batchName ?? 'Independent Cohort'} · {data.student?.departmentName}
-                  </span>
-                </div>
-                <h1 className="mt-3 font-heading text-2xl sm:text-3xl lg:text-4xl font-extrabold text-heading">
-                  Welcome back, {data.student?.firstName ?? data.student?.name}
-                </h1>
-                <p className="mt-2 text-sm text-muted-foreground max-w-[600px]">
-                  Here is your career readiness roadmap for today. Complete your pending practice and keep your weekly momentum strong.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3 shrink-0">
-                <Button asChild variant="primary" size="lg" className="rounded-xl font-semibold">
-                  <Link href="/student/practice">
-                    <Mic className="size-4" />
-                    Practise Now
-                  </Link>
-                </Button>
-                <Button asChild variant="secondary" size="lg" className="rounded-xl font-semibold">
-                  <Link href="/student/learning">
-                    My Courses
-                  </Link>
-                </Button>
-              </div>
-            </div>
-          </div>
+          {/* 1. Customizable Hero Banner (P0) */}
+          <HeroBanner
+            userName={data.student?.firstName ?? data.student?.name ?? 'Participant'}
+            userRole="Participant"
+            roleSubtitle={`${data.streak?.days ?? 0}-Day Streak · ${data.student?.rollNumber || 'Active Cohort'}`}
+            statLabel="Readiness"
+            statValue={data.readiness?.score ? `${data.readiness.score}%` : '—'}
+            statSubtext={data.readiness?.score ? 'Employability Index' : 'Pending evaluations'}
+            primaryAction={{
+              label: 'Practise Now',
+              href: '/student/practice',
+              icon: <Mic className="size-4" />,
+            }}
+            secondaryAction={{
+              label: 'My Courses',
+              href: '/student/learning',
+              icon: <BookOpen className="size-4" />,
+            }}
+          />
 
           {/* 2. Key Performance Indicators Row (Strict 4 Colors) */}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
