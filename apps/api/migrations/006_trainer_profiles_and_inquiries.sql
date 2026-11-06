@@ -82,3 +82,4 @@ SET
     completion_percent = 92
 FROM users u
 WHERE tp.user_id = u.id AND (tp.public_slug IS NULL OR tp.display_name IS NULL);
+

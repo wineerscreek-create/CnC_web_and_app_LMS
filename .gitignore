@@ -1,19 +1,36 @@
-# Dependencies
+# ============================================================================
+# WINNERS CREEK LMS — PRODUCTION GITIGNORE
+# Only production application source code and deployment configs are tracked.
+# Development reports, test suites, and temporary artifacts remain local only.
+# ============================================================================
+
+# 1. Dependencies & Package Managers
 node_modules/
 **/node_modules/
+.pnpm-store/
 
-# Next.js
+# 2. Next.js & Frontend Build Outputs
 .next/
 **/.next/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+*.zip
 
-# Python
+# 3. Python Runtime & Caches
 __pycache__/
+**/__pycache__/
 *.py[cod]
+*$py.class
 .venv/
 venv/
 env/
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
 
-# Environment / secrets
+# 4. Environment & Secrets (Never commit credentials)
 .env
 .env.*
 !.env.example
@@ -22,7 +39,7 @@ env/
 *.key
 *.pfx
 
-# Runtime & test storage
+# 5. Runtime Storage & Ephemeral Uploads
 apps/api/.storage/
 **/.storage/
 .storage-test/
@@ -31,40 +48,72 @@ apps/api/static/
 *.json.bak
 apps/api/course_audit_output.json
 
-# Scratch, temporary test artifacts, and local logs
-scratch/
-*.log
+# 6. Documentation, Audit Reports & Development Logs
+docs/
+doc/
+reports/
+*_REPORT.md
+*_AUDIT.md
+*_VERIFICATION.md
+*_ROADMAP.md
+*_DIFF.md
+*_INVENTORY.md
+*_DOCUMENTATION.md
+*_BLOCKERS.md
+!README.md
+!**/README.md
 
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Python test/cache
-.pytest_cache/
-.mypy_cache/
-
-# Build/output
-dist/
-build/
-coverage/
-*.tsbuildinfo
-*.zip
-
-# Database dumps and private backups
-backups/
-**/backups/
-*.dump
-
-# Local spreadsheet data files (containing student PII)
-*.xlsx
-
-# Scratch scripts and temporary audit artifacts
+# 7. Scratch & Temporary Development Directories
 scratch/
 **/scratch/
 scratch_*
 **/scratch_*
+*.log
+audit_output.txt
+**/audit_output.txt
 
+# 8. Python Test Scripts & Pytest Suites
+apps/api/tests/
+apps/api/test_*.py
+apps/api/audit_*.py
+apps/api/verify_*.py
+apps/api/scripts/test_*.py
+apps/api/pytest.ini
+apply_all_clean.py
+diagnose_relationships.py
+seed_relationships.py
+verify_assignment_flow.py
+
+# 9. Frontend Test Suites & Test Configs
+apps/web/e2e/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+apps/web/src/test/
+apps/web/vitest.config.ts
+
+# 10. Game Test Scripts, Test Assets & Agent Files
+apps/game/winners-creek/scripts/test-*.ts
+apps/game/winners-creek/scripts/audit-*.ts
+apps/game/winners-creek/scripts/acceptance-comparison-test.ts
+apps/game/winners-creek/scripts/create-test-pptx.ps1
+apps/game/winners-creek/scripts/browser-slide-diagnostic.md
+apps/game/winners-creek/test-assets/
+apps/game/winners-creek/.tmp/
+apps/game/winners-creek/AGENTS.md
+apps/game/winners-creek/CLAUDE.md
+**/__MACOSX/
+apps/game/email-games/email-games/tests/
+
+# 11. IDE & OS Junk
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 12. Database Dumps & Local Data Files
+backups/
+**/backups/
+*.dump
+*.xlsx
