@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Annotated, Any, Callable
+from uuid import UUID
 
 from bson import ObjectId
 from fastapi import Depends, Request
@@ -226,42 +227,52 @@ async def _reject_client_scope_claims(request: Request, ctx: ScopeContext) -> No
                         claimed.append((kind, value))
 
     for kind, raw in claimed:
+        raw_str = str(raw).strip()
+        value = None
         try:
-            value = ObjectId(str(raw))
+            value = UUID(raw_str)
         except Exception:
-            # A malformed identifier is a validation problem, handled by the endpoint.
-            continue
+            try:
+                value = ObjectId(raw_str)
+            except Exception:
+                # A malformed identifier is a validation problem, handled by the endpoint.
+                continue
 
-        if kind == "college" and ctx.college_id is not None and value != ctx.college_id:
+        val_str = str(value)
+        ctx_college_str = str(ctx.college_id) if ctx.college_id is not None else None
+        ctx_dept_str = str(ctx.department_id) if ctx.department_id is not None else None
+        ctx_user_str = str(ctx.user_id) if ctx.user_id is not None else None
+
+        if kind == "college" and ctx_college_str is not None and val_str != ctx_college_str:
             await _deny_scope(
                 ctx, f"request named college {raw} outside the caller's own institution",
                 path=str(request.url.path),
             )
         elif kind == "department":
             if ctx.role in (Role.HOD, Role.STUDENT):
-                if ctx.department_id is not None and value != ctx.department_id:
+                if ctx_dept_str is not None and val_str != ctx_dept_str:
                     await _deny_scope(
                         ctx,
                         f"{ctx.role} bound to department {ctx.department_id} named department {raw}",
                         path=str(request.url.path),
                     )
-            elif ctx.role is Role.TRAINER and ctx.department_ids and value not in ctx.department_ids:
+            elif ctx.role is Role.TRAINER and ctx.department_ids and val_str not in [str(d) for d in ctx.department_ids]:
                 await _deny_scope(
                     ctx, f"trainer named unassigned department {raw}",
                     path=str(request.url.path),
                 )
         elif kind == "batch":
             if ctx.role is Role.TRAINER and ctx.batch_ids:
-                if value not in ctx.batch_ids:
+                if val_str not in [str(b) for b in ctx.batch_ids]:
                     await _deny_scope(
                         ctx, f"trainer named unassigned batch {raw}", path=str(request.url.path)
                     )
-            elif ctx.college_id is not None:
+            elif ctx_college_str is not None:
                 # A named batch must belong to the caller's own scope. Resolving it costs one
                 # indexed lookup and only happens when a batch id was actually supplied.
                 if settings.USE_POSTGRES:
                     try:
-                        b_uuid = UUID(str(value))
+                        b_uuid = UUID(val_str)
                         async with get_pg_connection() as conn:
                             batch_row = await conn.fetchrow(
                                 "SELECT institution_id, department_id FROM batches WHERE id = $1 AND deleted_at IS NULL",
@@ -269,16 +280,16 @@ async def _reject_client_scope_claims(request: Request, ctx: ScopeContext) -> No
                             )
                             if batch_row is None:
                                 continue
-                            if batch_row.get("institution_id") and str(batch_row["institution_id"]) != str(ctx.college_id):
+                            if batch_row.get("institution_id") and str(batch_row["institution_id"]) != ctx_college_str:
                                 await _deny_scope(
                                     ctx, f"request named batch {raw} in another institution",
                                     path=str(request.url.path),
                                 )
                             if (
                                 ctx.role in (Role.HOD, Role.STUDENT)
-                                and ctx.department_id is not None
+                                and ctx_dept_str is not None
                                 and batch_row.get("department_id")
-                                and str(batch_row["department_id"]) != str(ctx.department_id)
+                                and str(batch_row["department_id"]) != ctx_dept_str
                             ):
                                 await _deny_scope(
                                     ctx, f"request named batch {raw} in another department",
@@ -309,15 +320,15 @@ async def _reject_client_scope_claims(request: Request, ctx: ScopeContext) -> No
                         path=str(request.url.path),
                     )
         elif kind == "student":
-            if ctx.role is Role.STUDENT and value != ctx.user_id:
+            if ctx.role is Role.STUDENT and val_str != ctx_user_str:
                 await _deny_scope(
                     ctx, "student named another participant", path=str(request.url.path)
                 )
-            elif ctx.role is Role.PARENT and value not in ctx.linked_student_ids:
+            elif ctx.role is Role.PARENT and val_str not in [str(s) for s in ctx.linked_student_ids]:
                 await _deny_scope(
                     ctx, "parent named an unlinked student", path=str(request.url.path)
                 )
-        elif kind == "trainer" and ctx.role is Role.TRAINER and value != ctx.user_id:
+        elif kind == "trainer" and ctx.role is Role.TRAINER and val_str != ctx_user_str:
             await _deny_scope(
                 ctx, "trainer named another trainer's records", path=str(request.url.path)
             )
