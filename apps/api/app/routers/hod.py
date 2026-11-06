@@ -23,7 +23,7 @@ from app.authz.context import ScopeContext
 from app.authz.guards import require_role, require_student_in_scope
 from app.authz.roles import Role
 from app.core.config import settings
-from app.core.errors import BusinessRuleViolation, NotFound, ValidationError
+from app.core.errors import BusinessRuleViolation, NotFound, ScopeForbidden, ValidationError
 from app.db.mongo import get_db, serialize
 from app.repositories.collections import (
     AuditLogRepo,
@@ -286,8 +286,12 @@ async def participants(
         from app.repositories.game_repo import _safe_uuid
         from uuid import UUID
 
-        inst_uuid = _safe_uuid(ctx.college_id) or UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
-        dept_uuid = _safe_uuid(ctx.department_id) or UUID("dccbb2bf-8de1-4945-bf70-f11ad2f7682a")
+        inst_uuid = _safe_uuid(ctx.college_id)
+        if not inst_uuid:
+            raise ScopeForbidden("Your account is not assigned to an institution")
+        dept_uuid = _safe_uuid(ctx.department_id)
+        if not dept_uuid:
+            raise ScopeForbidden("Your account is not assigned to a department")
 
         async with get_pg_connection() as conn:
             conds = ["u.institution_id = $1", "u.department_id = $2", "u.role = 'STUDENT'", "u.deleted_at IS NULL"]
@@ -891,7 +895,9 @@ async def trainers(ctx: ScopeContext = HodCtx) -> dict[str, Any]:
         from app.repositories.game_repo import _safe_uuid
         from uuid import UUID
 
-        inst_uuid = _safe_uuid(ctx.college_id) or UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
+        inst_uuid = _safe_uuid(ctx.college_id)
+        if not inst_uuid:
+            raise ScopeForbidden("Your account is not assigned to an institution")
         async with get_pg_connection() as conn:
             trainers = await conn.fetch("""
                 SELECT u.id, u.name, u.email, u.status, tp.title as designation, tp.specializations, tp.rating,
@@ -1129,8 +1135,12 @@ async def enrollments(
         from app.repositories.game_repo import _safe_uuid
         from uuid import UUID
 
-        inst_uuid = _safe_uuid(ctx.college_id) or UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
-        dept_uuid = _safe_uuid(ctx.department_id) or UUID("dccbb2bf-8de1-4945-bf70-f11ad2f7682a")
+        inst_uuid = _safe_uuid(ctx.college_id)
+        if not inst_uuid:
+            raise ScopeForbidden("Your account is not assigned to an institution")
+        dept_uuid = _safe_uuid(ctx.department_id)
+        if not dept_uuid:
+            raise ScopeForbidden("Your account is not assigned to a department")
 
         async with get_pg_connection() as conn:
             conds = ["e.institution_id = $1", "u.department_id = $2", "u.deleted_at IS NULL"]
@@ -1531,8 +1541,12 @@ async def hod_games_analytics(ctx: ScopeContext = HodCtx) -> dict[str, Any]:
         from app.repositories.game_repo import _safe_uuid
         from uuid import UUID
 
-        inst_uuid = _safe_uuid(ctx.college_id) or UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
-        dept_uuid = _safe_uuid(ctx.department_id) or UUID("dccbb2bf-8de1-4945-bf70-f11ad2f7682a")
+        inst_uuid = _safe_uuid(ctx.college_id)
+        if not inst_uuid:
+            raise ScopeForbidden("Your account is not assigned to an institution")
+        dept_uuid = _safe_uuid(ctx.department_id)
+        if not dept_uuid:
+            raise ScopeForbidden("Your account is not assigned to a department")
 
         async with get_pg_connection() as conn:
             total_students = await conn.fetchval(

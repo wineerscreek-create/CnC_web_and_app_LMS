@@ -520,8 +520,8 @@ async def require_department_scope(ctx: ScopeContext, requested: Any = None) -> 
                     inst_uuid = UUID(str(ctx.college_id))
                 except Exception:
                     pass
-            if not inst_uuid:
-                inst_uuid = UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
+            if not inst_uuid and not ctx.is_platform_wide:
+                await _deny_scope(ctx, "caller is not assigned to an institution")
 
             async with get_pg_connection() as conn:
                 dept = await conn.fetchrow(

@@ -204,7 +204,7 @@ async def departments(
 
         inst_uuid = _safe_uuid(ctx.college_id)
         if not inst_uuid:
-            inst_uuid = UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
+            raise ScopeForbidden("Your account is not assigned to an institution")
 
         async with get_pg_connection() as conn:
             conds = ["d.institution_id = $1", "d.deleted_at IS NULL"] if not includeArchived else ["d.institution_id = $1"]
@@ -299,7 +299,9 @@ async def create_department(
         from uuid import UUID
         from app.repositories.game_repo import _safe_uuid
 
-        inst_uuid = _safe_uuid(ctx.college_id) or UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
+        inst_uuid = _safe_uuid(ctx.college_id)
+        if not inst_uuid:
+            raise ScopeForbidden("Your account is not assigned to an institution")
         async with get_pg_connection() as conn:
             exists = await conn.fetchval(
                 "SELECT 1 FROM departments WHERE institution_id = $1 AND UPPER(code) = $2 AND deleted_at IS NULL",
@@ -533,7 +535,9 @@ async def semesters(
         from app.repositories.game_repo import _safe_uuid
 
         d_uuid = _safe_uuid(departmentId) if departmentId and departmentId != "all" else None
-        inst_uuid = _safe_uuid(ctx.college_id) or UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
+        inst_uuid = _safe_uuid(ctx.college_id)
+        if not inst_uuid:
+            raise ScopeForbidden("Your account is not assigned to an institution")
 
         async with get_pg_connection() as conn:
             conds = ["s.deleted_at IS NULL"]
@@ -589,7 +593,9 @@ async def create_semester(
         from app.repositories.game_repo import _safe_uuid
 
         d_uuid = _safe_uuid(resolved)
-        inst_uuid = _safe_uuid(ctx.college_id) or UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
+        inst_uuid = _safe_uuid(ctx.college_id)
+        if not inst_uuid:
+            raise ScopeForbidden("Your account is not assigned to an institution")
 
         async with get_pg_connection() as conn:
             existing = await conn.fetchrow(
@@ -654,7 +660,9 @@ async def batches(
         from app.repositories.game_repo import _safe_uuid
         from uuid import UUID
 
-        inst_uuid = _safe_uuid(ctx.college_id) or UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
+        inst_uuid = _safe_uuid(ctx.college_id)
+        if not inst_uuid:
+            raise ScopeForbidden("Your account is not assigned to an institution")
         async with get_pg_connection() as conn:
             conds = ["b.institution_id = $1", "b.deleted_at IS NULL"]
             params: list[Any] = [inst_uuid]
@@ -760,7 +768,9 @@ async def create_batch(payload: BatchRequest, ctx: ScopeContext = AdminCtx) -> d
         from app.repositories.game_repo import _safe_uuid
 
         d_uuid = _safe_uuid(resolved)
-        inst_uuid = _safe_uuid(ctx.college_id) or UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
+        inst_uuid = _safe_uuid(ctx.college_id)
+        if not inst_uuid:
+            raise ScopeForbidden("Your account is not assigned to an institution")
 
         async with get_pg_connection() as conn:
             exists = await conn.fetchval(
@@ -1834,7 +1844,7 @@ async def trainers(
             except Exception:
                 pass
         if not inst_uuid:
-            inst_uuid = UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
+            raise ScopeForbidden("Your account is not assigned to an institution")
 
         dept_uuid = _safe_uuid(departmentId) if departmentId else None
 
@@ -1996,7 +2006,9 @@ async def users(
         from app.repositories.game_repo import _safe_uuid
         from uuid import UUID
 
-        inst_uuid = _safe_uuid(ctx.college_id) or UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
+        inst_uuid = _safe_uuid(ctx.college_id)
+        if not inst_uuid:
+            raise ScopeForbidden("Your account is not assigned to an institution")
         async with get_pg_connection() as conn:
             conds = ["u.institution_id = $1", "u.deleted_at IS NULL"]
             params: list[Any] = [inst_uuid]
@@ -2874,7 +2886,9 @@ async def admin_list_games(
         from app.repositories.game_repo import _safe_uuid
         from uuid import UUID
 
-        inst_uuid = _safe_uuid(ctx.college_id) or UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
+        inst_uuid = _safe_uuid(ctx.college_id)
+        if not inst_uuid:
+            raise ScopeForbidden("Your account is not assigned to an institution")
         async with get_pg_connection() as conn:
             games_rows = await conn.fetch("SELECT id, code, title, category, status FROM games ORDER BY title ASC")
 
@@ -2988,7 +3002,9 @@ async def admin_game_attempts(
         from app.repositories.game_repo import _safe_uuid
         from uuid import UUID
 
-        inst_uuid = _safe_uuid(ctx.college_id) or UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
+        inst_uuid = _safe_uuid(ctx.college_id)
+        if not inst_uuid:
+            raise ScopeForbidden("Your account is not assigned to an institution")
         gid_uuid = _safe_uuid(game_id)
 
         async with get_pg_connection() as conn:

@@ -37,7 +37,12 @@ class GameRepository:
             query = "SELECT * FROM games WHERE 1=1"
             params: list[Any] = []
             if status:
-                params.append(status)
+                s_val = status.upper().strip()
+                if s_val == "ACTIVE":
+                    s_val = "PUBLISHED"
+                elif s_val == "INACTIVE":
+                    s_val = "UNPUBLISHED"
+                params.append(s_val)
                 query += f" AND status = ${len(params)}::game_status_enum"
             if category and category.lower() != "all":
                 params.append(category)
