@@ -192,6 +192,10 @@ def create_app() -> FastAPI:
     from app.routers.trainer_profile import public_trainers_router, TRAINER_STATIC_DIR
     app.include_router(public_trainers_router, prefix=prefix, tags=["public-trainers"])
 
+    from app.routers import feedback
+    app.include_router(feedback.router, prefix=f"{prefix}/feedback", tags=["feedback"])
+    app.include_router(feedback.router, prefix=f"{prefix}/public", tags=["feedback-public"])
+
     from fastapi.staticfiles import StaticFiles
     from app.routers.user_banner import BANNER_UPLOAD_DIR
     app.mount("/static/banners", StaticFiles(directory=BANNER_UPLOAD_DIR), name="banners")

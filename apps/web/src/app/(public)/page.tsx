@@ -46,6 +46,9 @@ import {
   ContinuouslyMovingCarousel,
   REAL_GAMES,
 } from '@/components/3d';
+import { HomepageTestimonials } from '@/components/feedback/HomepageTestimonials';
+import { PublicFeedbackModal } from '@/components/feedback/PublicFeedbackModal';
+import { MessageSquareHeart } from 'lucide-react';
 
 interface Overview {
   productName: string;
@@ -181,6 +184,7 @@ export default function HomePage() {
   const trainers = useApi<any[]>('/home/trainers');
   const publicTrainers = useApi<any[]>('/public/trainers');
 
+  const [feedbackModalOpen, setFeedbackModalOpen] = React.useState(false);
   const gameCarouselRef = React.useRef<HTMLDivElement | null>(null);
 
   const scrollGames = (direction: 'left' | 'right') => {
@@ -278,6 +282,17 @@ export default function HomePage() {
                   <Link href="/courses">
                     Discover Our Platform
                   </Link>
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="lg"
+                  onClick={() => setFeedbackModalOpen(true)}
+                  className="rounded-2xl px-5 text-sm font-semibold border border-border/80 shadow-xs hover:border-accent/50 hover:bg-card/80 transition-all text-foreground"
+                >
+                  <MessageSquareHeart className="size-4 mr-2 text-accent" />
+                  Share Your Feedback
                 </Button>
               </div>
 
@@ -999,6 +1014,9 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ------------------------------------------------------------------ 9.5 HOMEPAGE TESTIMONIALS */}
+      <HomepageTestimonials />
+
       {/* ------------------------------------------------------------------ 10. FINAL CTA SECTION */}
       <section className="px-6">
         <ScrollReveal3D className="mx-auto max-w-[1240px]">
@@ -1046,6 +1064,12 @@ export default function HomePage() {
           </TiltCard3D>
         </ScrollReveal3D>
       </section>
+
+      {/* Global Feedback Modal */}
+      <PublicFeedbackModal
+        open={feedbackModalOpen}
+        onClose={() => setFeedbackModalOpen(false)}
+      />
     </div>
   );
 }

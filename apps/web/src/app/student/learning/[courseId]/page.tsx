@@ -16,6 +16,7 @@ import {
   Lock,
   PlayCircle,
   ShieldAlert,
+  Trophy,
   Video,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -24,6 +25,7 @@ import * as React from 'react';
 import { toast } from 'sonner';
 
 import { StructuredContentRenderer } from '@/components/learning/StructuredContentRenderer';
+import { CourseFeedbackTab } from '@/components/learning/CourseFeedbackTab';
 import { PageHeader } from '@/components/shared/page-header';
 import { ProgressBar } from '@/components/shared/progress-bits';
 import { AsyncSection } from '@/components/shared/state';
@@ -55,8 +57,9 @@ export default function CoursePlayerPage() {
   const materialsQuery = useApi<any>(`/student/courses/${courseId}/materials`);
   const recordingsQuery = useApi<any>(`/student/courses/${courseId}/recordings`);
   const sessionsQuery = useApi<any>(`/student/courses/${courseId}/sessions`);
+  const gateQuery = useApi<any>(`/feedback/course/${courseId}/gate`);
 
-  const [activeTab, setActiveTab] = React.useState<'lessons' | 'materials' | 'recordings' | 'sessions'>('lessons');
+  const [activeTab, setActiveTab] = React.useState<'lessons' | 'materials' | 'recordings' | 'sessions' | 'feedback'>('lessons');
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const startedAt = React.useRef<number>(Date.now());
@@ -225,7 +228,50 @@ export default function CoursePlayerPage() {
               >
                 Live Classes &amp; Meetings ({sessionsQuery.data?.length ?? 0})
               </button>
+              <button
+                onClick={() => setActiveTab('feedback')}
+                className={`px-3.5 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
+                  activeTab === 'feedback'
+                    ? 'bg-card shadow-xs text-foreground font-bold border border-border'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <span>Course Feedback</span>
+                {gateQuery.data?.feedbackRequired && (
+                  <span className="size-2 rounded-full bg-amber-500 animate-pulse" title="Feedback required for completion" />
+                )}
+                {gateQuery.data?.hasFinalFeedback && (
+                  <CheckCircle2 className="size-3 text-emerald-500" />
+                )}
+              </button>
             </div>
+
+            {/* Mandatory Course Completion Gating Banner */}
+            {percent >= 100 && gateQuery.data?.feedbackRequired && activeTab !== 'feedback' && (
+              <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-500/40 bg-amber-500/15 p-5 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-10 items-center justify-center rounded-xl bg-amber-500 text-white shadow-xs">
+                    <Trophy className="size-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-heading font-bold text-sm text-heading">
+                      You have completed the learning requirements.
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Submit your course feedback to finalize course completion and issue your certificate.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setActiveTab('feedback')}
+                  className="rounded-xl text-xs font-bold"
+                >
+                  Submit Course Feedback
+                </Button>
+              </div>
+            )}
 
             {/* TAB 1: CURRICULUM LESSONS */}
             {activeTab === 'lessons' && (
@@ -547,6 +593,19 @@ export default function CoursePlayerPage() {
                   )}
                 </CardBody>
               </Card>
+            )}
+
+            {/* TAB 5: COURSE FEEDBACK & COMPLETION GATING */}
+            {activeTab === 'feedback' && (
+              <CourseFeedbackTab
+                courseId={String(course.id)}
+                courseTitle={course.title}
+                isLearningComplete={percent >= 100}
+                onFeedbackFinalized={() => {
+                  query.refetch();
+                  gateQuery.refetch();
+                }}
+              />
             )}
           </div>
         );

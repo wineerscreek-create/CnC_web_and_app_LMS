@@ -142,6 +142,7 @@ const SUPER_ADMIN: NavGroup[] = [
       { label: 'Users & Roles', href: '/super-admin/users', icon: Users },
       { label: 'Courses & Catalog', href: '/super-admin/courses', icon: BookOpen },
       { label: 'eBooks Publishing', href: '/super-admin/ebooks', icon: BookOpen },
+      { label: 'Feedback & Testimonials', href: '/super-admin/feedback', icon: MessageSquare },
       { label: 'Payments & Revenue', href: '/super-admin/payments', icon: CreditCard },
     ],
   },

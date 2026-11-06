@@ -769,6 +769,36 @@ async def update_progress(
     )
     minutes = payload.minutesSpent
 
+    # Check mandatory course completion gating logic (Part 3)
+    course_state = "in_progress"
+    feedback_required = False
+    completion_message = None
+
+    if percent >= 100:
+        if settings.USE_POSTGRES:
+            from app.repositories.feedback_repo import FeedbackRepository
+            gate = await FeedbackRepository.check_completion_gate(str(course["_id"]), str(ctx.user_id))
+            if gate["isCompleted"]:
+                # Preserve historical completion
+                course_state = "completed"
+            elif gate["hasFinalFeedback"]:
+                # Final feedback present -> mark completed in DB
+                course_state = "completed"
+                from app.db.postgres import get_pg_connection
+                async with get_pg_connection() as conn:
+                    await conn.execute(
+                        "UPDATE enrollments SET enrollment_status = 'COMPLETED', updated_at = NOW() WHERE course_id = $1::uuid AND participant_user_id = $2::uuid",
+                        uuid.UUID(str(course["_id"])),
+                        uuid.UUID(str(ctx.user_id)),
+                    )
+            else:
+                # Learning requirements finished, but feedback is required to finalize completion!
+                course_state = "in_progress"
+                feedback_required = True
+                completion_message = "You have completed the learning requirements. Submit your course feedback to finalize course completion."
+        else:
+            course_state = "completed"
+
     await db.course_progress.update_one(
         {"studentUserId": ctx.user_id, "courseId": course["_id"]},
         {
@@ -780,7 +810,8 @@ async def update_progress(
                 "percent": percent,
                 "completedLessonIds": completed,
                 "nextLessonId": (next_lesson or {}).get("_id"),
-                "state": "completed" if percent >= 100 else "in_progress",
+                "state": course_state,
+                "feedbackRequired": feedback_required,
                 "lastAccessedAt": _now(),
                 "minutesSpentRecent": minutes,
                 "updatedAt": _now(),
@@ -792,7 +823,16 @@ async def update_progress(
     )
     if minutes:
         await _award_xp(ctx, amount=min(20, minutes), source="learning", label=course.get("title"))
-    return {"success": True, "data": {"percent": percent, "completedLessons": len(completed)}}
+    return {
+        "success": True,
+        "data": {
+            "percent": percent,
+            "completedLessons": len(completed),
+            "state": course_state,
+            "feedbackRequired": feedback_required,
+            "completionMessage": completion_message,
+        },
+    }
 
 
 # --------------------------------------------------------------------------- XP helper
