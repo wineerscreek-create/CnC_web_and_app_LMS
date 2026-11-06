@@ -186,20 +186,38 @@ async def compute_course_recommendations(ctx: ScopeContext, limit: int = 6) -> d
     try:
         async with get_pg_connection() as conn:
             enrs = await conn.fetch(
-                "SELECT course_id FROM enrollments WHERE participant_user_id = $1 AND deleted_at IS NULL",
+                "SELECT course_id FROM enrollments WHERE participant_user_id = $1 AND enrollment_status = 'ACTIVE'",
                 user_uuid
             )
             enrolled_course_ids = {str(e["course_id"]) for e in enrs}
     except Exception:
         pass
 
-    # 2. Load all eligible, published Soft Skills courses from PostgreSQL
+    # 2. Load all eligible, published Soft Skills courses from PostgreSQL with visibility scoping
     eligible_courses = []
     try:
         async with get_pg_connection() as conn:
+            user_row = await conn.fetchrow("""
+                SELECT u.institution_id, u.department_id, u.campus, u.affiliation_status,
+                       i.institution_category
+                FROM users u
+                LEFT JOIN institutions i ON i.id = u.institution_id
+                WHERE u.id = $1
+            """, user_uuid)
+
+            caller_inst_id = user_row["institution_id"] if user_row else None
+            caller_dept_id = user_row["department_id"] if user_row else None
+            caller_campus = user_row["campus"] if user_row else None
+            caller_aff_status = user_row["affiliation_status"] if user_row else None
+            caller_inst_cat = user_row["institution_category"] if user_row else None
+
+            from app.repositories.course_repo import CourseRepository
+
             rows = await conn.fetch(
                 """
-                SELECT id, title, slug, code, category, description, duration_hours, fee
+                SELECT id, title, slug, code, category, description, duration_hours, fee,
+                       visibility_mode, target_institution_ids, target_campus_ids, target_branch_ids,
+                       deleted_at, published, status
                 FROM courses
                 WHERE published = TRUE AND deleted_at IS NULL AND category = 'Soft Skills'
                 ORDER BY title ASC
@@ -210,6 +228,19 @@ async def compute_course_recommendations(ctx: ScopeContext, limit: int = 6) -> d
                 # Exclude courses already enrolled
                 if c_id in enrolled_course_ids:
                     continue
+
+                if not CourseRepository.is_course_accessible(
+                    dict(r),
+                    caller_role="STUDENT",
+                    caller_institution_id=caller_inst_id,
+                    caller_institution_category=caller_inst_cat,
+                    caller_campus=caller_campus,
+                    caller_department_id=caller_dept_id,
+                    caller_affiliation_status=caller_aff_status,
+                    is_enrolled=False,
+                ):
+                    continue
+
                 eligible_courses.append(dict(r))
     except Exception as e:
         return {"success": False, "error": str(e), "recommendations": []}

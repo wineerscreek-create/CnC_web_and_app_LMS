@@ -534,29 +534,59 @@ async def learning_path(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
 async def my_courses(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
     if settings.USE_POSTGRES and ctx.user_id:
         from app.db.postgres import get_pg_connection
+        from app.repositories.course_repo import CourseRepository
         async with get_pg_connection() as conn:
+            user_uuid = uuid.UUID(str(ctx.user_id))
+            user_row = await conn.fetchrow("""
+                SELECT u.institution_id, u.department_id, u.campus, u.affiliation_status,
+                       i.institution_category
+                FROM users u
+                LEFT JOIN institutions i ON i.id = u.institution_id
+                WHERE u.id = $1
+            """, user_uuid)
+
+            caller_inst_id = user_row["institution_id"] if user_row else None
+            caller_dept_id = user_row["department_id"] if user_row else None
+            caller_campus = user_row["campus"] if user_row else None
+            caller_aff_status = user_row["affiliation_status"] if user_row else None
+            caller_inst_cat = user_row["institution_category"] if user_row else None
+
             trainer_row = await conn.fetchrow("""
                 SELECT u.name as trainer_name
                 FROM student_profiles sp
                 JOIN batch_trainers bt ON bt.batch_id = sp.batch_id
                 JOIN users u ON u.id = bt.trainer_user_id
-                WHERE sp.user_id = $1::uuid AND u.deleted_at IS NULL
+                WHERE sp.user_id = $1 AND u.deleted_at IS NULL
                 LIMIT 1;
-            """, uuid.UUID(str(ctx.user_id)))
+            """, user_uuid)
             student_trainer = trainer_row["trainer_name"] if trainer_row else "Winners Creek Faculty"
 
             rows = await conn.fetch("""
                 SELECT c.id, c.title, c.slug, c.code, c.description, c.category, c.training_type,
                        c.delivery_mode, c.duration_hours, c.fee, c.published, c.order_index,
+                       c.visibility_mode, c.target_institution_ids, c.target_campus_ids, c.target_branch_ids,
+                       c.status,
                        e.enrollment_status, e.access_status, e.current_semester
                 FROM courses c
-                LEFT JOIN enrollments e ON e.course_id = c.id AND e.participant_user_id = $1::uuid AND e.enrollment_status = 'ACTIVE'
+                LEFT JOIN enrollments e ON e.course_id = c.id AND e.participant_user_id = $1 AND e.enrollment_status = 'ACTIVE'
                 WHERE c.published = TRUE AND c.deleted_at IS NULL
                 ORDER BY c.order_index ASC, c.created_at DESC;
-            """, uuid.UUID(str(ctx.user_id)))
+            """, user_uuid)
             items = []
             for r in rows:
-                enrolled = r["enrollment_status"] == "ACTIVE"
+                enrolled = (r["enrollment_status"] == "ACTIVE")
+                if not CourseRepository.is_course_accessible(
+                    dict(r),
+                    caller_role="STUDENT",
+                    caller_institution_id=caller_inst_id,
+                    caller_institution_category=caller_inst_cat,
+                    caller_campus=caller_campus,
+                    caller_department_id=caller_dept_id,
+                    caller_affiliation_status=caller_aff_status,
+                    is_enrolled=enrolled,
+                ):
+                    continue
+
                 items.append({
                     "id": str(r["id"]),
                     "title": r["title"],
@@ -637,11 +667,58 @@ async def course_detail(course_id: str, ctx: ScopeContext = StudentCtx) -> dict[
                 SELECT id, title, slug, code, description, category, training_type,
                        delivery_mode, duration_hours, fee, published,
                        trial_duration_days, trial_enabled, payment_methods, upi_id, merchant_name,
-                       qr_code_url, payment_instructions, refund_policy, enrollment_open, status
+                       qr_code_url, payment_instructions, refund_policy, enrollment_open, status,
+                       visibility_mode, target_institution_ids, target_campus_ids, target_branch_ids,
+                       deleted_at
                 FROM courses WHERE id = $1 AND deleted_at IS NULL;
             """, cid)
-            if not course:
+            if not course or course["status"] == "DELETED":
                 raise NotFound("Course not found.")
+
+            user_uuid = uuid.UUID(str(ctx.user_id)) if ctx.user_id else None
+            is_enrolled = False
+            if user_uuid:
+                enr = await conn.fetchrow("""
+                    SELECT id, enrollment_status FROM enrollments 
+                    WHERE course_id = $1 AND participant_user_id = $2
+                """, cid, user_uuid)
+                is_enrolled = (enr is not None and enr["enrollment_status"] == "ACTIVE")
+
+            # If not legitimately enrolled, enforce publication and server-side visibility eligibility
+            if not is_enrolled:
+                if not course["published"] or (course["status"] and course["status"] != "PUBLISHED"):
+                    raise NotFound("Course not found.")
+
+                from app.repositories.course_repo import CourseRepository
+                user_row = None
+                if user_uuid:
+                    user_row = await conn.fetchrow("""
+                        SELECT u.institution_id, u.department_id, u.campus, u.affiliation_status,
+                               i.institution_category
+                        FROM users u
+                        LEFT JOIN institutions i ON i.id = u.institution_id
+                        WHERE u.id = $1
+                    """, user_uuid)
+
+                caller_inst_id = user_row["institution_id"] if user_row else None
+                caller_dept_id = user_row["department_id"] if user_row else None
+                caller_campus = user_row["campus"] if user_row else None
+                caller_aff_status = user_row["affiliation_status"] if user_row else None
+                caller_inst_cat = user_row["institution_category"] if user_row else None
+
+                accessible = CourseRepository.is_course_accessible(
+                    dict(course),
+                    caller_role="STUDENT",
+                    caller_institution_id=caller_inst_id,
+                    caller_institution_category=caller_inst_cat,
+                    caller_campus=caller_campus,
+                    caller_department_id=caller_dept_id,
+                    caller_affiliation_status=caller_aff_status,
+                    is_enrolled=False,
+                )
+                if not accessible:
+                    # Return 404 NotFound to prevent tenant enumeration and information disclosure
+                    raise NotFound("Course not found.")
 
             modules = await conn.fetch("""
                 SELECT id, title, slug, description, order_index

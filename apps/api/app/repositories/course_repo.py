@@ -17,8 +17,10 @@ class CourseRepository:
         caller_institution_category: str | None = None,
         caller_campus: str | None = None,
         caller_department_id: UUID | str | None = None,
+        caller_affiliation_status: str | None = None,
         is_platform_wide: bool = False,
         is_enrolled: bool = False,
+        is_invited: bool = False,
     ) -> bool:
         """Determines whether a course is visible/accessible to a given caller."""
         # Platform-wide administrators can access any course
@@ -41,6 +43,14 @@ class CourseRepository:
 
         # If course is restricted and caller is unauthenticated
         if not caller_role:
+            return False
+
+        # Invite-only courses are restricted to pre-enrolled or explicitly invited participants
+        if vis in ("INVITE_ONLY", "INTERNAL_ONLY"):
+            return is_enrolled or is_invited
+
+        # Inactive or revoked institutional affiliations lose access to tenant-scoped courses
+        if caller_affiliation_status and str(caller_affiliation_status).upper() in ("ACTION_REQUIRED", "DELETED", "SUSPENDED"):
             return False
 
         # Institutional category-wide visibility
@@ -73,10 +83,6 @@ class CourseRepository:
             targets = [str(b) for b in (course.get("target_branch_ids") or [])]
             return str(caller_department_id) in targets
 
-        # Invite-only courses are restricted to pre-enrolled participants
-        if vis in ("INVITE_ONLY", "INTERNAL_ONLY"):
-            return is_enrolled
-
         return False
 
     @staticmethod
@@ -94,6 +100,7 @@ class CourseRepository:
         caller_campus: str | None = None,
         caller_department_id: UUID | str | None = None,
         caller_user_id: UUID | str | None = None,
+        caller_affiliation_status: str | None = None,
         is_platform_wide: bool = False,
     ) -> list[dict[str, Any]]:
         conditions = ["deleted_at IS NULL"]
@@ -128,29 +135,34 @@ class CourseRepository:
                 # Authenticated users see EVERYONE + their tenant scoped courses
                 vis_clauses = ["visibility_mode = 'EVERYONE'"]
 
-                inst_cat = str(caller_institution_category or "").upper()
-                if inst_cat in ("COLLEGE", "UNIVERSITY", "HIGHER_ED"):
-                    vis_clauses.append("visibility_mode IN ('COLLEGE', 'ALL_COLLEGES')")
-                elif inst_cat in ("SCHOOL", "K12"):
-                    vis_clauses.append("visibility_mode = 'SCHOOL'")
-                elif inst_cat in ("COMPANY", "CORPORATE", "ENTERPRISE"):
-                    vis_clauses.append("visibility_mode = 'CORPORATE'")
+                # If caller's institutional affiliation is inactive, revoke tenant-scoped institutional visibility
+                is_affiliation_active = not (caller_affiliation_status and str(caller_affiliation_status).upper() in ("ACTION_REQUIRED", "DELETED", "SUSPENDED"))
 
-                if caller_institution_id:
-                    params.append(UUID(str(caller_institution_id)))
-                    vis_clauses.append(f"(visibility_mode IN ('SELECTED_INSTITUTIONS', 'SELECTED_COLLEGES') AND ${len(params)} = ANY(target_institution_ids))")
+                if is_affiliation_active:
+                    inst_cat = str(caller_institution_category or "").upper()
+                    if inst_cat in ("COLLEGE", "UNIVERSITY", "HIGHER_ED"):
+                        vis_clauses.append("visibility_mode IN ('COLLEGE', 'ALL_COLLEGES')")
+                    elif inst_cat in ("SCHOOL", "K12"):
+                        vis_clauses.append("visibility_mode = 'SCHOOL'")
+                    elif inst_cat in ("COMPANY", "CORPORATE", "ENTERPRISE"):
+                        vis_clauses.append("visibility_mode = 'CORPORATE'")
 
-                if caller_campus:
-                    params.append(str(caller_campus).strip())
-                    vis_clauses.append(f"(visibility_mode = 'SELECTED_CAMPUSES' AND ${len(params)} = ANY(target_campus_ids))")
+                    if caller_institution_id:
+                        params.append(UUID(str(caller_institution_id)))
+                        vis_clauses.append(f"(visibility_mode IN ('SELECTED_INSTITUTIONS', 'SELECTED_COLLEGES') AND ${len(params)} = ANY(target_institution_ids))")
 
-                if caller_department_id:
-                    params.append(UUID(str(caller_department_id)))
-                    vis_clauses.append(f"(visibility_mode = 'SELECTED_BRANCHES' AND ${len(params)} = ANY(target_branch_ids))")
+                    if caller_campus:
+                        params.append(str(caller_campus).strip())
+                        vis_clauses.append(f"(visibility_mode = 'SELECTED_CAMPUSES' AND ${len(params)} = ANY(target_campus_ids))")
+
+                    if caller_department_id:
+                        params.append(UUID(str(caller_department_id)))
+                        vis_clauses.append(f"(visibility_mode = 'SELECTED_BRANCHES' AND ${len(params)} = ANY(target_branch_ids))")
 
                 if caller_user_id:
                     params.append(UUID(str(caller_user_id)))
-                    vis_clauses.append(f"(visibility_mode IN ('INVITE_ONLY', 'INTERNAL_ONLY') AND id IN (SELECT course_id FROM enrollments WHERE participant_user_id = ${len(params)} AND enrollment_status = 'ACTIVE'))")
+                    # Active enrollments are always visible to the enrolled student
+                    vis_clauses.append(f"(id IN (SELECT course_id FROM enrollments WHERE participant_user_id = ${len(params)} AND enrollment_status = 'ACTIVE'))")
 
                 conditions.append(f"({' OR '.join(vis_clauses)})")
 

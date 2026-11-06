@@ -172,6 +172,7 @@ async def courses(
     is_platform_wide = bool(ctx and ctx.is_platform_wide)
     caller_inst_cat = None
     caller_campus = None
+    caller_aff_status = None
 
     if settings.USE_POSTGRES:
         from app.db.postgres import get_pg_connection
@@ -186,9 +187,10 @@ async def courses(
                     pass
             if caller_user_id:
                 try:
-                    u_row = await conn.fetchrow("SELECT campus FROM users WHERE id = $1::uuid", UUID(str(caller_user_id)))
+                    u_row = await conn.fetchrow("SELECT campus, affiliation_status FROM users WHERE id = $1::uuid", UUID(str(caller_user_id)))
                     if u_row:
                         caller_campus = u_row.get("campus")
+                        caller_aff_status = u_row.get("affiliation_status")
                 except Exception:
                     pass
 
@@ -202,6 +204,7 @@ async def courses(
             caller_campus=caller_campus,
             caller_department_id=caller_dept_id,
             caller_user_id=caller_user_id,
+            caller_affiliation_status=caller_aff_status,
             is_platform_wide=is_platform_wide,
         )
         categories = await CourseRepository.get_categories()
@@ -264,6 +267,7 @@ async def course_detail(slug: str, request: Request) -> dict[str, Any]:
     is_platform_wide = bool(ctx and ctx.is_platform_wide)
     caller_inst_cat = None
     caller_campus = None
+    caller_aff_status = None
 
     if settings.USE_POSTGRES:
         from app.db.postgres import get_pg_connection
@@ -283,9 +287,10 @@ async def course_detail(slug: str, request: Request) -> dict[str, Any]:
                     pass
             if caller_user_id:
                 try:
-                    u_row = await conn.fetchrow("SELECT campus FROM users WHERE id = $1::uuid", UUID(str(caller_user_id)))
+                    u_row = await conn.fetchrow("SELECT campus, affiliation_status FROM users WHERE id = $1::uuid", UUID(str(caller_user_id)))
                     if u_row:
                         caller_campus = u_row.get("campus")
+                        caller_aff_status = u_row.get("affiliation_status")
                     enr = await conn.fetchrow(
                         "SELECT id FROM enrollments WHERE participant_user_id = $1::uuid AND course_id = $2::uuid AND enrollment_status = 'ACTIVE'",
                         UUID(str(caller_user_id)), course["id"]
@@ -302,6 +307,7 @@ async def course_detail(slug: str, request: Request) -> dict[str, Any]:
             caller_institution_category=caller_inst_cat,
             caller_campus=caller_campus,
             caller_department_id=caller_dept_id,
+            caller_affiliation_status=caller_aff_status,
             is_platform_wide=is_platform_wide,
             is_enrolled=is_enrolled,
         )
