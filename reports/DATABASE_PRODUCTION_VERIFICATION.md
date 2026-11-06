@@ -41,3 +41,4 @@
    - Re-running the DDL produces no errors and does not drop or re-create the table.
 4. **Data Preservation**:
    - Verified that all existing tables (`users`, `institutions`, `departments`, `batches`, `courses`, `enrollments`) remained intact with zero data loss or lock contention.
+

@@ -189,9 +189,13 @@ def create_app() -> FastAPI:
     )
     app.include_router(user_banner.router, prefix=prefix, tags=["user-banner"])
 
+    from app.routers.trainer_profile import public_trainers_router, TRAINER_STATIC_DIR
+    app.include_router(public_trainers_router, prefix=prefix, tags=["public-trainers"])
+
     from fastapi.staticfiles import StaticFiles
     from app.routers.user_banner import BANNER_UPLOAD_DIR
     app.mount("/static/banners", StaticFiles(directory=BANNER_UPLOAD_DIR), name="banners")
+    app.mount("/static/trainers", StaticFiles(directory=TRAINER_STATIC_DIR), name="trainers")
 
     return app
 

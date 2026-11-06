@@ -59,3 +59,4 @@
 
 ## 3. Verdict
 The authorization subsystem strictly enforces tenant boundaries and role-based permissions at the FastAPI dependency layer (`get_scope_context`, `require_role`). Client-side payload tampering and cross-tenant resource queries are completely blocked.
+

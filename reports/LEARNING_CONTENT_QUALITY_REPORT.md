@@ -47,3 +47,4 @@ Each core soft skills course was evaluated across all 12 standardized sections:
 5. **Case Studies**: Real corporate case analyses including Amazon (Narrative Memos), Google (re:Work), McKinsey, Toyota (Andon Cord), and Netflix (Radical Candor).
 6. **Knowledge Checks**: High-signal multiple choice questions with correct answer rationales.
 7. **Frontend Rendering**: Rendered cleanly by `<StructuredContentRenderer>` with responsive layout and dark/light theme support.
+

@@ -29,6 +29,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardSubtitle, CardTitle } from '@/components/ui/card';
 import { ProgressRing } from '@/components/ui/ProgressRing';
+import { TiltCard } from '@/components/ui/TiltCard';
+import { StaggerContainer, StaggerItem } from '@/components/ui/StaggerContainer';
 import { useApi } from '@/hooks/useApi';
 import { formatDate, formatTime, hours, num } from '@/lib/format';
 import { iconFor } from '@/lib/icons';
@@ -61,45 +63,53 @@ export default function StudentDashboardPage() {
             }}
           />
 
-          {/* 2. Key Performance Indicators Row (Strict 4 Colors) */}
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard
-              label="Readiness Index"
-              value={data.readiness?.score ?? '—'}
-              outOf={data.readiness?.outOf ?? 100}
-              icon={<Gauge />}
-              tone="mustard"
-              delta={data.readiness?.delta}
-              deltaLabel={
-                data.readiness?.delta
-                  ? `${data.readiness.delta > 0 ? '+' : ''}${data.readiness.delta}% change`
-                  : 'Calculated score'
-              }
-              hasData={data.readiness?.hasData}
-              hint={`Blended from trainer ratings (${data.readiness?.trainerComponent ?? '—'}) and AI practice scores (${data.readiness?.aiComponent ?? '—'}).`}
-            />
-            <StatCard
-              label="Weekly Learning"
-              value={hours(Math.round((data.learningHoursThisWeek ?? 0) * 60))}
-              icon={<Clock />}
-              tone="charcoal"
-              deltaLabel="Continuous tracking"
-            />
-            <StatCard
-              label="Pending Tasks"
-              value={num(data.pendingTasks?.total ?? 0)}
-              icon={<ListChecks />}
-              tone="mustard"
-              deltaLabel={`${data.pendingTasks?.assignments ?? 0} assignment(s) active`}
-            />
-            <StatCard
-              label="Cohort Rank"
-              value={`#${data.leaderboard?.myRank ?? '—'}`}
-              icon={<Trophy />}
-              tone="charcoal"
-              deltaLabel={`of ${num(data.leaderboard?.outOf ?? 0)} in your batch`}
-            />
-          </div>
+          {/* 2. Key Performance Indicators Row (Strict 4 Colors & Staggered Reveal) */}
+          <StaggerContainer className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StaggerItem>
+              <StatCard
+                label="Readiness Index"
+                value={data.readiness?.score ?? '—'}
+                outOf={data.readiness?.outOf ?? 100}
+                icon={<Gauge />}
+                tone="mustard"
+                delta={data.readiness?.delta}
+                deltaLabel={
+                  data.readiness?.delta
+                    ? `${data.readiness.delta > 0 ? '+' : ''}${data.readiness.delta}% change`
+                    : 'Calculated score'
+                }
+                hasData={data.readiness?.hasData}
+                hint={`Blended from trainer ratings (${data.readiness?.trainerComponent ?? '—'}) and AI practice scores (${data.readiness?.aiComponent ?? '—'}).`}
+              />
+            </StaggerItem>
+            <StaggerItem>
+              <StatCard
+                label="Weekly Learning"
+                value={hours(Math.round((data.learningHoursThisWeek ?? 0) * 60))}
+                icon={<Clock />}
+                tone="charcoal"
+                deltaLabel="Continuous tracking"
+              />
+            </StaggerItem>
+            <StaggerItem>
+              <StatCard
+                label="Pending Tasks"
+                value={num(data.pendingTasks?.total ?? 0)}
+                icon={<ListChecks />}
+                tone="mustard"
+                deltaLabel={`${data.pendingTasks?.assignments ?? 0} assignment(s) active`}
+              />
+            </StaggerItem>
+            <StaggerItem>
+              <StatCard
+                label="Cohort Rank"
+                value={`#${data.leaderboard?.myRank ?? '—'}`}
+                icon={<Trophy />}
+                tone="charcoal"
+                deltaLabel={`of ${num(data.leaderboard?.outOf ?? 0)} in your batch`}
+              />
+            </StaggerItem>
+          </StaggerContainer>
 
           {/* 3. Asymmetrical Bento: Learning Hub & Readiness Breakdown */}
           <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
@@ -107,7 +117,7 @@ export default function StudentDashboardPage() {
             <div className="space-y-6">
               {/* Continue Learning */}
               {data.continueLearning && (
-                <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
+                <TiltCard className="p-5">
                   <div className="flex items-center justify-between pb-3.5 border-b border-border">
                     <div>
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">
@@ -149,12 +159,12 @@ export default function StudentDashboardPage() {
                       </div>
                     </div>
                   </div>
-                </div>
+                </TiltCard>
               )}
 
               {/* Today's Practice Quest */}
               {data.dailyQuest && (
-                <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
+                <TiltCard className="p-5">
                   <div className="flex items-center justify-between pb-3.5 border-b border-border">
                     <div>
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">
@@ -200,7 +210,7 @@ export default function StudentDashboardPage() {
                       </Link>
                     ))}
                   </div>
-                </div>
+                </TiltCard>
               )}
 
               {/* Week at a Glance */}
@@ -259,7 +269,7 @@ export default function StudentDashboardPage() {
             {/* Right Column: Readiness Breakdown & Upcoming Session */}
             <div className="space-y-6">
               {/* Readiness Index Card */}
-              <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
+              <TiltCard className="p-5">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">
                   Diagnostic Evaluation
                 </span>
@@ -299,11 +309,11 @@ export default function StudentDashboardPage() {
                     </p>
                   </div>
                 </div>
-              </div>
+              </TiltCard>
 
               {/* Next Live Session */}
               {data.upcomingLiveSession && (
-                <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
+                <TiltCard className="p-5">
                   <div className="flex items-center justify-between pb-3 border-b border-border">
                     <div>
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">
@@ -334,11 +344,11 @@ export default function StudentDashboardPage() {
                       </Button>
                     </div>
                   </div>
-                </div>
+                </TiltCard>
               )}
 
               {/* Quick Practice Modes Launcher */}
-              <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
+              <TiltCard className="p-5">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Skill Accelerators
                 </span>
@@ -367,7 +377,7 @@ export default function StudentDashboardPage() {
                     <span className="text-[10px] text-muted-foreground">6 Fast Challenges</span>
                   </Link>
                 </div>
-              </div>
+              </TiltCard>
             </div>
           </div>
         </div>

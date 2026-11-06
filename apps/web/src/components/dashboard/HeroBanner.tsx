@@ -5,9 +5,9 @@ import Link from 'next/link';
 import { Camera, Compass, Flame, Play, Sparkles } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { useApi } from '@/hooks/useApi';
 import { cn } from '@/lib/cn';
-import { BannerSettingsModal, type BannerData } from './BannerSettingsModal';
+import { useBanner } from '@/context/BannerContext';
+import { BannerSettingsModal } from './BannerSettingsModal';
 
 interface HeroBannerProps {
   userName: string;
@@ -40,26 +40,8 @@ export function HeroBanner({
   secondaryAction,
   className,
 }: HeroBannerProps) {
-  const bannerQuery = useApi<{ success: boolean; data: BannerData }>('/user/banner');
+  const { banner, setBanner } = useBanner();
   const [modalOpen, setModalOpen] = React.useState(false);
-
-  const [banner, setBanner] = React.useState<BannerData>({
-    hasCustomBanner: false,
-    bannerUrl: null,
-    posX: 50,
-    posY: 50,
-    scale: 1.0,
-    textColor: '#FFFFFF',
-    overlayType: 'dark',
-    overlayOpacity: 40,
-    glassmorphism: true,
-  });
-
-  React.useEffect(() => {
-    if (bannerQuery.data?.data) {
-      setBanner(bannerQuery.data.data);
-    }
-  }, [bannerQuery.data]);
 
   const hasImage = Boolean(banner.hasCustomBanner && banner.bannerUrl);
 

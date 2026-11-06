@@ -41,3 +41,4 @@ The **sole documented limitation** preventing an unqualified "PRODUCTION READY" 
 - [x] 15/15 hero banner lifecycle tests passing
 - [x] All 7 core soft-skills courses populated with 12-section curriculum
 - [ ] AWS S3 credentials configured in Render Dashboard (`STORAGE_DRIVER=s3`) (Pending DevOps setup)
+

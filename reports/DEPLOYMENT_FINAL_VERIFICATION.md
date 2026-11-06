@@ -35,3 +35,4 @@
 2. **Dashboard Deployment SHA**:
    - Direct personal access tokens for the Vercel and Render management APIs are not present in this local workspace.
    - Therefore, while live endpoints are verified online and responsive, confirming the exact deployed git commit SHA on the hosting dashboards is classified strictly as **NOT TESTED** in adherence to independent verification rule #2: *"Never claim production deployment without verifying the deployed commit SHA."*
+

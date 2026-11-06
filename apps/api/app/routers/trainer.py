@@ -2019,33 +2019,31 @@ async def list_reports(
     return {"success": True, **page_result.to_response()}
 
 
+# --------------------------------------------------------------------------- Trainer Profile (P0)
+from app.routers.trainer_profile import (
+    get_my_trainer_profile,
+    update_my_trainer_profile,
+    upload_trainer_photo,
+    TrainerProfileUpdateRequest,
+)
+
 @router.get("/profile")
 async def trainer_profile(ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
-    user = await get_db().users.find_one({"_id": ctx.user_id})
-    assignments_list = await TrainerAssignmentRepo(ctx).find_all({"active": True}, limit=200)
-    sessions_conducted = await TrainingSessionRepo(ctx).count({})
-    feedback = await TrainerFeedbackRepo(ctx).aggregate(
-        [
-            {"$match": {"trainerUserId": ctx.user_id}},
-            {"$group": {"_id": None, "avg": {"$avg": "$rating"}, "n": {"$sum": 1}}},
-        ]
-    )
-    return {
-        "success": True,
-        "data": {
-            "name": (user or {}).get("name"),
-            "email": (user or {}).get("email"),
-            "designation": (user or {}).get("designation"),
-            "departmentName": (user or {}).get("departmentName"),
-            "assignments": serialize(assignments_list),
-            "sessionsConducted": sessions_conducted,
-            "averageFeedback": (
-                round(feedback[0]["avg"], 1) if feedback and feedback[0].get("avg") else None
-            ),
-            "feedbackEntries": feedback[0]["n"] if feedback else 0,
-            "access": (user or {}).get("access", {}),
-        },
-    }
+    return await get_my_trainer_profile(ctx)
+
+@router.patch("/profile")
+async def patch_trainer_profile(
+    payload: TrainerProfileUpdateRequest,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    return await update_my_trainer_profile(payload, ctx)
+
+@router.post("/profile/photo")
+async def post_trainer_photo(
+    file: UploadFile = File(...),
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    return await upload_trainer_photo(file, ctx)
 
 
 # --------------------------------------------------------------------------- E-Books

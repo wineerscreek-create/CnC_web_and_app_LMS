@@ -422,6 +422,24 @@ html {
   border: 1px solid hsl(var(--border));
 }
 
+/* Magical 3D Entrance Animation */
+@keyframes entranceCard3D {
+  0% {
+    opacity: 0;
+    transform: perspective(1000px) translateY(24px) rotateX(15deg) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: perspective(1000px) translateY(0) rotateX(0deg) scale(1);
+  }
+}
+
+.animate-entrance-3d {
+  animation: entranceCard3D 650ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
 /* Respect user's motion preferences */
 @media (prefers-reduced-motion: reduce) {
   *,

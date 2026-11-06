@@ -37,3 +37,4 @@ The platform operates on a synchronized CSS variable token system:
 4. **Theme Toggle Transition**:
    - `ThemeToggle.tsx` toggles `.dark` class on `document.documentElement` without page reload or flash of unstyled content (FOUC).
    - Preference persisted in `localStorage('cnc_theme')`.
+

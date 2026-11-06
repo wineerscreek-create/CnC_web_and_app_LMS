@@ -35,3 +35,4 @@
 - **Status**: **NOT TESTED (API TOKENS UNAVAILABLE)**
 - **Impact**: Both live production URLs (`https://cnc-lms.vercel.app/` and `https://cnc-backend-qzmb.onrender.com/health`) return HTTP 200 OK. However, because Vercel and Render management API tokens are not provided in this local CLI environment, independent query of the exact deployed Git commit SHA from their build dashboards cannot be performed automatically.
 - **Resolution**: Check the Vercel and Render deployment dashboards manually after git push to confirm the latest commit is deployed.
+

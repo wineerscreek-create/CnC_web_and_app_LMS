@@ -34,3 +34,4 @@ All major pages, dashboards, navigation components, and modals were audited acro
    - Keyboard `Escape` key listeners and skip-links verified for screen reader compliance.
 4. **Modal Window Sizing (`BannerSettingsModal.tsx`)**:
    - Clamped modal width to `max-w-xl w-[92vw]` with internal scrollable body (`max-h-[85vh] overflow-y-auto`) to prevent viewport clipping on small mobile landscape modes.
+

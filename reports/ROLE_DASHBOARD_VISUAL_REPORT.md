@@ -70,3 +70,4 @@ A primary defect of the earlier prototype was visual homogeneity: all role dashb
 - **Ergonomic Features**:
   - Asymmetric two-column bento layout organizing learning trajectory on the left and diagnostic readiness on the right.
   - Motivating streak counter and cohort rank indicator.
+

@@ -67,3 +67,4 @@ The participant reading experience was elevated to a Notion-like structured form
 3. **SPOC / HOD**: Departmental Student Success Hub. Low-attendance alerts (< 75%), average skill scores, and recent student registrations.
 4. **Trainer**: Daily Faculty Cockpit. Today's classes with one-click attendance marking, pending assignment submissions counter, and syllabus completion velocity.
 5. **Participant**: Modern Learning Trajectory. Prominent "Continue Learning" module, readiness progress ring, daily milestones quest, and self-paced practice accelerators.
+

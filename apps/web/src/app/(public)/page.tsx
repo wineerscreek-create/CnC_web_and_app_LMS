@@ -6,12 +6,15 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Compass,
   FileCheck,
   Flame,
   GraduationCap,
   Layers,
+  MapPin,
   MessageSquare,
   Mic,
   PlayCircle,
@@ -64,11 +67,20 @@ export default function HomePage() {
   const stats = useApi<Stats>('/home/stats');
   const courses = useApi<any[]>('/home/courses', { limit: 6 });
   const trainers = useApi<any[]>('/home/trainers');
+  const publicTrainers = useApi<any[]>('/public/trainers');
   const announcements = useApi<any[]>('/home/announcements', { limit: 4 });
   const faqs = useApi<any[]>('/home/faqs');
   const testimonials = useApi<any>('/home/testimonials', undefined, {
     select: (raw) => ({ items: raw.data, notice: raw.meta?.notice }),
   });
+
+  const carouselRef = React.useRef<HTMLDivElement | null>(null);
+
+  const scrollCarousel = (direction: 'left' | 'right') => {
+    if (!carouselRef.current) return;
+    const scrollAmount = direction === 'left' ? -380 : 380;
+    carouselRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+  };
 
   const user = useAppSelector((state) => state.auth.user);
   const isStudent = user?.role === 'STUDENT';
@@ -478,48 +490,134 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ------------------------------------------------------------------ CERTIFIED FACULTY ROSTER */}
+      {/* ------------------------------------------------------------------ MEET OUR EXPERT TRAINERS */}
       <section className="px-6">
         <div className="mx-auto max-w-[1240px]">
-          <div className="max-w-[640px]">
-            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-              Accredited Mentors
-            </span>
-            <h2 className="mt-2 font-heading text-3xl sm:text-4xl font-extrabold text-heading">
-              Faculty &amp; Trainers Who Assess You
-            </h2>
-            <p className="mt-3 text-base text-muted-foreground">
-              Attributable, evidence-backed evaluation by recognized academic professors and industry experts.
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+            <div className="max-w-[640px]">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-accent/20 px-3 py-1 text-xs font-bold text-foreground border border-accent/40">
+                <Sparkles className="size-3.5 text-accent" /> Master Facilitators
+              </div>
+              <h2 className="mt-3 font-heading text-3xl sm:text-4xl font-extrabold text-heading">
+                Meet Our Expert Trainers
+              </h2>
+              <p className="mt-2 text-base text-muted-foreground">
+                Learn directly from distinguished corporate facilitators, master storytellers, and executive leadership coaches.
+              </p>
+            </div>
+            {/* Carousel Navigation Buttons */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => scrollCarousel('left')}
+                className="flex size-10 items-center justify-center rounded-xl border border-border bg-card text-foreground shadow-xs hover:border-accent hover:text-accent transition-colors"
+                aria-label="Previous trainer"
+              >
+                <ChevronLeft className="size-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollCarousel('right')}
+                className="flex size-10 items-center justify-center rounded-xl border border-border bg-card text-foreground shadow-xs hover:border-accent hover:text-accent transition-colors"
+                aria-label="Next trainer"
+              >
+                <ChevronRight className="size-5" />
+              </button>
+            </div>
           </div>
 
-          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {(trainers.data ?? []).slice(0, 8).map((trainer) => (
-              <div
-                key={trainer.id}
-                className="rounded-3xl border border-border bg-card p-6 shadow-xs transition-all duration-200 hover:-translate-y-1 hover:shadow-card-hover"
-              >
-                <Avatar name={trainer.name} size={48} />
-                <h3 className="mt-4 font-heading text-base font-bold text-heading">
-                  {trainer.name}
-                </h3>
-                <p className="text-xs font-medium text-muted-foreground">
-                  {trainer.designation} · {trainer.department}
-                </p>
-                {trainer.expertise?.length > 0 && (
-                  <div className="mt-4 flex flex-wrap gap-1.5">
-                    {trainer.expertise.slice(0, 2).map((skill: string) => (
-                      <span
-                        key={skill}
-                        className="rounded-lg bg-muted px-2 py-0.5 text-[10px] font-bold text-foreground border border-border"
-                      >
-                        {skill}
-                      </span>
-                    ))}
+          {/* Carousel / Grid Container */}
+          <div
+            ref={carouselRef}
+            className="mt-10 flex gap-6 overflow-x-auto pb-4 pt-1 snap-x snap-mandatory scrollbar-none"
+            style={{ scrollBehavior: 'smooth' }}
+          >
+            {((publicTrainers.data && publicTrainers.data.length > 0) ? publicTrainers.data : (trainers.data ?? [])).map((trainer: any) => {
+              const profileSlug = trainer.publicSlug || trainer.slug || (trainer.name ? trainer.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : trainer.id);
+              const trainerName = trainer.displayName || trainer.name || 'Faculty Trainer';
+              const designation = trainer.headline || trainer.designation || 'Corporate Trainer';
+              const experience = trainer.yearsExperience ? `${trainer.yearsExperience} Years Exp` : 'Senior Mentor';
+              const rating = trainer.rating ? Number(trainer.rating).toFixed(1) : '5.0';
+              const skills: string[] = trainer.expertiseTags || trainer.expertise || ['Communication', 'Interview Prep'];
+
+              return (
+                <div
+                  key={trainer.id || profileSlug}
+                  className="w-[310px] sm:w-[350px] shrink-0 snap-start flex flex-col justify-between rounded-3xl border border-border bg-card p-6 shadow-xs transition-all duration-300 hover:scale-[1.03] hover:-translate-y-1 hover:shadow-card-hover hover:border-accent/50 group"
+                >
+                  <div>
+                    {/* Top Avatar & Badges */}
+                    <div className="flex items-start justify-between">
+                      <div className="relative size-16 sm:size-18 rounded-2xl overflow-hidden border-2 border-primary/20 bg-muted flex items-center justify-center shrink-0">
+                        {trainer.profilePhotoUrl ? (
+                          <img
+                            src={trainer.profilePhotoUrl}
+                            alt={trainerName}
+                            className="size-full object-cover"
+                          />
+                        ) : (
+                          <div className="size-full flex items-center justify-center bg-primary/10 text-primary text-xl font-bold">
+                            {trainerName.charAt(0)}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                          <Star className="size-3 fill-amber-500 text-amber-500" /> {rating}
+                        </span>
+                        <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground border border-border">
+                          {experience}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Name & Headline */}
+                    <h3 className="mt-4 font-heading text-lg font-bold text-heading group-hover:text-primary transition-colors truncate">
+                      {trainerName}
+                    </h3>
+                    <p className="text-xs font-semibold text-primary truncate">
+                      {designation}
+                    </p>
+
+                    {/* Location */}
+                    {trainer.location && (
+                      <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <MapPin className="size-3" /> {trainer.location}
+                      </p>
+                    )}
+
+                    {/* Bio Snippet */}
+                    <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed line-clamp-3">
+                      {trainer.bio || 'Accomplished educator committed to experiential coaching, high-impact workplace communication, and executive career readiness.'}
+                    </p>
+
+                    {/* Specialization Tags */}
+                    {skills.length > 0 && (
+                      <div className="mt-3.5 flex flex-wrap gap-1.5">
+                        {skills.slice(0, 3).map((skill: string) => (
+                          <span
+                            key={skill}
+                            className="rounded-lg bg-muted px-2 py-0.5 text-[10px] font-semibold text-foreground border border-border"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {/* Bottom View Profile Action */}
+                  <div className="mt-5 border-t border-border pt-4">
+                    <Button asChild variant="secondary" size="sm" className="w-full rounded-xl font-bold group-hover:bg-accent group-hover:text-accent-foreground group-hover:border-accent transition-colors">
+                      <Link href={`/trainers/${profileSlug}`}>
+                        View Profile <ArrowRight className="size-3.5 ml-1 transition-transform group-hover:translate-x-1" />
+                      </Link>
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
