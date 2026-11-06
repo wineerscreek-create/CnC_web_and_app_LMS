@@ -32,3 +32,4 @@
 - **Boundary**: A participant accesses exclusively their own enrollments, trial status, assessment scores, resume critiques, and game attempts.
 - **Test Evidence**:
   - Participant attempting to access another student's profile via direct UUID -> Blocked server-side with HTTP 403/404.
+

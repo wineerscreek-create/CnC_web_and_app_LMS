@@ -55,3 +55,4 @@
 - Modes supported: `light`, `dark`, `system`.
 - Preserved in `localStorage` under `wc_theme_mode` and `wc_theme`.
 - Zero theme flash on initial load.
+

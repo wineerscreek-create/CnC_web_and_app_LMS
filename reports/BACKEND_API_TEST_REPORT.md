@@ -101,3 +101,4 @@
 | `/api/v1/live-classes/recordings/my` | GET | 200 OK | **200 OK** |
 | `/api/v1/user/banner` | GET | 200 OK | **200 OK** |
 | `/api/v1/auth/me` | GET | 200 OK | **200 OK** |
+

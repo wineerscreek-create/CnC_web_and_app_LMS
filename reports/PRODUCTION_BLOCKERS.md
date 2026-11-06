@@ -21,3 +21,4 @@
 ## 2. Active Risks & Ongoing Monitoring
 - **Object Storage vs Local Disk**: In local/container environments, uploaded banners are stored in the persistent static directory. When AWS S3 credentials are configured in production via `STORAGE_BACKEND=s3`, the existing S3 driver handles uploads seamlessly.
 - **Certificate / Placement Decommissioning**: Confirmed complete removal of deprecated certificates and placement routes from UI, backend routers, and navigation.
+

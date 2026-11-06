@@ -37,3 +37,4 @@ Via migration `005_user_banners_and_learning_content.sql`, comprehensive, profes
 - Developed `<StructuredContentRenderer>` (`apps/web/src/components/learning/StructuredContentRenderer.tsx`).
 - Replaced monolithic `<p>` tag in `apps/web/src/app/student/learning/[courseId]/page.tsx`.
 - Automatically parses Markdown sections, renders callouts for Do's and Don'ts, scenario breakdown cards, and knowledge check questions with high visual clarity and typographic rhythm.
+

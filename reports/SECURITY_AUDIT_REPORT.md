@@ -45,3 +45,4 @@
 ## 4. Secret & Environment Protection
 - Verified `.gitignore` excludes `.env`, `apps/api/.env`, production dumps, and logs.
 - Working tree inspected prior to commit; zero credentials or private tokens tracked.
+

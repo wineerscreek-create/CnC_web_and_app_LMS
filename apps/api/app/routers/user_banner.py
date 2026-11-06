@@ -318,3 +318,4 @@ async def delete_user_banner(ctx: ScopeContext = Depends(get_scope_context)) -> 
             "glassmorphism": True,
         },
     }
+

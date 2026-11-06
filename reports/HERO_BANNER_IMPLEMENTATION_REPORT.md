@@ -59,3 +59,4 @@ To satisfy strict multi-tenant security and zero database bloat:
 - `py -3.13 audit_all_roles.py`: `GET /api/v1/user/banner` tested and passed (200 OK) across Super Admin, Admin, Trainer, and Student.
 - File upload validations verified with size bounds and extension whitelisting.
 - Multi-device preview verified for 360px mobile viewports up to 1440px desktop screens.
+

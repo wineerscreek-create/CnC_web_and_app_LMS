@@ -28,3 +28,4 @@ The entire interface was tested against representative screen dimensions:
    - Constrained modal dialogs to `max-h-[85vh] overflow-y-auto` with sticky headers and scrollable bodies, completely eliminating clipping issues on small screens.
 5. **Horizontal Scroll Elimination**:
    - Replaced rigid tables with `overflow-x-auto` wrappers and card-based mobile summaries. Zero horizontal scrollbar anomalies detected across test viewports.
+

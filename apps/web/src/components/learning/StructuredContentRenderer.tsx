@@ -171,3 +171,4 @@ export function StructuredContentRenderer({ content, className }: StructuredCont
 
   return <div className={cn('space-y-1', className)}>{elements}</div>;
 }
+

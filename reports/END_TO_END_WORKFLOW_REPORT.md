@@ -33,3 +33,4 @@
 1. **Login**: Lands on `/super-admin`, reviews multi-institution revenue and metrics.
 2. **Curriculum Deployment**: Authors courses, exercises permanent deletion workflow requiring password re-authentication.
 3. **Platform Telemetry**: Inspects Super Admin profile (`/super-admin/profile`), security audit events, and payment queues.
+

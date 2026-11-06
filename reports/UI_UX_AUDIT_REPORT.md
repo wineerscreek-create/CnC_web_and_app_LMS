@@ -24,3 +24,4 @@
 - **Background Ambiance**:
   - Integrated high-performance, GPU-accelerated constellation particle canvas (`ConstellationCanvas.tsx`) into the global layout layer.
   - Particles drift gracefully with orange, teal, and indigo accents, connect with proximity lines, and gently respond to cursor interaction with zero layout shift or content blocking.
+

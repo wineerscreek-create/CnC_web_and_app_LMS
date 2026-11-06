@@ -29,3 +29,4 @@
 - Dynamic imports for heavy chart components (`LineTrend`, `BarCompare`) with skeleton loading fallback.
 - Next.js production build (`npm run build`) produced 78 statically and dynamically optimized routes.
 - Shared first-load JavaScript size optimized to ~106 kB across all pages.
+
