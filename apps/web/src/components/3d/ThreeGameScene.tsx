@@ -153,3 +153,4 @@ export function ThreeGameScene({ className }: ThreeGameSceneProps) {
     />
   );
 }
+

@@ -72,6 +72,8 @@ export default function SuperAdminCoursesPage() {
   const [price, setPrice] = React.useState(4999);
   const [durationHours, setDurationHours] = React.useState(40);
   const [trainerName, setTrainerName] = React.useState('Lead Master Trainer');
+  const [schemeType, setSchemeType] = React.useState('SEMESTER');
+  const [totalPeriods, setTotalPeriods] = React.useState(8);
 
   const courses: SuperAdminCourse[] = Array.isArray(query.data) ? query.data : [];
 
@@ -91,6 +93,7 @@ export default function SuperAdminCoursesPage() {
     setSubmitting(true);
     try {
       const availableModes = courseMode === 'BOTH' ? ['ONLINE', 'OFFLINE'] : [courseMode];
+      const periodLabel = schemeType === 'SEMESTER' ? 'Semester' : schemeType === 'MODULE' ? 'Module' : schemeType === 'YEAR' ? 'Year' : 'Period';
       await api.post('/super-admin/courses', {
         title: title.trim(),
         slug: slug.trim(),
@@ -101,6 +104,9 @@ export default function SuperAdminCoursesPage() {
         price: Number(price),
         durationHours: Number(durationHours),
         trainerName: trainerName.trim(),
+        schemeType,
+        totalPeriods: Number(totalPeriods),
+        periodLabel,
         published: true,
         enrollmentOpen: true,
       });
@@ -292,6 +298,35 @@ export default function SuperAdminCoursesPage() {
                 className="font-mono text-xs"
               />
             </Field>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Academic Scheme Type" htmlFor="cScheme">
+                <select
+                  id="cScheme"
+                  value={schemeType}
+                  onChange={(e) => setSchemeType(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground font-medium"
+                >
+                  <option value="SEMESTER">Semester-Based</option>
+                  <option value="YEAR">Year-Based</option>
+                  <option value="MODULE">Module-Based</option>
+                  <option value="MONTHLY">Monthly-Based</option>
+                  <option value="QUARTERLY">Quarterly-Based</option>
+                  <option value="CUSTOM">Custom Duration</option>
+                </select>
+              </Field>
+
+              <Field label="Total Periods" htmlFor="cPeriods">
+                <Input
+                  id="cPeriods"
+                  type="number"
+                  min="1"
+                  max="32"
+                  value={totalPeriods}
+                  onChange={(e) => setTotalPeriods(Number(e.target.value))}
+                />
+              </Field>
+            </div>
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Delivery Mode" htmlFor="cMode" required>

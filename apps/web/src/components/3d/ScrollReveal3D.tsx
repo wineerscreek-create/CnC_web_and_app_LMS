@@ -78,3 +78,4 @@ export function ScrollReveal3D({
     </div>
   );
 }
+

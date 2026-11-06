@@ -294,14 +294,17 @@ export function SiteFooter() {
   );
 }
 
+import { PublicSiteBackground } from '@/components/3d';
+
 export function PublicPage({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col selection:bg-accent/20 selection:text-foreground">
+    <div className="relative min-h-screen bg-background text-foreground flex flex-col selection:bg-accent/20 selection:text-foreground overflow-x-hidden">
+      <PublicSiteBackground />
       <a href="#main" className="skip-link sr-only focus:not-sr-only focus:p-4 focus:bg-card focus:fixed focus:z-50">
         Skip to main content
       </a>
       <SiteHeader />
-      <main id="main" className="flex-1">{children}</main>
+      <main id="main" className="relative z-10 flex-1">{children}</main>
       <SiteFooter />
     </div>
   );

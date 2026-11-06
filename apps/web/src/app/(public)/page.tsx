@@ -46,6 +46,7 @@ import {
   Interactive3DGameCard,
   MagneticButton3D,
   Interactive3DIcon,
+  ContinuouslyMovingCarousel,
   REAL_GAMES,
 } from '@/components/3d';
 
@@ -59,6 +60,38 @@ const DynamicThreeHeroScene = dynamic(
         <div className="size-72 rounded-full border border-accent/20 bg-accent/5 animate-pulse" />
       </div>
     ),
+  }
+);
+
+const DynamicSevenPillarsGalaxyScene = dynamic(
+  () => import('@/components/3d/SevenPillarsGalaxyScene').then((m) => m.SevenPillarsGalaxyScene),
+  {
+    ssr: false,
+    loading: () => <div className="h-[420px] sm:h-[480px] rounded-3xl bg-muted/10 border border-border/40 animate-pulse" />,
+  }
+);
+
+const DynamicLearningJourneyGalaxyScene = dynamic(
+  () => import('@/components/3d/LearningJourneyGalaxyScene').then((m) => m.LearningJourneyGalaxyScene),
+  {
+    ssr: false,
+    loading: () => <div className="h-[400px] sm:h-[460px] rounded-3xl bg-muted/10 border border-border/40 animate-pulse" />,
+  }
+);
+
+const DynamicInteractiveLearningGalaxyScene = dynamic(
+  () => import('@/components/3d/InteractiveLearningGalaxyScene').then((m) => m.InteractiveLearningGalaxyScene),
+  {
+    ssr: false,
+    loading: () => <div className="h-[400px] sm:h-[460px] rounded-3xl bg-muted/10 border border-border/40 animate-pulse" />,
+  }
+);
+
+const DynamicUniverseClusterScene = dynamic(
+  () => import('@/components/3d/UniverseClusterScene').then((m) => m.UniverseClusterScene),
+  {
+    ssr: false,
+    loading: () => <div className="h-[400px] sm:h-[460px] rounded-3xl bg-muted/10 border border-border/40 animate-pulse" />,
   }
 );
 
@@ -556,74 +589,202 @@ export default function HomePage() {
       </section>
 
       {/* ------------------------------------------------------------------ 5. 3D PLATFORM FEATURES (SEVEN PILLARS) */}
-      <section className="px-6">
+      <section className="px-6 relative">
         <div className="mx-auto max-w-[1240px]">
-          <ScrollReveal3D className="flex flex-wrap items-end justify-between gap-6">
+          <ScrollReveal3D className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
             <div className="max-w-[640px]">
-              <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                Evaluated Competencies
-              </span>
-              <h2 className="mt-2 font-heading text-3xl sm:text-4xl font-extrabold text-heading">
-                The Seven Pillars of Career Success
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-3 py-1 text-xs font-bold text-heading border border-accent/30">
+                <Sparkles className="size-3.5 text-accent" /> Competency Architecture
+              </div>
+              <h2 className="mt-3 font-heading text-3xl sm:text-4xl font-extrabold text-heading">
+                The Seven Pillars of Career &amp; Professional Readiness
               </h2>
-              <p className="mt-3 text-base text-muted-foreground">
-                Standardized across all affiliated colleges and measured identically by every certified trainer and AI simulator.
+              <p className="mt-3 text-base text-muted-foreground leading-relaxed">
+                Objective competency framework mapped directly to the EEDI evaluation engine. Measured across structured rubrics, cognitive simulations, and expert faculty assessments.
               </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge tone="mustard" className="text-xs font-mono py-1 px-3">
+                7 Orbital Dimensions
+              </Badge>
             </div>
           </ScrollReveal3D>
 
-          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {(data?.pillars ?? [
-              { code: 'COMM', title: 'Verbal Communication', body: 'Clarity, conciseness, articulation, pace, and persuasive rhetoric in professional dialogue.', icon: 'message' },
-              { code: 'PRES', title: 'Presentation & Pitching', body: 'Structure, storytelling, visual slide design, non-verbal confidence, and executive presence.', icon: 'video' },
-              { code: 'TEAM', title: 'Team Collaboration', body: 'Active listening, constructive disagreement, emotional intelligence, and cross-functional empathy.', icon: 'users' },
-              { code: 'LEAD', title: 'Leadership & Initiative', body: 'Goal ownership, proactive decision making, peer motivation, and problem escalation.', icon: 'trophy' },
-              { code: 'WRIT', title: 'Professional Writing', body: 'Corporate email etiquette, documentation, executive briefs, and formal correspondence.', icon: 'book' },
-              { code: 'INTV', title: 'Interview Readiness', body: 'STAR framework responses, technical articulation, behavioral questions, and composure under pressure.', icon: 'sparkles' },
-              { code: 'CRIT', title: 'Critical Thinking', body: 'Analytical decomposition, data-driven synthesis, assumption testing, and structured problem solving.', icon: 'compass' },
-            ]).map((pillar, idx) => (
-              <ScrollReveal3D key={pillar.code} delayMs={idx * 60}>
-                <TiltCard3D
-                  maxAngle={8}
-                  scale={1.03}
-                  className="group h-full p-6 transition-all duration-300 hover:border-accent/50 hover:shadow-card-hover"
-                >
-                  <Interactive3DIcon
-                    icon={Compass}
-                    size="md"
-                    color={idx % 2 === 0 ? 'primary' : 'accent'}
-                    className="mb-4"
-                  />
-                  <h3 className="font-heading text-base font-bold text-heading">
-                    {pillar.title}
-                  </h3>
-                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                    {pillar.body}
-                  </p>
-                </TiltCard3D>
-              </ScrollReveal3D>
-            ))}
+          {/* Interactive 3D Seven Pillars Galaxy Model */}
+          <div className="mt-8 rounded-3xl border border-border/80 bg-card/60 backdrop-blur-md shadow-card overflow-hidden">
+            <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] items-center">
+              <div className="p-4 sm:p-6">
+                <DynamicSevenPillarsGalaxyScene />
+              </div>
+              <div className="p-6 lg:p-8 border-t lg:border-t-0 lg:border-l border-border/60 flex flex-col justify-center">
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Interactive Orbital System
+                </span>
+                <h3 className="mt-2 text-xl sm:text-2xl font-bold font-heading text-heading">
+                  Multi-Dimensional Capability Continuum
+                </h3>
+                <p className="mt-3 text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                  Every participant builds competency across distinct developmental axes. The EEDI diagnostic platform harmonizes faculty ratings, practical artifacts, and AI-scored simulations into a unified readiness velocity.
+                </p>
+                <div className="mt-6 grid grid-cols-2 gap-3 text-xs">
+                  <div className="rounded-xl border border-border/80 bg-muted/30 p-3">
+                    <p className="font-bold text-heading">Real-Time Synthesis</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">Continuous milestone weighting</p>
+                  </div>
+                  <div className="rounded-xl border border-border/80 bg-muted/30 p-3">
+                    <p className="font-bold text-heading">Objective Rubrics</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">Zero subjective inflation</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* The 7 Pillar Cards */}
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {[
+              {
+                code: 'COMM',
+                title: 'Communication & Articulation',
+                body: 'Coherent discourse, vocal modulation, and executive clarity across oral, written, and collaborative interactions.',
+                icon: MessageSquare,
+                tone: 'primary',
+              },
+              {
+                code: 'PROB',
+                title: 'Critical Problem Solving',
+                body: 'Structured hypothesis testing, root-cause decomposition, data synthesis, and creative reasoning under constraint.',
+                icon: Compass,
+                tone: 'accent',
+              },
+              {
+                code: 'TECH',
+                title: 'Technical Depth & Domain Agility',
+                body: 'Conceptual architecture mastery, domain-specific competence, and versatile cross-platform engineering adaptability.',
+                icon: Layers,
+                tone: 'primary',
+              },
+              {
+                code: 'TEAM',
+                title: 'Collaborative Team Dynamics',
+                body: 'Active listening, emotional intelligence, constructive dissent, and cross-functional team synergy.',
+                icon: Users,
+                tone: 'accent',
+              },
+              {
+                code: 'LEAD',
+                title: 'Adaptive Leadership & Initiative',
+                body: 'Proactive ownership, strategic accountability, decision resilience, and inspirational guidance.',
+                icon: Trophy,
+                tone: 'primary',
+              },
+              {
+                code: 'ETHC',
+                title: 'Professional Ethics & Integrity',
+                body: 'Fiduciary stewardship, intellectual honesty, values-centered conduct, and systemic transparency.',
+                icon: ShieldCheck,
+                tone: 'accent',
+              },
+              {
+                code: 'GROW',
+                title: 'Continuous Learning & Evolution',
+                body: 'Autonomous upskilling, feedback integration, cognitive elasticity, and lifelong capability expansion.',
+                icon: Sparkles,
+                tone: 'primary',
+              },
+            ].map((pillar, idx) => {
+              const Icon = pillar.icon;
+              return (
+                <ScrollReveal3D key={pillar.code} delayMs={idx * 50}>
+                  <TiltCard3D
+                    maxAngle={8}
+                    scale={1.02}
+                    className="group h-full p-6 transition-all duration-300 hover:border-accent/50 hover:shadow-card-hover flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <Interactive3DIcon
+                          icon={Icon}
+                          size="md"
+                          color={pillar.tone as any}
+                        />
+                        <span className="font-mono text-[11px] font-bold text-muted-foreground/80 rounded bg-muted px-2 py-0.5">
+                          {pillar.code}
+                        </span>
+                      </div>
+                      <h3 className="font-heading text-base font-bold text-heading group-hover:text-primary transition-colors">
+                        {pillar.title}
+                      </h3>
+                      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                        {pillar.body}
+                      </p>
+                    </div>
+                  </TiltCard3D>
+                </ScrollReveal3D>
+              );
+            })}
           </div>
         </div>
       </section>
 
       {/* ------------------------------------------------------------------ 6. HOW IT WORKS — 3D SCROLL EXPERIENCE */}
-      <section className="px-6">
+      <section className="px-6 relative">
         <div className="mx-auto max-w-[1240px]">
-          <ScrollReveal3D className="max-w-[680px]">
-            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-              Learning Journey
-            </span>
-            <h2 className="mt-2 font-heading text-3xl sm:text-4xl font-extrabold text-heading">
-              How It Works: Connected 3D Progression
-            </h2>
-            <p className="mt-3 text-base text-muted-foreground">
-              From initial competency benchmarking to placement endorsement, experience an interconnected learning pipeline designed for maximum retention.
-            </p>
+          <ScrollReveal3D className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+            <div className="max-w-[680px]">
+              <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                Connected Learning Pipeline
+              </span>
+              <h2 className="mt-2 font-heading text-3xl sm:text-4xl font-extrabold text-heading">
+                The 6-Stage Learning Progression Architecture
+              </h2>
+              <p className="mt-3 text-base text-muted-foreground leading-relaxed">
+                A connected, data-driven journey from initial baseline diagnostic to authenticated professional milestones.
+              </p>
+            </div>
+            <Badge tone="charcoal" className="self-start lg:self-auto text-xs font-mono py-1 px-3">
+              Stages 01 → 06
+            </Badge>
           </ScrollReveal3D>
 
-          <div className="mt-10">
-            <AnimatedTimeline3D />
+          {/* Interactive 3D Journey Spline Model */}
+          <div className="mt-8 rounded-3xl border border-border/80 bg-card/60 backdrop-blur-md shadow-card overflow-hidden">
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] items-center">
+              <div className="p-4 sm:p-6">
+                <DynamicLearningJourneyGalaxyScene />
+              </div>
+              <div className="p-6 lg:p-8 border-t lg:border-t-0 lg:border-l border-border/60">
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Persistent Trajectory
+                </span>
+                <h3 className="mt-2 text-xl font-bold font-heading text-heading">
+                  Connected Progression Network
+                </h3>
+                <p className="mt-3 text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                  Progression is never linear or static. As participants advance through schemes, milestones unlock adaptively based on real attendance, simulation mastery, and faculty reviews.
+                </p>
+
+                {/* 6 Stage Micro-Cards */}
+                <div className="mt-6 space-y-2.5">
+                  {[
+                    { num: '01', title: 'Discover & Assess', desc: 'Baseline diagnostic across the 7 competency pillars' },
+                    { num: '02', title: 'Plan & Personalize', desc: 'Custom curriculum schemes, duration & milestones' },
+                    { num: '03', title: 'Learn & Explore', desc: 'Interactive live workshops & verified coursework' },
+                    { num: '04', title: 'Practice & Apply', desc: 'Cognitive simulations, case challenges & sprints' },
+                    { num: '05', title: 'Evaluate & Improve', desc: 'Objective rubric scoring & actionable faculty feedback' },
+                    { num: '06', title: 'Track & Grow', desc: 'Dynamic portfolio velocity & verified transcripts' },
+                  ].map((st) => (
+                    <div key={st.num} className="flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 p-2.5 text-xs">
+                      <span className="font-mono font-bold text-accent shrink-0">{st.num}</span>
+                      <div>
+                        <strong className="text-heading font-semibold">{st.title}</strong>
+                        <p className="text-[11px] text-muted-foreground">{st.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -665,10 +826,35 @@ export default function HomePage() {
             </div>
           </ScrollReveal3D>
 
+          {/* 3D Interactive Simulation Atmosphere */}
+          <div className="mt-8 rounded-3xl border border-border/80 bg-card/60 backdrop-blur-md shadow-card overflow-hidden">
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] items-center">
+              <div className="p-4 sm:p-6">
+                <DynamicInteractiveLearningGalaxyScene />
+              </div>
+              <div className="p-6 lg:p-8 border-t lg:border-t-0 lg:border-l border-border/60">
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Cognitive Simulation Arena
+                </span>
+                <h3 className="mt-2 text-xl font-bold font-heading text-heading">
+                  Gamified Adaptive Mastery
+                </h3>
+                <p className="mt-3 text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                  Interactive games quantify cognitive velocity, situational reasoning, and decision reflexes. Each session generates real-time telemetry that feeds directly into your verified readiness portfolio.
+                </p>
+                <div className="mt-5 flex flex-wrap gap-2 text-xs">
+                  <Badge tone="mustard">Real-time Telemetry</Badge>
+                  <Badge tone="charcoal">Immediate Rubric Scoring</Badge>
+                  <Badge tone="neutral">EEDI Profile Integration</Badge>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Swipeable Game Carousel */}
           <div
             ref={gameCarouselRef}
-            className="mt-10 flex gap-6 overflow-x-auto pb-4 pt-1 snap-x snap-mandatory scrollbar-none"
+            className="mt-8 flex gap-6 overflow-x-auto pb-4 pt-1 snap-x snap-mandatory scrollbar-none"
             style={{ scrollBehavior: 'smooth' }}
           >
             {REAL_GAMES.map((game) => (
@@ -686,19 +872,19 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ------------------------------------------------------------------ 8. FEATURED PROGRAMS */}
-      <section className="px-6">
+      {/* ------------------------------------------------------------------ 8. FEATURED PROGRAMS (CONTINUOUSLY MOVING TRACK) */}
+      <section className="px-6 relative">
         <div className="mx-auto max-w-[1240px]">
           <ScrollReveal3D className="flex flex-wrap items-end justify-between gap-6">
             <div className="max-w-[640px]">
               <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                Curriculum
+                Continuous Curriculum Universe
               </span>
               <h2 className="mt-2 font-heading text-3xl sm:text-4xl font-extrabold text-heading">
-                Featured Programs
+                Accredited Course Schemes &amp; Programs
               </h2>
               <p className="mt-3 text-base text-muted-foreground">
-                Structured roadmaps guiding undergraduates into enterprise-ready professionals.
+                Seamlessly moving showcase of enterprise-ready academic and professional development tracks.
               </p>
             </div>
             <Button asChild variant="secondary" size="md" className="rounded-xl font-bold">
@@ -709,46 +895,51 @@ export default function HomePage() {
             </Button>
           </ScrollReveal3D>
 
-          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {courseList.map((course, idx) => (
-              <ScrollReveal3D key={course.id || course.slug} delayMs={idx * 80}>
-                <Link href={`/courses/${course.slug}`} className="group block h-full">
-                  <TiltCard3D
-                    maxAngle={7}
-                    scale={1.03}
-                    className="flex h-full flex-col justify-between p-7 hover:border-accent/50 hover:shadow-card-hover transition-all duration-300"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <span className="rounded-xl bg-secondary px-2.5 py-1 text-xs font-bold text-secondary-foreground shadow-xs">
-                          {course.difficulty ?? 'All Levels'}
-                        </span>
-                        <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                          <Clock className="size-3.5" />
-                          {course.durationHours}h
+          {/* Continuously Moving Course Track */}
+          <div className="mt-8">
+            <ContinuouslyMovingCarousel speedSeconds={38} reverse={true} ariaLabel="Continuous course showcase">
+              {courseList.map((course) => (
+                <div key={course.id || course.slug} className="w-[320px] sm:w-[360px] shrink-0">
+                  <Link href={`/courses/${course.slug}`} className="group block h-full">
+                    <TiltCard3D
+                      maxAngle={7}
+                      scale={1.02}
+                      className="flex h-full flex-col justify-between p-6 bg-card/90 hover:border-accent/50 hover:shadow-card-hover transition-all duration-300"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="rounded-xl bg-secondary px-2.5 py-1 text-xs font-bold text-secondary-foreground shadow-xs">
+                            {course.difficulty ?? 'All Levels'}
+                          </span>
+                          <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                            <Clock className="size-3.5" />
+                            {course.durationHours}h
+                          </span>
+                        </div>
+                        <h3 className="mt-4 font-heading text-base font-bold text-heading group-hover:text-primary transition-colors line-clamp-2">
+                          {course.title}
+                        </h3>
+                        <p className="mt-2 text-xs leading-relaxed text-muted-foreground line-clamp-3">
+                          {course.description}
+                        </p>
+                      </div>
+                      <div className="mt-5 flex items-center justify-between border-t border-border pt-3.5 text-xs font-bold text-foreground">
+                        <span className="text-muted-foreground">{course.stage ?? 'Core Milestone'}</span>
+                        <span className="text-accent flex items-center gap-1">
+                          Explore Scheme <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-1" />
                         </span>
                       </div>
-                      <h3 className="mt-5 font-heading text-lg font-bold text-heading group-hover:text-gold-text transition-colors">
-                        {course.title}
-                      </h3>
-                      <p className="mt-2 text-xs leading-relaxed text-muted-foreground line-clamp-3">
-                        {course.description}
-                      </p>
-                    </div>
-                    <div className="mt-6 flex items-center justify-between border-t border-border pt-4 text-xs font-bold text-foreground">
-                      <span>Stage: {course.stage ?? 'Core Foundation'}</span>
-                      <ArrowRight className="size-4 text-gold-text transition-transform duration-200 group-hover:translate-x-1" />
-                    </div>
-                  </TiltCard3D>
-                </Link>
-              </ScrollReveal3D>
-            ))}
+                    </TiltCard3D>
+                  </Link>
+                </div>
+              ))}
+            </ContinuouslyMovingCarousel>
           </div>
         </div>
       </section>
 
-      {/* ------------------------------------------------------------------ 9. MEET OUR EXPERT TRAINERS — 3D SHOWCASE */}
-      <section className="px-6">
+      {/* ------------------------------------------------------------------ 9. MEET OUR EXPERT TRAINERS (CONTINUOUSLY MOVING TRACK) */}
+      <section className="px-6 relative">
         <div className="mx-auto max-w-[1240px]">
           <ScrollReveal3D className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <div className="max-w-[640px]">
@@ -756,145 +947,129 @@ export default function HomePage() {
                 <Sparkles className="size-3.5 text-accent" /> Master Facilitators
               </div>
               <h2 className="mt-3 font-heading text-3xl sm:text-4xl font-extrabold text-heading">
-                Meet Our Expert Trainers
+                Continuously Moving Trainer Universe
               </h2>
               <p className="mt-2 text-base text-muted-foreground">
-                Learn directly from distinguished corporate facilitators, master storytellers, and executive leadership coaches.
+                Hover to pause. Learn directly from distinguished master facilitators, corporate coaches, and domain architects.
               </p>
             </div>
-
-            {/* Trainer Carousel Navigation Buttons */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => scrollTrainers('left')}
-                className="flex size-10 items-center justify-center rounded-xl border border-border bg-card text-foreground shadow-xs hover:border-accent hover:text-accent transition-colors"
-                aria-label="Previous trainer"
-              >
-                <ChevronLeft className="size-5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => scrollTrainers('right')}
-                className="flex size-10 items-center justify-center rounded-xl border border-border bg-card text-foreground shadow-xs hover:border-accent hover:text-accent transition-colors"
-                aria-label="Next trainer"
-              >
-                <ChevronRight className="size-5" />
-              </button>
-            </div>
+            <Button asChild variant="secondary" size="md" className="rounded-xl font-bold">
+              <Link href="/trainers">
+                Explore All Faculty
+                <ArrowRight className="size-4 ml-1" />
+              </Link>
+            </Button>
           </ScrollReveal3D>
 
-          {/* Swipeable Trainer Carousel */}
-          <div
-            ref={trainerCarouselRef}
-            className="mt-10 flex gap-6 overflow-x-auto pb-4 pt-1 snap-x snap-mandatory scrollbar-none"
-            style={{ scrollBehavior: 'smooth' }}
-          >
-            {trainerList.map((trainer: any) => {
-              const profileSlug =
-                trainer.publicSlug ||
-                trainer.slug ||
-                (trainer.name ? trainer.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : trainer.id);
-              const trainerName = trainer.displayName || trainer.name || 'Faculty Trainer';
-              const designation = trainer.headline || trainer.designation || 'Corporate Trainer';
-              const experience = trainer.yearsExperience
-                ? `${trainer.yearsExperience} Years Exp`
-                : 'Senior Mentor';
-              const rating = trainer.rating ? Number(trainer.rating).toFixed(1) : '5.0';
-              const skills: string[] =
-                trainer.expertiseTags || trainer.expertise || ['Communication', 'Interview Prep'];
+          {/* Continuously Moving Trainer Track */}
+          <div className="mt-8">
+            <ContinuouslyMovingCarousel speedSeconds={32} ariaLabel="Continuous trainer showcase">
+              {trainerList.map((trainer: any) => {
+                const profileSlug =
+                  trainer.publicSlug ||
+                  trainer.slug ||
+                  (trainer.name ? trainer.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : trainer.id);
+                const trainerName = trainer.displayName || trainer.name || 'Faculty Trainer';
+                const designation = trainer.headline || trainer.designation || 'Corporate Trainer';
+                const experience = trainer.yearsExperience
+                  ? `${trainer.yearsExperience} Years Exp`
+                  : 'Senior Mentor';
+                const rating = trainer.rating ? Number(trainer.rating).toFixed(1) : '5.0';
+                const skills: string[] =
+                  trainer.expertiseTags || trainer.expertise || ['Communication', 'Interview Prep'];
 
-              return (
-                <div
-                  key={trainer.id || profileSlug}
-                  className="w-[310px] sm:w-[350px] shrink-0 snap-start flex flex-col"
-                >
-                  <TiltCard3D
-                    maxAngle={8}
-                    scale={1.03}
-                    className="flex h-full flex-col justify-between p-6 group hover:border-accent/50 hover:shadow-card-hover transition-all duration-300"
+                return (
+                  <div
+                    key={trainer.id || profileSlug}
+                    className="w-[310px] sm:w-[350px] shrink-0 flex flex-col"
                   >
-                    <div>
-                      {/* Top Avatar & Badges */}
-                      <div className="flex items-start justify-between">
-                        <div className="relative size-16 sm:size-18 rounded-2xl overflow-hidden border-2 border-primary/20 bg-muted flex items-center justify-center shrink-0 shadow-xs">
-                          {trainer.profilePhotoUrl ? (
-                            <img
-                              src={trainer.profilePhotoUrl}
-                              alt={trainerName}
-                              className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
-                            />
-                          ) : (
-                            <div className="size-full flex items-center justify-center bg-primary/10 text-primary text-xl font-bold">
-                              {trainerName.charAt(0)}
-                            </div>
-                          )}
+                    <TiltCard3D
+                      maxAngle={8}
+                      scale={1.02}
+                      className="flex h-full flex-col justify-between p-6 bg-card/90 group hover:border-accent/50 hover:shadow-card-hover transition-all duration-300"
+                    >
+                      <div>
+                        {/* Top Avatar & Badges */}
+                        <div className="flex items-start justify-between">
+                          <div className="relative size-16 sm:size-18 rounded-2xl overflow-hidden border-2 border-primary/20 bg-muted flex items-center justify-center shrink-0 shadow-xs">
+                            {trainer.profilePhotoUrl ? (
+                              <img
+                                src={trainer.profilePhotoUrl}
+                                alt={trainerName}
+                                className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
+                              />
+                            ) : (
+                              <div className="size-full flex items-center justify-center bg-primary/10 text-primary text-xl font-bold">
+                                {trainerName.charAt(0)}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex flex-col items-end gap-1">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                              <Star className="size-3 fill-amber-500 text-amber-500" /> {rating}
+                            </span>
+                            <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground border border-border">
+                              {experience}
+                            </span>
+                          </div>
                         </div>
 
-                        <div className="flex flex-col items-end gap-1">
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                            <Star className="size-3 fill-amber-500 text-amber-500" /> {rating}
-                          </span>
-                          <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground border border-border">
-                            {experience}
-                          </span>
-                        </div>
+                        {/* Name & Headline */}
+                        <h3 className="mt-4 font-heading text-lg font-bold text-heading group-hover:text-primary transition-colors truncate">
+                          {trainerName}
+                        </h3>
+                        <p className="text-xs font-semibold text-primary truncate">
+                          {designation}
+                        </p>
+
+                        {/* Location */}
+                        {trainer.location && (
+                          <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                            <MapPin className="size-3" /> {trainer.location}
+                          </p>
+                        )}
+
+                        {/* Bio Snippet */}
+                        <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed line-clamp-3">
+                          {trainer.bio ||
+                            'Accomplished educator committed to experiential coaching, high-impact workplace communication, and executive career readiness.'}
+                        </p>
+
+                        {/* Specialization Tags */}
+                        {skills.length > 0 && (
+                          <div className="mt-3.5 flex flex-wrap gap-1.5">
+                            {skills.slice(0, 3).map((skill: string) => (
+                              <span
+                                key={skill}
+                                className="rounded-lg bg-muted px-2 py-0.5 text-[10px] font-semibold text-foreground border border-border"
+                              >
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
-                      {/* Name & Headline */}
-                      <h3 className="mt-4 font-heading text-lg font-bold text-heading group-hover:text-primary transition-colors truncate">
-                        {trainerName}
-                      </h3>
-                      <p className="text-xs font-semibold text-primary truncate">
-                        {designation}
-                      </p>
-
-                      {/* Location */}
-                      {trainer.location && (
-                        <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-                          <MapPin className="size-3" /> {trainer.location}
-                        </p>
-                      )}
-
-                      {/* Bio Snippet */}
-                      <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed line-clamp-3">
-                        {trainer.bio ||
-                          'Accomplished educator committed to experiential coaching, high-impact workplace communication, and executive career readiness.'}
-                      </p>
-
-                      {/* Specialization Tags */}
-                      {skills.length > 0 && (
-                        <div className="mt-3.5 flex flex-wrap gap-1.5">
-                          {skills.slice(0, 3).map((skill: string) => (
-                            <span
-                              key={skill}
-                              className="rounded-lg bg-muted px-2 py-0.5 text-[10px] font-semibold text-foreground border border-border"
-                            >
-                              {skill}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Bottom View Profile Action */}
-                    <div className="mt-5 border-t border-border pt-4">
-                      <Button
-                        asChild
-                        variant="secondary"
-                        size="sm"
-                        className="w-full rounded-xl font-bold group-hover:bg-accent group-hover:text-accent-foreground group-hover:border-accent transition-colors"
-                      >
-                        <Link href={`/trainers/${profileSlug}`}>
-                          View Profile{' '}
-                          <ArrowRight className="size-3.5 ml-1 transition-transform group-hover:translate-x-1" />
-                        </Link>
-                      </Button>
-                    </div>
-                  </TiltCard3D>
-                </div>
-              );
-            })}
+                      {/* Bottom View Profile Action */}
+                      <div className="mt-5 border-t border-border pt-4">
+                        <Button
+                          asChild
+                          variant="secondary"
+                          size="sm"
+                          className="w-full rounded-xl font-bold group-hover:bg-accent group-hover:text-accent-foreground group-hover:border-accent transition-colors"
+                        >
+                          <Link href={`/trainers/${profileSlug}`}>
+                            View Profile{' '}
+                            <ArrowRight className="size-3.5 ml-1 transition-transform group-hover:translate-x-1" />
+                          </Link>
+                        </Button>
+                      </div>
+                    </TiltCard3D>
+                  </div>
+                );
+              })}
+            </ContinuouslyMovingCarousel>
           </div>
         </div>
       </section>

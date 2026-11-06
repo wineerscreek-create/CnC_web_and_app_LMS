@@ -337,13 +337,23 @@ def dataset(name: str) -> Callable[[DatasetBuilder], DatasetBuilder]:
     return register
 
 
+def _ensure_datasets() -> None:
+    if not _datasets:
+        try:
+            from app.services import report_datasets  # noqa: F401
+        except Exception:
+            pass
+
+
 def available_datasets() -> list[str]:
+    _ensure_datasets()
     return sorted(_datasets)
 
 
 async def build_dataset(
     ctx: ScopeContext, report_type: str, filters: dict[str, Any]
 ) -> tuple[list[str], list[list[Any]], str]:
+    _ensure_datasets()
     rtype = (report_type or "").strip().lower()
     alias_map = {
         "enrollments": "enrollment",
@@ -375,7 +385,8 @@ async def request_report(
     """Create a report job; run it now if small, otherwise queue it."""
     if fmt not in FORMATS:
         raise ValidationError(f"Unsupported format '{fmt}' — choose one of {', '.join(FORMATS)}")
-    
+
+    _ensure_datasets()
     rtype = (report_type or "").strip().lower()
     alias_map = {
         "enrollments": "enrollment",

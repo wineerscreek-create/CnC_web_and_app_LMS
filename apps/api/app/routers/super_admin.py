@@ -1291,6 +1291,29 @@ async def super_admin_create_course(payload: dict[str, Any], ctx: ScopeContext =
         description = payload.get("description", "")
         published = bool(payload.get("published", True))
 
+        scheme_type = (payload.get("schemeType") or payload.get("scheme_type") or "SEMESTER").strip().upper()
+        scheme_name = (payload.get("schemeName") or payload.get("scheme_name") or f"{scheme_type.title()}-Based Scheme").strip()
+        total_periods = int(payload.get("totalPeriods") or payload.get("total_periods") or 8)
+        period_label = (payload.get("periodLabel") or payload.get("period_label") or scheme_type.title()).strip()
+        
+        raw_periods = payload.get("periodsConfig") or payload.get("periods_config")
+        if not raw_periods:
+            raw_periods = [
+                {
+                    "periodNumber": i,
+                    "name": f"{period_label} {i}",
+                    "milestone": f"Core Competency Phase {i}",
+                    "minAttendance": 75,
+                    "durationWeeks": 16 if scheme_type == "SEMESTER" else 4,
+                }
+                for i in range(1, total_periods + 1)
+            ]
+        periods_config_json = json.dumps(raw_periods)
+
+        payment_frequency = (payload.get("paymentFrequency") or payload.get("payment_frequency") or "ONE_TIME").strip().upper()
+        raw_payment = payload.get("paymentConfig") or payload.get("payment_config") or {}
+        payment_config_json = json.dumps(raw_payment)
+
         creator_id = None
         try:
             creator_id = UUID(str(ctx.user_id)) if ctx.user_id else None
@@ -1304,12 +1327,19 @@ async def super_admin_create_course(payload: dict[str, Any], ctx: ScopeContext =
         new_course = await conn.fetchrow("""
             INSERT INTO courses (
                 title, slug, code, description, category, training_type, delivery_mode,
-                duration_hours, fee, published, order_index, created_by, created_at, updated_at
+                duration_hours, fee, published, order_index, created_by,
+                scheme_type, scheme_name, total_periods, period_label, periods_config,
+                payment_frequency, payment_config, scheme_version,
+                created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5, 'COLLEGE'::training_type_enum, $6::delivery_mode_enum,
-                $7, $8, $9, 0, $10, NOW(), NOW()
+                $7, $8, $9, 0, $10,
+                $11, $12, $13, $14, $15::jsonb,
+                $16, $17::jsonb, 1,
+                NOW(), NOW()
             ) RETURNING *;
-        """, title, slug, code, description, category, delivery_mode, duration_hours, fee, published, creator_id)
+        """, title, slug, code, description, category, delivery_mode, duration_hours, fee, published, creator_id,
+            scheme_type, scheme_name, total_periods, period_label, periods_config_json, payment_frequency, payment_config_json)
 
         course_dict = dict(new_course)
         course_dict["id"] = str(course_dict["id"])
@@ -1375,6 +1405,113 @@ async def super_admin_update_course(course_id: str, payload: dict[str, Any], ctx
 
         await write_audit(ctx, action="update", entity_type="courses", entity_id=str(cid), detail=f"Updated course {course_id}")
         return {"success": True, "message": "Course updated successfully."}
+
+
+@router.get("/courses/{course_id}/scheme")
+async def super_admin_get_course_scheme(course_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    try:
+        cid = UUID(str(course_id))
+    except ValueError:
+        raise NotFound("Course not found.")
+
+    async with get_pg_connection() as conn:
+        row = await conn.fetchrow("""
+            SELECT id, title, code, scheme_type, scheme_name, total_periods, period_label,
+                   periods_config, payment_frequency, payment_config, scheme_version,
+                   created_at, updated_at
+            FROM courses
+            WHERE id = $1 AND deleted_at IS NULL;
+        """, cid)
+        if not row:
+            raise NotFound("Course not found.")
+
+        d = dict(row)
+        d["id"] = str(d["id"])
+        if isinstance(d.get("periods_config"), str):
+            try:
+                d["periods_config"] = json.loads(d["periods_config"])
+            except Exception:
+                pass
+        if isinstance(d.get("payment_config"), str):
+            try:
+                d["payment_config"] = json.loads(d["payment_config"])
+            except Exception:
+                pass
+
+        enroll_stats = await conn.fetchrow("""
+            SELECT count(*) as total_enrollments,
+                   count(*) FILTER (WHERE scheme_version = $2) as current_version_enrollments
+            FROM enrollments
+            WHERE course_id = $1;
+        """, cid, d.get("scheme_version") or 1)
+        d["totalEnrollments"] = enroll_stats["total_enrollments"] if enroll_stats else 0
+        d["currentVersionEnrollments"] = enroll_stats["current_version_enrollments"] if enroll_stats else 0
+        return {"success": True, "data": d}
+
+
+@router.patch("/courses/{course_id}/scheme")
+async def super_admin_update_course_scheme(course_id: str, payload: dict[str, Any], ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    try:
+        cid = UUID(str(course_id))
+    except ValueError:
+        raise NotFound("Course not found.")
+
+    async with get_pg_connection() as conn:
+        existing = await conn.fetchrow("SELECT * FROM courses WHERE id = $1 AND deleted_at IS NULL", cid)
+        if not existing:
+            raise NotFound("Course not found.")
+
+        scheme_type = (payload.get("schemeType") or payload.get("scheme_type") or existing.get("scheme_type") or "SEMESTER").strip().upper()
+        valid_schemes = ("SEMESTER", "YEAR", "MODULE", "MONTHLY", "QUARTERLY", "CUSTOM")
+        if scheme_type not in valid_schemes:
+            raise ValidationError(f"Invalid schemeType. Choose one of: {', '.join(valid_schemes)}")
+
+        scheme_name = (payload.get("schemeName") or payload.get("scheme_name") or f"{scheme_type.title()}-Based Scheme").strip()
+        total_periods = int(payload.get("totalPeriods") or payload.get("total_periods") or existing.get("total_periods") or 8)
+        period_label = (payload.get("periodLabel") or payload.get("period_label") or scheme_type.title()).strip()
+
+        periods_config = payload.get("periodsConfig") or payload.get("periods_config")
+        if periods_config is not None:
+            if isinstance(periods_config, (dict, list)):
+                periods_config_json = json.dumps(periods_config)
+            else:
+                periods_config_json = str(periods_config)
+        else:
+            default_p = [
+                {
+                    "periodNumber": i,
+                    "name": f"{period_label} {i}",
+                    "milestone": f"Core Competency Phase {i}",
+                    "minAttendance": 75,
+                    "durationWeeks": 16 if scheme_type == "SEMESTER" else 4,
+                }
+                for i in range(1, total_periods + 1)
+            ]
+            periods_config_json = json.dumps(default_p)
+
+        payment_frequency = (payload.get("paymentFrequency") or payload.get("payment_frequency") or existing.get("payment_frequency") or "ONE_TIME").strip().upper()
+        payment_config = payload.get("paymentConfig") or payload.get("payment_config")
+        payment_config_json = json.dumps(payment_config) if isinstance(payment_config, (dict, list)) else (payment_config or json.dumps({}))
+
+        current_ver = existing.get("scheme_version") or 1
+        new_ver = current_ver + 1
+
+        await conn.execute("""
+            UPDATE courses
+            SET scheme_type = $2,
+                scheme_name = $3,
+                total_periods = $4,
+                period_label = $5,
+                periods_config = $6::jsonb,
+                payment_frequency = $7,
+                payment_config = $8::jsonb,
+                scheme_version = $9,
+                updated_at = NOW()
+            WHERE id = $1;
+        """, cid, scheme_type, scheme_name, total_periods, period_label, periods_config_json, payment_frequency, payment_config_json, new_ver)
+
+        await write_audit(ctx, action="update_scheme", entity_type="courses", entity_id=str(cid), detail=f"Updated scheme for course {cid} to version {new_ver} ({scheme_type})")
+        return {"success": True, "message": f"Course scheme updated to version {new_ver}.", "schemeVersion": new_ver}
 
 
 @router.get("/courses/{course_id}/control-center")

@@ -48,6 +48,7 @@ import {
 } from '@/components/ui/dialog';
 import { useApi } from '@/hooks/useApi';
 import { api } from '@/lib/api';
+import { cn } from '@/lib/cn';
 import { formatDate, num } from '@/lib/format';
 
 export default function SuperAdminCourseControlCenterPage() {
@@ -75,8 +76,73 @@ export default function SuperAdminCourseControlCenterPage() {
   });
 
   // State
-  const [activeTab, setActiveTab] = React.useState<'overview' | 'payment_config' | 'revenue' | 'trainers'>('overview');
+  const [activeTab, setActiveTab] = React.useState<'overview' | 'scheme_config' | 'payment_config' | 'revenue' | 'trainers'>('overview');
   const [lifecycleLoading, setLifecycleLoading] = React.useState(false);
+
+  // Scheme Configuration State
+  const [schemeType, setSchemeType] = React.useState('SEMESTER');
+  const [schemeName, setSchemeName] = React.useState('');
+  const [totalPeriods, setTotalPeriods] = React.useState(8);
+  const [periodLabel, setPeriodLabel] = React.useState('Semester');
+  const [periodsConfig, setPeriodsConfig] = React.useState<any[]>([]);
+  const [paymentFrequency, setPaymentFrequency] = React.useState('ONE_TIME');
+  const [schemeVersion, setSchemeVersion] = React.useState(1);
+  const [savingScheme, setSavingScheme] = React.useState(false);
+
+  // Fetch scheme config
+  const fetchSchemeConfig = React.useCallback(async () => {
+    try {
+      const res = await api.get<any>(`/super-admin/courses/${courseId}/scheme`);
+      if (res?.data) {
+        const d = res.data;
+        setSchemeType(d.scheme_type || 'SEMESTER');
+        setSchemeName(d.scheme_name || `${(d.scheme_type || 'Semester')} Scheme`);
+        setTotalPeriods(d.total_periods || 8);
+        setPeriodLabel(d.period_label || 'Semester');
+        setPeriodsConfig(
+          Array.isArray(d.periods_config)
+            ? d.periods_config
+            : Array.from({ length: d.total_periods || 8 }).map((_, i) => ({
+                periodNumber: i + 1,
+                name: `${d.period_label || 'Semester'} ${i + 1}`,
+                milestone: `Core Milestone ${i + 1}`,
+                minAttendance: 75,
+                durationWeeks: 16,
+              }))
+        );
+        setPaymentFrequency(d.payment_frequency || 'ONE_TIME');
+        setSchemeVersion(d.scheme_version || 1);
+      }
+    } catch {
+      // Handled silently
+    }
+  }, [courseId]);
+
+  React.useEffect(() => {
+    fetchSchemeConfig();
+  }, [fetchSchemeConfig]);
+
+  const handleSaveScheme = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingScheme(true);
+    try {
+      const res = await api.patch<any>(`/super-admin/courses/${courseId}/scheme`, {
+        schemeType,
+        schemeName,
+        totalPeriods,
+        periodLabel,
+        periodsConfig,
+        paymentFrequency,
+      });
+      toast.success(res?.message || 'Course scheme updated successfully!');
+      fetchSchemeConfig();
+      controlQuery.refetch();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to update course scheme.');
+    } finally {
+      setSavingScheme(false);
+    }
+  };
 
   // Payment Form state
   const [fee, setFee] = React.useState<number>(0);
@@ -233,6 +299,16 @@ export default function SuperAdminCourseControlCenterPage() {
             }`}
           >
             Overview & Hierarchy
+          </button>
+          <button
+            onClick={() => setActiveTab('scheme_config')}
+            className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+              activeTab === 'scheme_config'
+                ? 'bg-accent text-accent-foreground shadow-sm font-bold'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Scheme Configuration
           </button>
           <button
             onClick={() => setActiveTab('payment_config')}
@@ -512,6 +588,254 @@ export default function SuperAdminCourseControlCenterPage() {
                     </CardBody>
                   </Card>
                 </div>
+              )}
+
+              {/* TAB: SCHEME CONFIGURATION */}
+              {activeTab === 'scheme_config' && (
+                <Card>
+                  <CardHeader className="p-5 border-b border-border">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <div>
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <Layers className="size-4 text-accent" />
+                          Course Academic Scheme &amp; Period Progression Configuration
+                        </CardTitle>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Configure academic duration structure (Semester, Year, Module, Monthly, Custom) and decouple learning milestones from billing frequency.
+                        </p>
+                      </div>
+                      <Badge tone="mustard" className="self-start sm:self-auto font-mono text-xs">
+                        Active Scheme v{schemeVersion}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardBody className="p-6">
+                    <form onSubmit={handleSaveScheme} className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                        {/* Scheme Type */}
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-foreground">
+                            Scheme Type
+                          </label>
+                          <select
+                            value={schemeType}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setSchemeType(val);
+                              const defaultLabels: Record<string, string> = {
+                                SEMESTER: 'Semester',
+                                YEAR: 'Year',
+                                MODULE: 'Module',
+                                MONTHLY: 'Month',
+                                QUARTERLY: 'Quarter',
+                                CUSTOM: 'Stage',
+                              };
+                              const lbl = defaultLabels[val] || 'Period';
+                              setPeriodLabel(lbl);
+                              setSchemeName(`${lbl}-Based Academic Track`);
+                            }}
+                            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          >
+                            <option value="SEMESTER">Semester-Based (e.g. 8 Semesters)</option>
+                            <option value="YEAR">Year-Based (e.g. 4 Years)</option>
+                            <option value="MODULE">Module-Based (e.g. 6 Modules)</option>
+                            <option value="MONTHLY">Monthly-Based (e.g. 12 Months)</option>
+                            <option value="QUARTERLY">Quarterly-Based (e.g. 4 Quarters)</option>
+                            <option value="CUSTOM">Custom Duration-Based</option>
+                          </select>
+                        </div>
+
+                        {/* Scheme Name */}
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-foreground">
+                            Scheme Display Name
+                          </label>
+                          <input
+                            type="text"
+                            value={schemeName}
+                            onChange={(e) => setSchemeName(e.target.value)}
+                            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                            placeholder="e.g. 8-Semester Undergraduate Scheme"
+                            required
+                          />
+                        </div>
+
+                        {/* Total Periods & Period Label */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-semibold text-foreground">
+                              Total Periods
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="32"
+                              value={totalPeriods}
+                              onChange={(e) => {
+                                const count = Math.max(1, Number(e.target.value));
+                                setTotalPeriods(count);
+                                if (periodsConfig.length < count) {
+                                  const added = Array.from({ length: count - periodsConfig.length }).map((_, i) => ({
+                                    periodNumber: periodsConfig.length + i + 1,
+                                    name: `${periodLabel} ${periodsConfig.length + i + 1}`,
+                                    milestone: `Milestone ${periodsConfig.length + i + 1}`,
+                                    minAttendance: 75,
+                                    durationWeeks: 4,
+                                  }));
+                                  setPeriodsConfig([...periodsConfig, ...added]);
+                                } else if (periodsConfig.length > count) {
+                                  setPeriodsConfig(periodsConfig.slice(0, count));
+                                }
+                              }}
+                              className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                              required
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-semibold text-foreground">
+                              Period Label
+                            </label>
+                            <input
+                              type="text"
+                              value={periodLabel}
+                              onChange={(e) => setPeriodLabel(e.target.value)}
+                              className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                              placeholder="Semester"
+                              required
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Decoupled Payment Frequency */}
+                      <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <label className="text-xs font-bold text-heading uppercase tracking-wider block">
+                              Payment Structure (Decoupled from Academic Milestones)
+                            </label>
+                            <p className="text-xs text-muted-foreground">
+                              Tuition billing cadence is independent of curriculum length (e.g. 4-year course with semester payments or one-time payment).
+                            </p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-2">
+                          {[
+                            { id: 'ONE_TIME', label: 'One-Time Fee' },
+                            { id: 'PER_PERIOD', label: 'Per Period' },
+                            { id: 'PER_YEAR', label: 'Per Year' },
+                            { id: 'PER_SEMESTER', label: 'Per Semester' },
+                            { id: 'MONTHLY', label: 'Monthly' },
+                          ].map((pf) => (
+                            <button
+                              key={pf.id}
+                              type="button"
+                              onClick={() => setPaymentFrequency(pf.id)}
+                              className={cn(
+                                'rounded-xl border p-2.5 text-xs font-bold transition-all text-center',
+                                paymentFrequency === pf.id
+                                  ? 'border-accent bg-accent/20 text-heading shadow-xs'
+                                  : 'border-border bg-card text-muted-foreground hover:text-foreground'
+                              )}
+                            >
+                              {pf.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Period Breakdown Editor */}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-heading uppercase tracking-wider">
+                            Period Milestones &amp; Learning Architecture
+                          </label>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              const newNum = periodsConfig.length + 1;
+                              setPeriodsConfig([
+                                ...periodsConfig,
+                                {
+                                  periodNumber: newNum,
+                                  name: `${periodLabel} ${newNum}`,
+                                  milestone: `Core Milestone ${newNum}`,
+                                  minAttendance: 75,
+                                  durationWeeks: 4,
+                                },
+                              ]);
+                              setTotalPeriods(newNum);
+                            }}
+                            className="text-xs h-7 gap-1"
+                          >
+                            <Plus className="size-3" />
+                            Add Period
+                          </Button>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {periodsConfig.map((p, idx) => (
+                            <div key={idx} className="rounded-xl border border-border p-3.5 bg-card/60 space-y-2">
+                              <div className="flex items-center justify-between text-xs font-bold text-heading">
+                                <span>Period {p.periodNumber}</span>
+                                <Badge tone="neutral" className="text-[10px] font-mono">
+                                  {p.durationWeeks || 4} Weeks
+                                </Badge>
+                              </div>
+                              <input
+                                type="text"
+                                value={p.name}
+                                onChange={(e) => {
+                                  const updated = [...periodsConfig];
+                                  updated[idx] = { ...updated[idx], name: e.target.value };
+                                  setPeriodsConfig(updated);
+                                }}
+                                className="w-full rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-foreground font-semibold"
+                                placeholder="Period Name"
+                              />
+                              <input
+                                type="text"
+                                value={p.milestone}
+                                onChange={(e) => {
+                                  const updated = [...periodsConfig];
+                                  updated[idx] = { ...updated[idx], milestone: e.target.value };
+                                  setPeriodsConfig(updated);
+                                }}
+                                className="w-full rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-muted-foreground"
+                                placeholder="Learning Milestone / Objective"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Non-destructive notice */}
+                      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-900 dark:text-amber-200">
+                        <p className="font-semibold flex items-center gap-1.5">
+                          <ShieldCheck className="size-4" />
+                          Historical Preservation Guarantee
+                        </p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300">
+                          Saving changes updates version to v{schemeVersion + 1} for new enrollments. Historical enrollments preserve their enrolled scheme snapshot to ensure participant progress is never retroactively invalidated.
+                        </p>
+                      </div>
+
+                      <div className="flex justify-end pt-2">
+                        <Button
+                          type="submit"
+                          variant="primary"
+                          loading={savingScheme}
+                          className="flex items-center gap-2"
+                        >
+                          <Save className="size-4" />
+                          Save Scheme Configuration
+                        </Button>
+                      </div>
+                    </form>
+                  </CardBody>
+                </Card>
               )}
 
               {/* TAB 2: COURSE PAYMENT & 3-DAY FREE TRIAL CONFIG */}
