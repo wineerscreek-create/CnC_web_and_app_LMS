@@ -30,6 +30,7 @@
     "@radix-ui/react-tabs": "1.1.2",
     "@radix-ui/react-tooltip": "1.1.6",
     "@reduxjs/toolkit": "2.5.0",
+    "@types/three": "^0.187.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "date-fns": "4.1.0",
@@ -41,7 +42,8 @@
     "recharts": "2.15.0",
     "sonner": "1.7.2",
     "tailwind-merge": "2.6.0",
-    "tailwindcss-animate": "1.0.7"
+    "tailwindcss-animate": "1.0.7",
+    "three": "^0.187.0"
   },
   "devDependencies": {
     "@playwright/test": "1.49.1",

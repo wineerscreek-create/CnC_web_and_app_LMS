@@ -1,6 +1,6 @@
 'use client';
 
-import { Menu, X } from 'lucide-react';
+import { Menu, X, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import * as React from 'react';
@@ -23,16 +23,53 @@ const LINKS = [
 export function SiteHeader() {
   const pathname = usePathname();
   const [open, setOpen] = React.useState(false);
+  const [scrolled, setScrolled] = React.useState(false);
   const { status, user } = useAppSelector((state) => state.auth);
 
+  React.useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 24);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Close mobile drawer on Escape
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    if (open) {
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [open]);
+
   return (
-    <header className="sticky top-0 z-30 border-b border-border bg-card/90 backdrop-blur-md">
-      <div className="mx-auto flex max-w-[1240px] items-center gap-6 px-6 py-4">
-        <Link href="/" aria-label="SkillSharp Home">
+    <header
+      className={cn(
+        'sticky top-0 z-40 transition-all duration-300',
+        scrolled
+          ? 'py-2 px-4 sm:px-6'
+          : 'py-3 sm:py-4 px-6 border-b border-border/60 bg-card/80 backdrop-blur-md'
+      )}
+    >
+      <div
+        className={cn(
+          'mx-auto flex items-center justify-between transition-all duration-300',
+          scrolled
+            ? 'max-w-[1240px] rounded-2xl border border-border/80 bg-card/92 px-5 py-2.5 shadow-card-hover backdrop-blur-xl'
+            : 'max-w-[1240px]'
+        )}
+      >
+        <Link href="/" aria-label="Winners Creek / SkillSharp Home" className="shrink-0">
           <CNCLogo variant="header" priority />
         </Link>
 
-        <nav aria-label="Main" className="ml-4 hidden items-center gap-1.5 lg:flex">
+        {/* Desktop 3D Navigation Links */}
+        <nav aria-label="Main Navigation" className="hidden items-center gap-1 lg:flex">
           {LINKS.map((link) => {
             const active =
               link.href === '/' ? pathname === '/' : pathname.startsWith(link.href);
@@ -42,10 +79,10 @@ export function SiteHeader() {
                 href={link.href}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'rounded-xl px-3.5 py-2 text-sm font-medium transition-all duration-150',
+                  'relative rounded-xl px-3.5 py-1.5 text-xs font-semibold tracking-wide transition-all duration-200 select-none',
                   active
-                    ? 'bg-accent text-accent-foreground font-semibold shadow-xs'
-                    : 'text-foreground hover:bg-muted hover:text-foreground',
+                    ? 'bg-accent text-accent-foreground shadow-xs border border-accent/40 font-bold scale-[1.02]'
+                    : 'text-foreground/80 hover:bg-muted hover:text-foreground hover:scale-[1.02]'
                 )}
               >
                 {link.label}
@@ -54,22 +91,44 @@ export function SiteHeader() {
           })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-3">
+        {/* Right CTA Actions */}
+        <div className="flex items-center gap-2.5 sm:gap-3">
           <ThemeToggle />
+
           {status === 'authenticated' && user ? (
-            <Button asChild variant="primary" size="sm">
-              <Link href={user.home || '/'}>Go to my portal</Link>
+            <Button
+              asChild
+              variant="primary"
+              size="sm"
+              className="rounded-xl shadow-xs font-bold text-xs"
+            >
+              <Link href={user.home || '/'}>
+                Go to Portal
+                <ArrowRight className="size-3.5 ml-1" />
+              </Link>
             </Button>
           ) : (
             <>
-              <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex text-foreground hover:bg-muted">
-                <Link href="/login">Sign in</Link>
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                className="hidden sm:inline-flex text-xs font-semibold text-foreground hover:bg-muted rounded-xl"
+              >
+                <Link href="/login">Sign In</Link>
               </Button>
-              <Button asChild variant="primary" size="sm" className="shadow-xs">
+              <Button
+                asChild
+                variant="primary"
+                size="sm"
+                className="rounded-xl shadow-xs text-xs font-bold"
+              >
                 <Link href="/signup">Get Started</Link>
               </Button>
             </>
           )}
+
+          {/* Mobile Menu Button */}
           <button
             type="button"
             aria-label={open ? 'Close menu' : 'Open menu'}
@@ -82,38 +141,51 @@ export function SiteHeader() {
         </div>
       </div>
 
+      {/* Mobile Glass Navigation Drawer */}
       {open && (
-        <nav
-          aria-label="Mobile Navigation"
-          className="border-t border-border bg-card/95 px-6 py-4 space-y-1 backdrop-blur-xl lg:hidden animate-enter"
-        >
-          {LINKS.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              onClick={() => setOpen(false)}
-              className="block rounded-xl px-3.5 py-2.5 text-sm font-medium text-foreground hover:bg-muted hover:text-foreground"
-            >
-              {link.label}
-            </Link>
-          ))}
-          <div className="pt-3 mt-3 border-t border-border flex flex-col gap-2">
-            <Link
-              href="/login"
-              onClick={() => setOpen(false)}
-              className="block rounded-xl px-3.5 py-2 text-center text-sm font-semibold border border-border text-foreground bg-card hover:bg-muted"
-            >
-              Sign in
-            </Link>
-            <Link
-              href="/signup"
-              onClick={() => setOpen(false)}
-              className="block rounded-xl px-3.5 py-2 text-center text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              Get Started
-            </Link>
-          </div>
-        </nav>
+        <div className="fixed inset-x-0 top-[65px] z-50 p-4 lg:hidden">
+          <nav
+            aria-label="Mobile Navigation"
+            className="mx-auto max-w-md rounded-3xl border border-border bg-card/95 p-5 shadow-2xl backdrop-blur-2xl animate-enter space-y-1.5"
+          >
+            {LINKS.map((link) => {
+              const active =
+                link.href === '/' ? pathname === '/' : pathname.startsWith(link.href);
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setOpen(false)}
+                  className={cn(
+                    'block rounded-2xl px-4 py-2.5 text-sm font-semibold transition-colors',
+                    active
+                      ? 'bg-accent text-accent-foreground font-bold'
+                      : 'text-foreground hover:bg-muted'
+                  )}
+                >
+                  {link.label}
+                </Link>
+              );
+            })}
+
+            <div className="pt-3 mt-3 border-t border-border flex flex-col gap-2">
+              <Link
+                href="/login"
+                onClick={() => setOpen(false)}
+                className="block rounded-xl px-4 py-2.5 text-center text-sm font-semibold border border-border text-foreground bg-card hover:bg-muted"
+              >
+                Sign In
+              </Link>
+              <Link
+                href="/signup"
+                onClick={() => setOpen(false)}
+                className="block rounded-xl px-4 py-2.5 text-center text-sm font-bold bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+              >
+                Get Started
+              </Link>
+            </div>
+          </nav>
+        </div>
       )}
     </header>
   );
@@ -121,42 +193,101 @@ export function SiteHeader() {
 
 export function SiteFooter() {
   return (
-    <footer className="mt-20 border-t border-border bg-card text-muted-foreground">
-      <div className="mx-auto grid max-w-[1240px] gap-10 px-6 py-14 sm:grid-cols-2 lg:grid-cols-4">
+    <footer className="relative mt-24 border-t border-border bg-card text-muted-foreground overflow-hidden">
+      {/* Top 3D specular highlight line */}
+      <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-accent/40 to-transparent" />
+
+      <div className="mx-auto grid max-w-[1240px] gap-10 px-6 py-14 sm:grid-cols-2 lg:grid-cols-4 relative z-10">
         <div>
           <CNCLogo variant="footer" />
-          <p className="mt-4 max-w-[260px] text-xs leading-relaxed text-muted-foreground">
-            SkillSharp helps students transition from academic study to corporate excellence through measured soft-skills training and intelligent career readiness.
+          <p className="mt-4 max-w-[280px] text-xs leading-relaxed text-muted-foreground">
+            Winners Creek LMS empowers undergraduate learners and academic institutions through structured training, real-time AI speech feedback, and accredited career readiness.
           </p>
+          <div className="mt-5 flex items-center gap-2 text-[11px] font-semibold text-foreground/80">
+            <ShieldCheck className="size-4 text-secondary" />
+            <span>Accredited Academic Ecosystem</span>
+          </div>
         </div>
+
         <div>
           <h2 className="text-[11px] font-bold uppercase tracking-wider text-heading">Platform</h2>
           <ul className="mt-4 space-y-2.5 text-xs text-muted-foreground">
-            <li><Link href="/courses" className="hover:text-foreground transition-colors">Programs &amp; Curriculum</Link></li>
-            <li><Link href="/trainers" className="hover:text-foreground transition-colors">Certified Trainers</Link></li>
-            <li><Link href="/announcements" className="hover:text-foreground transition-colors">Announcements</Link></li>
+            <li>
+              <Link href="/courses" className="hover:text-foreground transition-colors">
+                Programs &amp; Curriculum
+              </Link>
+            </li>
+            <li>
+              <Link href="/trainers" className="hover:text-foreground transition-colors">
+                Certified Master Trainers
+              </Link>
+            </li>
+            <li>
+              <Link href="/announcements" className="hover:text-foreground transition-colors">
+                Platform Announcements
+              </Link>
+            </li>
+            <li>
+              <Link href="/student/games" className="hover:text-foreground transition-colors flex items-center gap-1.5">
+                <Sparkles className="size-3 text-accent" />
+                Interactive Simulators
+              </Link>
+            </li>
           </ul>
         </div>
+
         <div>
-          <h2 className="text-[11px] font-bold uppercase tracking-wider text-heading">Access</h2>
+          <h2 className="text-[11px] font-bold uppercase tracking-wider text-heading">Direct Portals</h2>
           <ul className="mt-4 space-y-2.5 text-xs text-muted-foreground">
-            <li><Link href="/login" className="hover:text-foreground transition-colors">Sign in</Link></li>
-            <li><Link href="/signup" className="hover:text-foreground transition-colors">Create account</Link></li>
-            <li><Link href="/forgot-password" className="hover:text-foreground transition-colors">Reset password</Link></li>
+            <li>
+              <Link href="/login?role=STUDENT" className="hover:text-foreground transition-colors">
+                Participant Portal
+              </Link>
+            </li>
+            <li>
+              <Link href="/login?role=TRAINER" className="hover:text-foreground transition-colors">
+                Faculty &amp; Trainer Portal
+              </Link>
+            </li>
+            <li>
+              <Link href="/login?role=HOD" className="hover:text-foreground transition-colors">
+                Department Head (HOD) Portal
+              </Link>
+            </li>
+            <li>
+              <Link href="/login?role=ADMIN" className="hover:text-foreground transition-colors">
+                College Administrator Portal
+              </Link>
+            </li>
           </ul>
         </div>
+
         <div>
-          <h2 className="text-[11px] font-bold uppercase tracking-wider text-heading">About SkillSharp</h2>
+          <h2 className="text-[11px] font-bold uppercase tracking-wider text-heading">Organization</h2>
           <ul className="mt-4 space-y-2.5 text-xs text-muted-foreground">
-            <li><Link href="/about" className="hover:text-foreground transition-colors">About SkillSharp</Link></li>
-            <li><Link href="/contact" className="hover:text-foreground transition-colors">Contact &amp; Support</Link></li>
+            <li>
+              <Link href="/about" className="hover:text-foreground transition-colors">
+                About Winners Creek
+              </Link>
+            </li>
+            <li>
+              <Link href="/contact" className="hover:text-foreground transition-colors">
+                Contact &amp; Institutional Support
+              </Link>
+            </li>
+            <li>
+              <Link href="/signup" className="hover:text-foreground transition-colors">
+                Join As Affiliated College
+              </Link>
+            </li>
           </ul>
         </div>
       </div>
-      <div className="border-t border-border px-6 py-6">
+
+      <div className="border-t border-border/80 px-6 py-6 bg-muted/30">
         <div className="mx-auto flex max-w-[1240px] flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-xs text-muted-foreground">
-          <p>© {new Date().getFullYear()} SkillSharp. All rights reserved.</p>
-          <p>Learn · Practise · Improve · Become Employable</p>
+          <p>© {new Date().getFullYear()} Winners Creek LMS · SkillSharp. All rights reserved.</p>
+          <p className="font-medium">Learn · Practise · Improve · Become Employable</p>
         </div>
       </div>
     </footer>
@@ -165,10 +296,12 @@ export function SiteFooter() {
 
 export function PublicPage({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <a href="#main" className="skip-link">Skip to main content</a>
+    <div className="min-h-screen bg-background text-foreground flex flex-col selection:bg-accent/20 selection:text-foreground">
+      <a href="#main" className="skip-link sr-only focus:not-sr-only focus:p-4 focus:bg-card focus:fixed focus:z-50">
+        Skip to main content
+      </a>
       <SiteHeader />
-      <main id="main">{children}</main>
+      <main id="main" className="flex-1">{children}</main>
       <SiteFooter />
     </div>
   );
