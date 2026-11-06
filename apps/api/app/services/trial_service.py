@@ -13,7 +13,7 @@ from typing import Any
 from bson import ObjectId
 
 from app.core.config import settings
-from app.core.errors import Conflict, NotFound, ValidationError
+from app.core.errors import Conflict, NotFound, ValidationError, ScopeForbidden
 from app.db.mongo import get_db, serialize
 from app.db.postgres import get_pg_connection, pg_transaction
 
@@ -58,6 +58,33 @@ async def activate_course_trial(
                 raise ValidationError("Course is not currently open for enrollment.")
             if not course["trial_enabled"]:
                 raise ValidationError("Free trials are not enabled for this course.")
+
+            # Validate participant affiliation and server-side course visibility
+            user_row = await conn.fetchrow("""
+                SELECT u.institution_id, u.department_id, u.campus, u.affiliation_status,
+                       i.institution_category
+                FROM users u
+                LEFT JOIN institutions i ON i.id = u.institution_id
+                WHERE u.id = $1
+            """, uid)
+
+            caller_aff_status = user_row["affiliation_status"] if user_row else None
+            if caller_aff_status and str(caller_aff_status).upper() in ("ACTION_REQUIRED", "DELETED", "SUSPENDED"):
+                raise ScopeForbidden("Your institution affiliation is currently inactive. Free trials are not available.")
+
+            from app.repositories.course_repo import CourseRepository
+            accessible = CourseRepository.is_course_accessible(
+                dict(course),
+                caller_role="STUDENT",
+                caller_institution_id=user_row["institution_id"] if user_row else inst_id,
+                caller_institution_category=user_row["institution_category"] if user_row else None,
+                caller_campus=user_row["campus"] if user_row else None,
+                caller_department_id=user_row["department_id"] if user_row else None,
+                caller_affiliation_status=caller_aff_status,
+                is_enrolled=False,
+            )
+            if not accessible:
+                raise ScopeForbidden("Course is not accessible to your institution or campus.")
 
             # 2. Check if already purchased/verified
             existing_paid = await conn.fetchrow(
