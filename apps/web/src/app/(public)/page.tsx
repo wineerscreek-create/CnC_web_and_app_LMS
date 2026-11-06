@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -38,62 +37,15 @@ import { useApi } from '@/hooks/useApi';
 import { useAppSelector } from '@/store';
 import { cn } from '@/lib/cn';
 
-// 3D Components
+// Clean interactive UI components
 import {
   TiltCard3D,
   ScrollReveal3D,
-  AnimatedTimeline3D,
   Interactive3DGameCard,
-  MagneticButton3D,
   Interactive3DIcon,
   ContinuouslyMovingCarousel,
   REAL_GAMES,
 } from '@/components/3d';
-
-// Dynamically import Three.js scenes to guarantee zero SSR hydration issues and optimal performance
-const DynamicThreeHeroScene = dynamic(
-  () => import('@/components/3d/ThreeHeroScene').then((mod) => mod.ThreeHeroScene),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="relative w-full h-full min-h-[420px] lg:min-h-[560px] flex items-center justify-center pointer-events-none select-none">
-        <div className="size-72 rounded-full border border-accent/20 bg-accent/5 animate-pulse" />
-      </div>
-    ),
-  }
-);
-
-const DynamicSevenPillarsGalaxyScene = dynamic(
-  () => import('@/components/3d/SevenPillarsGalaxyScene').then((m) => m.SevenPillarsGalaxyScene),
-  {
-    ssr: false,
-    loading: () => <div className="h-[420px] sm:h-[480px] rounded-3xl bg-muted/10 border border-border/40 animate-pulse" />,
-  }
-);
-
-const DynamicLearningJourneyGalaxyScene = dynamic(
-  () => import('@/components/3d/LearningJourneyGalaxyScene').then((m) => m.LearningJourneyGalaxyScene),
-  {
-    ssr: false,
-    loading: () => <div className="h-[400px] sm:h-[460px] rounded-3xl bg-muted/10 border border-border/40 animate-pulse" />,
-  }
-);
-
-const DynamicInteractiveLearningGalaxyScene = dynamic(
-  () => import('@/components/3d/InteractiveLearningGalaxyScene').then((m) => m.InteractiveLearningGalaxyScene),
-  {
-    ssr: false,
-    loading: () => <div className="h-[400px] sm:h-[460px] rounded-3xl bg-muted/10 border border-border/40 animate-pulse" />,
-  }
-);
-
-const DynamicUniverseClusterScene = dynamic(
-  () => import('@/components/3d/UniverseClusterScene').then((m) => m.UniverseClusterScene),
-  {
-    ssr: false,
-    loading: () => <div className="h-[400px] sm:h-[460px] rounded-3xl bg-muted/10 border border-border/40 animate-pulse" />,
-  }
-);
 
 interface Overview {
   productName: string;
@@ -112,7 +64,7 @@ interface Stats {
   practiceSessionsScored: number;
   certificatesIssued: number;
   evaluationsCompleted?: number;
-  averageReadinessScore: number;
+  averageReadinessScore: number | null;
   source: string;
 }
 
@@ -229,14 +181,7 @@ export default function HomePage() {
   const trainers = useApi<any[]>('/home/trainers');
   const publicTrainers = useApi<any[]>('/public/trainers');
 
-  const trainerCarouselRef = React.useRef<HTMLDivElement | null>(null);
   const gameCarouselRef = React.useRef<HTMLDivElement | null>(null);
-
-  const scrollTrainers = (direction: 'left' | 'right') => {
-    if (!trainerCarouselRef.current) return;
-    const scrollAmount = direction === 'left' ? -380 : 380;
-    trainerCarouselRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
-  };
 
   const scrollGames = (direction: 'left' | 'right') => {
     if (!gameCarouselRef.current) return;
@@ -267,39 +212,34 @@ export default function HomePage() {
       : DEFAULT_COURSES;
 
   return (
-    <div className="relative space-y-20 sm:space-y-28 pb-24 overflow-x-hidden">
-      {/* ------------------------------------------------------------------ 1. HERO SECTION WITH ACTUAL 3D ENVIRONMENT */}
-      <section className="relative px-6 pt-6 sm:pt-12 lg:pt-16 overflow-hidden">
-        {/* Ambient 3D Three.js Scene Background Layer */}
-        <div className="absolute inset-0 pointer-events-none -z-0 opacity-85 dark:opacity-95 overflow-hidden flex items-center justify-center">
-          <DynamicThreeHeroScene className="w-full h-full max-w-[1440px]" />
-        </div>
-
-        <div className="mx-auto max-w-[1240px] relative z-10">
+    <div className="relative space-y-20 sm:space-y-24 pb-24 overflow-x-hidden">
+      {/* ------------------------------------------------------------------ 1. CLEAN HERO SECTION */}
+      <section className="relative px-6 pt-8 sm:pt-14 lg:pt-20">
+        <div className="mx-auto max-w-[1240px]">
           {/* Top Brand Identity Badge */}
-          <div className="inline-flex items-center gap-2 rounded-full border border-accent/40 bg-card/85 backdrop-blur-md px-4 py-1.5 text-xs font-semibold text-foreground shadow-xs">
+          <div className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-card/80 backdrop-blur-md px-4 py-1.5 text-xs font-semibold text-foreground shadow-xs">
             <span className="size-2 rounded-full bg-accent animate-pulse" />
             <span className="font-heading font-bold text-accent">WINNERS CREEK LMS</span>
             <span className="text-border">|</span>
-            <span className="text-muted-foreground">Next-Gen 3D Employability Platform</span>
+            <span className="text-muted-foreground">From Campus to Corporate</span>
           </div>
 
           <div className="mt-8 grid gap-12 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
             {/* Left Hero Typography & Actions */}
-            <div className="relative z-10 bg-card/40 lg:bg-transparent backdrop-blur-[2px] lg:backdrop-blur-none p-2 sm:p-0 rounded-3xl">
-              <h1 className="font-heading text-4xl sm:text-6xl lg:text-[70px] font-extrabold tracking-tight text-heading leading-[1.05]">
+            <div>
+              <h1 className="font-heading text-4xl sm:text-6xl lg:text-[68px] font-extrabold tracking-tight text-heading leading-[1.08]">
                 From Campus <br />
                 <span className="inline-block relative">
                   to Corporate.
-                  <span className="absolute left-0 bottom-2 w-full h-[8px] bg-accent/40 -z-10 rounded-full" />
+                  <span className="absolute left-0 bottom-2 w-full h-[6px] bg-accent/35 -z-10 rounded-full" />
                 </span>
               </h1>
 
               <p className="mt-6 max-w-[560px] text-base sm:text-lg text-foreground/80 dark:text-muted-foreground font-medium leading-relaxed">
-                Build skills. Practice with confidence. Become career-ready. Winners Creek bridges academic education and corporate expectations through measured 3D simulations, real-time AI speech feedback, and accredited employability tracking.
+                Build skills. Practice with confidence. Become career-ready. Winners Creek bridges academic education and corporate expectations through measured simulations, real-time AI speech feedback, and accredited employability tracking.
               </p>
 
-              {/* 3-Stage Interactive Learning Cycle */}
+              {/* 3-Stage Learning Cycle Pills */}
               <div className="mt-8 flex flex-wrap items-center gap-2.5 sm:gap-3">
                 {[
                   { step: '01', title: 'LEARN', desc: 'Industry curriculum' },
@@ -308,7 +248,7 @@ export default function HomePage() {
                 ].map((item) => (
                   <div
                     key={item.title}
-                    className="flex items-center gap-3 rounded-2xl border border-border/80 bg-card/90 backdrop-blur-md px-4 py-2.5 shadow-xs transition-transform hover:-translate-y-0.5"
+                    className="flex items-center gap-3 rounded-2xl border border-border/80 bg-card/85 backdrop-blur-md px-4 py-2.5 shadow-xs transition-transform hover:-translate-y-0.5"
                   >
                     <span className="flex size-7 items-center justify-center rounded-xl bg-secondary text-xs font-bold text-secondary-foreground shadow-xs">
                       {item.step}
@@ -347,12 +287,12 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* Right 3D Bento Showcase Card — Direct Portal Access */}
-            <div className="relative">
+            {/* Right Role-Based Login Card */}
+            <div>
               <TiltCard3D
-                maxAngle={6}
-                scale={1.02}
-                className="p-6 sm:p-8 backdrop-blur-xl bg-card/92 border-border/90 shadow-xl"
+                maxAngle={5}
+                scale={1.01}
+                className="p-6 sm:p-8 backdrop-blur-xl bg-card/90 border-border/90 shadow-lg"
               >
                 <div className="flex items-center justify-between pb-5 border-b border-border/80">
                   <div>
@@ -406,7 +346,7 @@ export default function HomePage() {
                       </p>
                     </div>
                     <span className="rounded-xl bg-accent px-2.5 py-1 text-xs font-extrabold text-accent-foreground shadow-xs">
-                      v2.0 3D
+                      v2.0
                     </span>
                   </div>
                 </div>
@@ -419,15 +359,24 @@ export default function HomePage() {
       {/* ------------------------------------------------------------------ 2. LIVE PLATFORM METRICS & STATS */}
       <section className="px-6">
         <ScrollReveal3D className="mx-auto max-w-[1240px]">
-          <TiltCard3D maxAngle={4} scale={1.01} className="p-6 sm:p-10 shadow-xs border-border/80">
+          <TiltCard3D maxAngle={3} scale={1.01} className="p-6 sm:p-10 shadow-xs border-border/80 bg-card/85 backdrop-blur-sm">
             <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-6 divide-y lg:divide-y-0 lg:divide-x divide-border/80">
               {[
-                { label: 'Active Learners', value: stats.data?.learners ?? 884, suffix: '' },
-                { label: 'Certified Trainers', value: stats.data?.trainers ?? 24, suffix: '' },
-                { label: 'Affiliated Colleges', value: stats.data?.institutions ?? 1, suffix: '' },
-                { label: 'Curated Programs', value: stats.data?.courses ?? 10, suffix: '' },
-                { label: 'Practice Sessions', value: stats.data?.practiceSessionsScored ?? 1420, suffix: '+' },
-                { label: 'Average Readiness', value: stats.data?.averageReadinessScore ?? 74.2, suffix: '%' },
+                { label: 'Active Learners', value: stats.data?.learners ?? (stats.loading ? '—' : 0), suffix: '' },
+                { label: 'Certified Trainers', value: stats.data?.trainers ?? (stats.loading ? '—' : 0), suffix: '' },
+                { label: 'Affiliated Colleges', value: stats.data?.institutions ?? (stats.loading ? '—' : 0), suffix: '' },
+                { label: 'Curated Programs', value: stats.data?.courses ?? (stats.loading ? '—' : 0), suffix: '' },
+                { label: 'Practice Sessions', value: stats.data?.practiceSessionsScored ?? (stats.loading ? '—' : 0), suffix: '+' },
+                {
+                  label: 'Average Readiness',
+                  value:
+                    stats.data?.averageReadinessScore != null
+                      ? Number(stats.data.averageReadinessScore).toFixed(1)
+                      : stats.loading
+                      ? '—'
+                      : 'N/A',
+                  suffix: stats.data?.averageReadinessScore != null ? '%' : '',
+                },
               ].map((stat, i) => (
                 <div key={stat.label} className={cn('flex flex-col', i > 0 && 'pt-4 lg:pt-0 lg:pl-6')}>
                   <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -479,7 +428,7 @@ export default function HomePage() {
         </section>
       )}
 
-      {/* ------------------------------------------------------------------ 4. 3-STAGE METHODOLOGY BENTO */}
+      {/* ------------------------------------------------------------------ 4. 3-STAGE METHODOLOGY */}
       <section className="px-6">
         <div className="mx-auto max-w-[1240px]">
           <ScrollReveal3D className="max-w-[680px]">
@@ -497,7 +446,7 @@ export default function HomePage() {
           <div className="mt-10 grid gap-6 md:grid-cols-3">
             {/* Stage 1: LEARN */}
             <ScrollReveal3D delayMs={80}>
-              <TiltCard3D maxAngle={7} className="h-full p-8 flex flex-col justify-between">
+              <TiltCard3D maxAngle={5} className="h-full p-8 flex flex-col justify-between bg-card/85">
                 <div>
                   <div className="flex items-center justify-between">
                     <span className="rounded-xl bg-muted border border-border px-3 py-1 text-xs font-bold text-foreground">
@@ -527,7 +476,7 @@ export default function HomePage() {
 
             {/* Stage 2: PRACTICE */}
             <ScrollReveal3D delayMs={160}>
-              <TiltCard3D maxAngle={7} className="h-full border-accent/40 bg-accent/15 p-8 flex flex-col justify-between">
+              <TiltCard3D maxAngle={5} className="h-full border-accent/40 bg-accent/15 p-8 flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between">
                     <span className="rounded-xl bg-secondary px-3 py-1 text-xs font-bold text-secondary-foreground shadow-xs">
@@ -557,7 +506,7 @@ export default function HomePage() {
 
             {/* Stage 3: BECOME CAREER-READY */}
             <ScrollReveal3D delayMs={240}>
-              <TiltCard3D maxAngle={7} className="h-full border-foreground bg-foreground p-8 text-background shadow-md flex flex-col justify-between">
+              <TiltCard3D maxAngle={5} className="h-full border-foreground bg-foreground p-8 text-background shadow-md flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between">
                     <span className="rounded-xl bg-background/20 border border-background/20 px-3 py-1 text-xs font-bold text-accent">
@@ -588,13 +537,13 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ------------------------------------------------------------------ 5. 3D PLATFORM FEATURES (SEVEN PILLARS) */}
+      {/* ------------------------------------------------------------------ 5. SEVEN PILLARS OF READINESS (CLEAN GRID) */}
       <section className="px-6 relative">
         <div className="mx-auto max-w-[1240px]">
           <ScrollReveal3D className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
             <div className="max-w-[640px]">
               <div className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-3 py-1 text-xs font-bold text-heading border border-accent/30">
-                <Sparkles className="size-3.5 text-accent" /> Competency Architecture
+                <Sparkles className="size-3.5 text-accent" /> Competency Framework
               </div>
               <h2 className="mt-3 font-heading text-3xl sm:text-4xl font-extrabold text-heading">
                 The Seven Pillars of Career &amp; Professional Readiness
@@ -605,43 +554,13 @@ export default function HomePage() {
             </div>
             <div className="flex items-center gap-2">
               <Badge tone="mustard" className="text-xs font-mono py-1 px-3">
-                7 Orbital Dimensions
+                7 Core Dimensions
               </Badge>
             </div>
           </ScrollReveal3D>
 
-          {/* Interactive 3D Seven Pillars Galaxy Model */}
-          <div className="mt-8 rounded-3xl border border-border/80 bg-card/60 backdrop-blur-md shadow-card overflow-hidden">
-            <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] items-center">
-              <div className="p-4 sm:p-6">
-                <DynamicSevenPillarsGalaxyScene />
-              </div>
-              <div className="p-6 lg:p-8 border-t lg:border-t-0 lg:border-l border-border/60 flex flex-col justify-center">
-                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Interactive Orbital System
-                </span>
-                <h3 className="mt-2 text-xl sm:text-2xl font-bold font-heading text-heading">
-                  Multi-Dimensional Capability Continuum
-                </h3>
-                <p className="mt-3 text-xs sm:text-sm text-muted-foreground leading-relaxed">
-                  Every participant builds competency across distinct developmental axes. The EEDI diagnostic platform harmonizes faculty ratings, practical artifacts, and AI-scored simulations into a unified readiness velocity.
-                </p>
-                <div className="mt-6 grid grid-cols-2 gap-3 text-xs">
-                  <div className="rounded-xl border border-border/80 bg-muted/30 p-3">
-                    <p className="font-bold text-heading">Real-Time Synthesis</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">Continuous milestone weighting</p>
-                  </div>
-                  <div className="rounded-xl border border-border/80 bg-muted/30 p-3">
-                    <p className="font-bold text-heading">Objective Rubrics</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">Zero subjective inflation</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* The 7 Pillar Cards */}
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {/* Clean 7 Pillar Cards Grid */}
+          <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {[
               {
                 code: 'COMM',
@@ -695,11 +614,11 @@ export default function HomePage() {
             ].map((pillar, idx) => {
               const Icon = pillar.icon;
               return (
-                <ScrollReveal3D key={pillar.code} delayMs={idx * 50}>
+                <ScrollReveal3D key={pillar.code} delayMs={idx * 40}>
                   <TiltCard3D
-                    maxAngle={8}
-                    scale={1.02}
-                    className="group h-full p-6 transition-all duration-300 hover:border-accent/50 hover:shadow-card-hover flex flex-col justify-between"
+                    maxAngle={5}
+                    scale={1.01}
+                    className="group h-full p-6 bg-card/85 border-border hover:border-accent/50 hover:shadow-card-hover transition-all duration-300 flex flex-col justify-between"
                   >
                     <div>
                       <div className="flex items-center justify-between mb-4">
@@ -727,7 +646,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ------------------------------------------------------------------ 6. HOW IT WORKS — 3D SCROLL EXPERIENCE */}
+      {/* ------------------------------------------------------------------ 6. SIX-STAGE LEARNING PROGRESSION (CLEAN GRID) */}
       <section className="px-6 relative">
         <div className="mx-auto max-w-[1240px]">
           <ScrollReveal3D className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
@@ -747,44 +666,75 @@ export default function HomePage() {
             </Badge>
           </ScrollReveal3D>
 
-          {/* Interactive 3D Journey Spline Model */}
-          <div className="mt-8 rounded-3xl border border-border/80 bg-card/60 backdrop-blur-md shadow-card overflow-hidden">
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] items-center">
-              <div className="p-4 sm:p-6">
-                <DynamicLearningJourneyGalaxyScene />
-              </div>
-              <div className="p-6 lg:p-8 border-t lg:border-t-0 lg:border-l border-border/60">
-                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Persistent Trajectory
-                </span>
-                <h3 className="mt-2 text-xl font-bold font-heading text-heading">
-                  Connected Progression Network
-                </h3>
-                <p className="mt-3 text-xs sm:text-sm text-muted-foreground leading-relaxed">
-                  Progression is never linear or static. As participants advance through schemes, milestones unlock adaptively based on real attendance, simulation mastery, and faculty reviews.
-                </p>
-
-                {/* 6 Stage Micro-Cards */}
-                <div className="mt-6 space-y-2.5">
-                  {[
-                    { num: '01', title: 'Discover & Assess', desc: 'Baseline diagnostic across the 7 competency pillars' },
-                    { num: '02', title: 'Plan & Personalize', desc: 'Custom curriculum schemes, duration & milestones' },
-                    { num: '03', title: 'Learn & Explore', desc: 'Interactive live workshops & verified coursework' },
-                    { num: '04', title: 'Practice & Apply', desc: 'Cognitive simulations, case challenges & sprints' },
-                    { num: '05', title: 'Evaluate & Improve', desc: 'Objective rubric scoring & actionable faculty feedback' },
-                    { num: '06', title: 'Track & Grow', desc: 'Dynamic portfolio velocity & verified transcripts' },
-                  ].map((st) => (
-                    <div key={st.num} className="flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 p-2.5 text-xs">
-                      <span className="font-mono font-bold text-accent shrink-0">{st.num}</span>
-                      <div>
-                        <strong className="text-heading font-semibold">{st.title}</strong>
-                        <p className="text-[11px] text-muted-foreground">{st.desc}</p>
-                      </div>
+          {/* Clean 6-Stage Milestone Cards Grid */}
+          <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              {
+                num: '01',
+                title: 'Discover & Assess',
+                desc: 'Baseline diagnostic across the 7 competency pillars to pinpoint strengths and initial capability gaps.',
+                deliverable: 'Diagnostic Baseline Report',
+              },
+              {
+                num: '02',
+                title: 'Plan & Personalize',
+                desc: 'Custom curriculum schemes, duration milestones, and structured pacing tailored to career trajectory.',
+                deliverable: 'Personalized Scheme Plan',
+              },
+              {
+                num: '03',
+                title: 'Learn & Explore',
+                desc: 'Interactive live workshops, faculty instruction, and verified multimedia coursework.',
+                deliverable: 'Coursework Milestones',
+              },
+              {
+                num: '04',
+                title: 'Practice & Apply',
+                desc: 'Cognitive simulations, AI speech arenas, case challenges, and high-impact practice sprints.',
+                deliverable: 'Simulated Practice Scores',
+              },
+              {
+                num: '05',
+                title: 'Evaluate & Improve',
+                desc: 'Objective rubric scoring, detailed telemetry, and actionable qualitative faculty feedback.',
+                deliverable: 'Faculty Review & Rubrics',
+              },
+              {
+                num: '06',
+                title: 'Track & Grow',
+                desc: 'Dynamic portfolio velocity, verified transcripts, and authenticated readiness credentials.',
+                deliverable: 'EEDI Verified Credentials',
+              },
+            ].map((stage, idx) => (
+              <ScrollReveal3D key={stage.num} delayMs={idx * 50}>
+                <TiltCard3D
+                  maxAngle={5}
+                  scale={1.01}
+                  className="group h-full p-6 bg-card/85 border-border hover:border-accent/50 hover:shadow-card-hover transition-all duration-300 flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="flex size-9 items-center justify-center rounded-xl bg-accent/15 text-xs font-mono font-bold text-accent">
+                        {stage.num}
+                      </span>
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        Stage {stage.num}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+                    <h3 className="font-heading text-lg font-bold text-heading group-hover:text-primary transition-colors">
+                      {stage.title}
+                    </h3>
+                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                      {stage.desc}
+                    </p>
+                  </div>
+                  <div className="mt-5 border-t border-border pt-3.5 flex items-center justify-between text-[11px]">
+                    <span className="text-muted-foreground">Deliverable:</span>
+                    <span className="font-semibold text-foreground">{stage.deliverable}</span>
+                  </div>
+                </TiltCard3D>
+              </ScrollReveal3D>
+            ))}
           </div>
         </div>
       </section>
@@ -826,31 +776,6 @@ export default function HomePage() {
             </div>
           </ScrollReveal3D>
 
-          {/* 3D Interactive Simulation Atmosphere */}
-          <div className="mt-8 rounded-3xl border border-border/80 bg-card/60 backdrop-blur-md shadow-card overflow-hidden">
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] items-center">
-              <div className="p-4 sm:p-6">
-                <DynamicInteractiveLearningGalaxyScene />
-              </div>
-              <div className="p-6 lg:p-8 border-t lg:border-t-0 lg:border-l border-border/60">
-                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Cognitive Simulation Arena
-                </span>
-                <h3 className="mt-2 text-xl font-bold font-heading text-heading">
-                  Gamified Adaptive Mastery
-                </h3>
-                <p className="mt-3 text-xs sm:text-sm text-muted-foreground leading-relaxed">
-                  Interactive games quantify cognitive velocity, situational reasoning, and decision reflexes. Each session generates real-time telemetry that feeds directly into your verified readiness portfolio.
-                </p>
-                <div className="mt-5 flex flex-wrap gap-2 text-xs">
-                  <Badge tone="mustard">Real-time Telemetry</Badge>
-                  <Badge tone="charcoal">Immediate Rubric Scoring</Badge>
-                  <Badge tone="neutral">EEDI Profile Integration</Badge>
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* Swipeable Game Carousel */}
           <div
             ref={gameCarouselRef}
@@ -878,13 +803,13 @@ export default function HomePage() {
           <ScrollReveal3D className="flex flex-wrap items-end justify-between gap-6">
             <div className="max-w-[640px]">
               <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                Continuous Curriculum Universe
+                Curriculum Programs
               </span>
               <h2 className="mt-2 font-heading text-3xl sm:text-4xl font-extrabold text-heading">
                 Accredited Course Schemes &amp; Programs
               </h2>
               <p className="mt-3 text-base text-muted-foreground">
-                Seamlessly moving showcase of enterprise-ready academic and professional development tracks.
+                Explore enterprise-ready academic and professional development tracks designed for high-impact employability.
               </p>
             </div>
             <Button asChild variant="secondary" size="md" className="rounded-xl font-bold">
@@ -902,9 +827,9 @@ export default function HomePage() {
                 <div key={course.id || course.slug} className="w-[320px] sm:w-[360px] shrink-0">
                   <Link href={`/courses/${course.slug}`} className="group block h-full">
                     <TiltCard3D
-                      maxAngle={7}
-                      scale={1.02}
-                      className="flex h-full flex-col justify-between p-6 bg-card/90 hover:border-accent/50 hover:shadow-card-hover transition-all duration-300"
+                      maxAngle={5}
+                      scale={1.01}
+                      className="flex h-full flex-col justify-between p-6 bg-card/85 hover:border-accent/50 hover:shadow-card-hover transition-all duration-300"
                     >
                       <div>
                         <div className="flex items-center justify-between">
@@ -947,7 +872,7 @@ export default function HomePage() {
                 <Sparkles className="size-3.5 text-accent" /> Master Facilitators
               </div>
               <h2 className="mt-3 font-heading text-3xl sm:text-4xl font-extrabold text-heading">
-                Continuously Moving Trainer Universe
+                Master Trainers &amp; Faculty
               </h2>
               <p className="mt-2 text-base text-muted-foreground">
                 Hover to pause. Learn directly from distinguished master facilitators, corporate coaches, and domain architects.
@@ -984,9 +909,9 @@ export default function HomePage() {
                     className="w-[310px] sm:w-[350px] shrink-0 flex flex-col"
                   >
                     <TiltCard3D
-                      maxAngle={8}
-                      scale={1.02}
-                      className="flex h-full flex-col justify-between p-6 bg-card/90 group hover:border-accent/50 hover:shadow-card-hover transition-all duration-300"
+                      maxAngle={5}
+                      scale={1.01}
+                      className="flex h-full flex-col justify-between p-6 bg-card/85 group hover:border-accent/50 hover:shadow-card-hover transition-all duration-300"
                     >
                       <div>
                         {/* Top Avatar & Badges */}
@@ -1074,13 +999,13 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ------------------------------------------------------------------ 10. FINAL CTA SECTION WITH 3D AMBIENCE */}
+      {/* ------------------------------------------------------------------ 10. FINAL CTA SECTION */}
       <section className="px-6">
         <ScrollReveal3D className="mx-auto max-w-[1240px]">
           <TiltCard3D
-            maxAngle={5}
+            maxAngle={3}
             scale={1.01}
-            className="relative overflow-hidden rounded-3xl bg-foreground p-8 sm:p-14 text-background shadow-2xl border-foreground"
+            className="relative overflow-hidden rounded-3xl bg-foreground p-8 sm:p-14 text-background shadow-xl border-foreground"
           >
             {/* Ambient Background Glow Highlights */}
             <div className="absolute top-0 right-0 -mr-20 -mt-20 size-80 rounded-full bg-accent/20 blur-3xl pointer-events-none" />

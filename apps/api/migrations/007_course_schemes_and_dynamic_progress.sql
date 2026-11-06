@@ -29,3 +29,4 @@ UPDATE enrollment_periods SET period_number = semester WHERE period_number IS NU
 UPDATE enrollment_periods SET period_name = 'Semester ' || semester WHERE period_name IS NULL;
 UPDATE enrollments SET current_period = current_semester WHERE current_period = 1 AND current_semester > 1;
 UPDATE enrollments SET current_period_name = 'Semester ' || current_semester WHERE current_period_name = 'Semester 1' AND current_semester > 1;
+
