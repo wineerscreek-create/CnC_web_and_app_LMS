@@ -238,4 +238,4 @@ All QA verification artifacts are stored in `scratch/screenshots/`:
 
 ## 14. Commit SHA
 
-- **Commit**: `[PENDING_GIT_COMMIT]` (Will be recorded upon git commit and push).
+- **Commit**: `a87e0ee` (Pushed to `origin/main`)
