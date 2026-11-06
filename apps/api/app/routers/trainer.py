@@ -2364,29 +2364,6 @@ async def trainer_assign_game(payload: dict[str, Any], ctx: ScopeContext = Train
     return await gamification_assign_game(payload=req, ctx=ctx)
 
 
-# --------------------------------------------------------------------------- Payments
-@router.get("/payments")
-async def trainer_list_payments(ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
-    # Return course payments related to this college
-    payments = await get_db().payments.find({"collegeId": ctx.college_id}).sort("createdAt", -1).limit(100).to_list(100)
-    out = [
-        {
-            "id": str(p["_id"]),
-            "studentName": p.get("studentName", "Participant"),
-            "studentEmail": p.get("studentEmail"),
-            "courseTitle": p.get("courseTitle", "Course"),
-            "amount": p.get("amount", 0.0),
-            "currency": p.get("currency", "INR"),
-            "status": p.get("status", "completed"),
-            "transactionId": p.get("transactionId"),
-            "invoiceNumber": p.get("invoiceNumber"),
-            "paidAt": p.get("createdAt").isoformat() if p.get("createdAt") else None,
-        }
-        for p in payments
-    ]
-    return {"success": True, "data": out}
-
-
 # --------------------------------------------------------------------------- Trainer Assigned Courses (Phase 6, 7, 8)
 @router.get("/courses")
 async def list_trainer_courses(ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:

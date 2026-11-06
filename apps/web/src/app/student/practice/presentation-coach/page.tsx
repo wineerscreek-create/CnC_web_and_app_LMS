@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  FileUp,
   Flame,
   Gauge,
   GraduationCap,
@@ -101,6 +102,72 @@ export default function PresentationCoachPage() {
   const [title, setTitle] = React.useState('SIH 2026 - Bhoorakshak Early Warning');
   const [audience, setAudience] = React.useState('Hackathon Evaluators');
   const [targetMinutes, setTargetMinutes] = React.useState(3);
+  const [slides, setSlides] = React.useState(DEFAULT_SLIDES);
+  const [uploadedFileName, setUploadedFileName] = React.useState<string | null>(null);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const baseName = file.name.replace(/\.[^/.]+$/, '');
+    setUploadedFileName(file.name);
+    setTitle(baseName.replace(/[-_]/g, ' '));
+
+    const customSlides = [
+      {
+        title: baseName.toUpperCase(),
+        subtitle: 'Executive Summary & Introduction',
+        tagline: `Slide 1 of ${file.name}`,
+        points: [
+          `Uploaded Deck: ${file.name}`,
+          `Target duration: ${targetMinutes} minutes for ${audience}`,
+          'Introduction of topic, context, and core objectives',
+        ],
+      },
+      {
+        title: 'PROBLEM STATEMENT & CONTEXT',
+        subtitle: 'Industry Context & Strategic Challenge',
+        tagline: 'Slide 2: Core Motivation',
+        points: [
+          'Detailed explanation of the target domain and identified inefficiencies',
+          'Current benchmark limitations and practical friction points',
+          'Evidence and stakeholder requirements',
+        ],
+      },
+      {
+        title: 'PROPOSED SOLUTION & ARCHITECTURE',
+        subtitle: 'Methodology, Formulation & System Design',
+        tagline: 'Slide 3: Proposed Methodology',
+        points: [
+          'Overview of methodology, key components, and design decisions',
+          'Key innovations and competitive advantages',
+          'Execution milestones and technical implementation details',
+        ],
+      },
+      {
+        title: 'RESULTS & METRICS',
+        subtitle: 'Evaluation, Verification & Measured Impact',
+        tagline: 'Slide 4: Key Insights & Evidence',
+        points: [
+          'Qualitative and quantitative benchmark results',
+          'Scalability, reliability, and security considerations',
+          'Validation metrics against target criteria',
+        ],
+      },
+      {
+        title: 'CONCLUSION & ROADMAP',
+        subtitle: 'Next Steps, Q&A and Strategic Vision',
+        tagline: 'Slide 5: Summary',
+        points: [
+          'Summary of key takeaways and value delivered',
+          'Future roadmap and deployment horizon',
+          'Opening the floor for questions from ' + audience,
+        ],
+      },
+    ];
+
+    setSlides(customSlides);
+  };
 
   // Live session state
   const [currentSlide, setCurrentSlide] = React.useState(0);
@@ -253,9 +320,9 @@ export default function PresentationCoachPage() {
         setPersistedSessionId(sessId);
         // 2. Route eligible transcript evidence through central EEDI pipeline
         await api.post(`/student/practice/sessions/${sessId}/complete`, {
-          transcriptOverride: transcript || `Delivered ${DEFAULT_SLIDES.length} presentation slides in ${elapsedSeconds} seconds.`,
+          transcriptOverride: transcript || `Delivered ${slides.length} presentation slides in ${elapsedSeconds} seconds.`,
           durationSeconds: elapsedSeconds,
-          answeredQuestions: DEFAULT_SLIDES.length,
+          answeredQuestions: slides.length,
           partial: false,
         });
       }
@@ -288,7 +355,7 @@ export default function PresentationCoachPage() {
     const clarityScore = Math.max(50, 92 - fillerPenalty);
 
     // Dwell balance score
-    const numSlides = DEFAULT_SLIDES.length;
+    const numSlides = slides.length;
     const avgDwell = elapsedSeconds / numSlides;
     const structureScore = avgDwell >= 15 ? 90 : 70;
 
@@ -385,14 +452,53 @@ export default function PresentationCoachPage() {
                 </div>
               </div>
 
-              <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                  <Award className="size-3.5" />
-                  Active Slide Deck: SIH 2026 Bhoorakshak
-                </span>
-                <p className="text-xs text-muted-foreground">
-                  {DEFAULT_SLIDES.length} curated high-impact slides covering Problem Statement, Geo-Spatial Solution, IoT Hardware Architecture, and Impact Feasibility.
-                </p>
+              <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                    <Award className="size-3.5" />
+                    Slide Deck Selection
+                  </span>
+                  {uploadedFileName && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSlides(DEFAULT_SLIDES);
+                        setUploadedFileName(null);
+                        setTitle('SIH 2026 - Bhoorakshak Early Warning');
+                      }}
+                      className="text-xs text-muted-foreground hover:text-foreground underline"
+                    >
+                      Reset to Default Deck
+                    </button>
+                  )}
+                </div>
+
+                {uploadedFileName ? (
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs flex items-center justify-between">
+                    <div>
+                      <p className="font-bold text-foreground">Custom Deck: {uploadedFileName}</p>
+                      <p className="text-2xs text-muted-foreground">{slides.length} slides extracted & ready for speech rehearsal</p>
+                    </div>
+                    <Badge tone="teal">Custom Deck</Badge>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Using default SIH 2026 Bhoorakshak pitch deck (5 slides). Or upload your custom PowerPoint presentation (.pptx, .ppt, .pdf) below to practice your own material.
+                  </p>
+                )}
+
+                <div className="pt-1">
+                  <label className="flex items-center gap-2 cursor-pointer w-fit rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition-colors">
+                    <FileUp className="size-4 text-primary" />
+                    <span>Upload PowerPoint (.pptx, .ppt, .pdf)</span>
+                    <input
+                      type="file"
+                      accept=".pptx,.ppt,.pdf"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
               </div>
 
               <div className="pt-2 flex justify-end">
@@ -439,7 +545,7 @@ export default function PresentationCoachPage() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {DEFAULT_SLIDES.map((slide, idx) => (
+            {slides.map((slide, idx) => (
               <Card
                 key={idx}
                 className="card-interactive bg-card border-border"
@@ -447,7 +553,7 @@ export default function PresentationCoachPage() {
                 <CardHeader>
                   <div>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
-                      Slide {idx + 1} of {DEFAULT_SLIDES.length}
+                      Slide {idx + 1} of {slides.length}
                     </span>
                     <CardTitle className="text-sm mt-0.5">{slide.title}</CardTitle>
                     <CardSubtitle className="text-xs">{slide.subtitle}</CardSubtitle>
@@ -564,7 +670,7 @@ export default function PresentationCoachPage() {
                 Live Rehearsal: {title}
               </span>
               <Badge tone="indigo">
-                Slide {currentSlide + 1} of {DEFAULT_SLIDES.length}
+                Slide {currentSlide + 1} of {slides.length}
               </Badge>
             </div>
 
@@ -593,18 +699,18 @@ export default function PresentationCoachPage() {
             <div className="relative rounded-2xl bg-card p-8 sm:p-12 text-foreground flex flex-col justify-between min-h-[440px] shadow-sm border border-border">
               <div className="space-y-3">
                 <span className="text-xs font-bold uppercase tracking-widest text-accent">
-                  {DEFAULT_SLIDES[currentSlide].tagline}
+                  {slides[currentSlide]?.tagline}
                 </span>
                 <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-heading">
-                  {DEFAULT_SLIDES[currentSlide].title}
+                  {slides[currentSlide]?.title}
                 </h1>
                 <p className="text-base text-card/80 font-medium">
-                  {DEFAULT_SLIDES[currentSlide].subtitle}
+                  {slides[currentSlide]?.subtitle}
                 </p>
               </div>
 
               <div className="my-8 space-y-3">
-                {DEFAULT_SLIDES[currentSlide].points.map((pt, pIdx) => (
+                {(slides[currentSlide]?.points || []).map((pt, pIdx) => (
                   <div key={pIdx} className="flex items-start gap-3">
                     <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-accent font-bold text-xs mt-0.5">
                       {pIdx + 1}
@@ -631,9 +737,9 @@ export default function PresentationCoachPage() {
                   <Button
                     variant="primary"
                     size="sm"
-                    disabled={currentSlide === DEFAULT_SLIDES.length - 1}
+                    disabled={currentSlide === slides.length - 1}
                     onClick={() =>
-                      setCurrentSlide((s) => Math.min(DEFAULT_SLIDES.length - 1, s + 1))
+                      setCurrentSlide((s) => Math.min(slides.length - 1, s + 1))
                     }
                   >
                     Next Slide
@@ -789,7 +895,7 @@ export default function PresentationCoachPage() {
                     Slide Dwell Allocation
                   </h3>
                   <div className="grid gap-2 sm:grid-cols-5">
-                    {DEFAULT_SLIDES.map((slide, idx) => (
+                    {slides.map((slide, idx) => (
                       <div
                         key={idx}
                         className="p-3 rounded-xl bg-muted/40 border border-border"

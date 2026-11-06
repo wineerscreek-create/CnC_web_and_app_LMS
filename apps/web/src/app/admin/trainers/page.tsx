@@ -1,6 +1,6 @@
 'use client';
 
-import { Calendar, GraduationCap, ShieldCheck, Trash2 } from 'lucide-react';
+import { ArrowRightLeft, Calendar, GraduationCap, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
 
@@ -324,7 +324,83 @@ function TrainerAssignmentsDialog({
     {},
     { enabled: Boolean(trainer?.id && open) }
   );
+  const batchesQuery = useApi<any>('/admin/batches', {}, { enabled: Boolean(open) });
+  const allBatches = batchesQuery.data?.items ?? (Array.isArray(batchesQuery.data) ? batchesQuery.data : []);
+
   const [unassigningId, setUnassigningId] = React.useState<string | null>(null);
+  const [showAssignForm, setShowAssignForm] = React.useState(false);
+  const [reassigningItem, setReassigningItem] = React.useState<any | null>(null);
+
+  // New assignment state
+  const [selectedBatchId, setSelectedBatchId] = React.useState('');
+  const [startDate, setStartDate] = React.useState('');
+  const [endDate, setEndDate] = React.useState('');
+  const [weekdays, setWeekdays] = React.useState<number[]>([1, 2, 3, 4, 5]);
+  const [notes, setNotes] = React.useState('');
+  const [submittingAssign, setSubmittingAssign] = React.useState(false);
+
+  // Reassign state
+  const [targetNewBatchId, setTargetNewBatchId] = React.useState('');
+  const [reassignNotes, setReassignNotes] = React.useState('');
+  const [submittingReassign, setSubmittingReassign] = React.useState(false);
+
+  const toggleWeekday = (day: number) => {
+    setWeekdays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort()
+    );
+  };
+
+  async function handleAssign() {
+    if (!selectedBatchId) {
+      toast.error('Please select a batch to assign');
+      return;
+    }
+    setSubmittingAssign(true);
+    try {
+      await api.post(`/admin/trainers/${trainer.id}/assignments`, {
+        batchId: selectedBatchId,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        weekdays,
+        notes: notes || undefined,
+      });
+      toast.success(`Batch assigned successfully to ${trainer.name}`);
+      setShowAssignForm(false);
+      setSelectedBatchId('');
+      setNotes('');
+      assignments.refetch();
+      onDone();
+    } catch (caught) {
+      toast.error((caught as ApiError).message);
+    } finally {
+      setSubmittingAssign(false);
+    }
+  }
+
+  async function handleReassign() {
+    if (!targetNewBatchId || !reassigningItem) {
+      toast.error('Please select the new target batch');
+      return;
+    }
+    setSubmittingReassign(true);
+    try {
+      await api.post(`/admin/trainers/${trainer.id}/reassign`, {
+        oldBatchId: reassigningItem.batchId,
+        newBatchId: targetNewBatchId,
+        notes: reassignNotes || undefined,
+      });
+      toast.success(`${trainer.name} successfully reassigned`);
+      setReassigningItem(null);
+      setTargetNewBatchId('');
+      setReassignNotes('');
+      assignments.refetch();
+      onDone();
+    } catch (caught) {
+      toast.error((caught as ApiError).message);
+    } finally {
+      setSubmittingReassign(false);
+    }
+  }
 
   async function handleUnassign(batchId: string, batchName: string) {
     if (!window.confirm(`Unassign ${trainer.name} from batch ${batchName}? Active sessions will be revoked.`)) {
@@ -345,14 +421,200 @@ function TrainerAssignmentsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Batch assignments: {trainer?.name}</DialogTitle>
+          <div className="flex items-center justify-between gap-4">
+            <DialogTitle>Batch assignments: {trainer?.name}</DialogTitle>
+            {!showAssignForm && !reassigningItem && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setShowAssignForm(true)}
+                className="gap-1.5"
+              >
+                <Plus className="size-3.5" aria-hidden />
+                Assign New Batch
+              </Button>
+            )}
+          </div>
         </DialogHeader>
         <DialogBody className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Batches and teaching schedules assigned to this trainer across your institution.
           </p>
+
+          {/* New Assignment Inline Form */}
+          {showAssignForm && (
+            <div className="rounded-xl border border-primary/30 bg-card p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold text-foreground">Assign to New Batch</p>
+                <button
+                  type="button"
+                  onClick={() => setShowAssignForm(false)}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Cancel
+                </button>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-foreground">
+                  Select Batch <span className="text-red-400">*</span>
+                </label>
+                <select
+                  value={selectedBatchId}
+                  onChange={(e) => setSelectedBatchId(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground focus:outline-hidden focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">-- Choose active batch --</option>
+                  {allBatches.map((b: any) => (
+                    <option key={b.id || b._id} value={b.id || b._id}>
+                      {b.name} ({b.code}) — {b.departmentName || 'Dept'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-foreground">Start Date</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-hidden focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-foreground">End Date</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-hidden focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-foreground">Teaching Days</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[1, 2, 3, 4, 5, 6, 7].map((d) => {
+                    const active = weekdays.includes(d);
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => toggleWeekday(d)}
+                        className={`rounded-md px-2 py-1 text-2xs font-semibold transition-all ${
+                          active
+                            ? 'bg-primary text-primary-foreground'
+                            : 'border border-border bg-card text-muted-foreground hover:bg-muted'
+                        }`}
+                      >
+                        {WEEKDAY_NAMES[d]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-foreground">Schedule Notes</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Morning Soft-Skills Batch A"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-hidden focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button size="sm" variant="secondary" onClick={() => setShowAssignForm(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  loading={submittingAssign}
+                  disabled={!selectedBatchId}
+                  onClick={handleAssign}
+                >
+                  Save Assignment
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Reassign Modal View */}
+          {reassigningItem && (
+            <div className="rounded-xl border border-indigo/40 bg-card p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-bold text-foreground">
+                    Reassign from {reassigningItem.batchName}
+                  </p>
+                  <p className="text-2xs text-muted-foreground">
+                    Shifts trainer to new batch without deleting historical attendance or scores.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReassigningItem(null)}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Cancel
+                </button>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-foreground">
+                  Target New Batch <span className="text-red-400">*</span>
+                </label>
+                <select
+                  value={targetNewBatchId}
+                  onChange={(e) => setTargetNewBatchId(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground focus:outline-hidden focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">-- Choose destination batch --</option>
+                  {allBatches
+                    .filter((b: any) => (b.id || b._id) !== reassigningItem.batchId)
+                    .map((b: any) => (
+                      <option key={b.id || b._id} value={b.id || b._id}>
+                        {b.name} ({b.code})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-foreground">Reassignment Reason / Notes</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Schedule adjustment or semester rotation"
+                  value={reassignNotes}
+                  onChange={(e) => setReassignNotes(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-hidden focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button size="sm" variant="secondary" onClick={() => setReassigningItem(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  loading={submittingReassign}
+                  disabled={!targetNewBatchId}
+                  onClick={handleReassign}
+                >
+                  Confirm Reassignment
+                </Button>
+              </div>
+            </div>
+          )}
 
           {assignments.loading ? (
             <p className="py-8 text-center text-sm text-muted-foreground">Loading assignments...</p>
@@ -404,6 +666,15 @@ function TrainerAssignmentsDialog({
                     </div>
                   </div>
                   <div className="flex items-center gap-2 sm:self-center">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setReassigningItem(item)}
+                      className="text-xs"
+                    >
+                      <ArrowRightLeft className="size-3" aria-hidden />
+                      Reassign
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"

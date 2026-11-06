@@ -18,8 +18,8 @@ from app.authz.context import ScopeContext
 from app.authz.guards import require_role
 from app.authz.roles import Role
 from app.core.config import settings
-from app.core.errors import Conflict, NotFound, ValidationError
-from app.core.security import hash_password
+from app.core.errors import Conflict, NotFound, ScopeForbidden, ValidationError
+from app.core.security import hash_password, verify_password
 from app.db.mongo import get_db, serialize
 from app.db.postgres import get_pg_connection
 from app.schemas.requests import ReportRequest
@@ -1690,6 +1690,85 @@ async def super_admin_delete_course(course_id: str, ctx: ScopeContext = SuperAdm
 
     await write_audit(ctx, action="delete", entity_type="courses", entity_id=str(c_uuid), detail=f"Soft-deleted course {course_id}")
     return {"success": True, "message": "Course safely soft-deleted."}
+
+
+@router.post("/courses/{course_id}/permanent-delete")
+async def super_admin_permanent_delete_course(
+    course_id: str,
+    payload: dict[str, Any],
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Permanently delete a course requiring super-admin password reauthentication."""
+    password = payload.get("password")
+    if not password:
+        raise ValidationError("Super Admin password confirmation is required for permanent deletion.")
+
+    c_uuid = UUID(str(course_id))
+    admin_uuid = UUID(str(ctx.user_id)) if ctx.user_id else None
+
+    async with get_pg_connection() as conn:
+        admin_row = await conn.fetchrow(
+            "SELECT password_hash FROM users WHERE id = $1 AND role = 'SUPER_ADMIN'",
+            admin_uuid,
+        )
+        if not admin_row or not verify_password(password, admin_row["password_hash"]):
+            raise ScopeForbidden("Invalid Super Admin password. Permanent deletion aborted.")
+
+        pay_count = await conn.fetchval("SELECT count(*) FROM payments WHERE course_id = $1", c_uuid) or 0
+        if pay_count > 0:
+            raise ValidationError(
+                f"Course has {pay_count} financial payment transaction(s). Irrevocable permanent deletion is forbidden to protect financial audits; please Archive the course."
+            )
+
+        # Purge cascade references
+        await conn.execute("DELETE FROM course_modules WHERE course_id = $1", c_uuid)
+        await conn.execute("DELETE FROM enrollments WHERE course_id = $1", c_uuid)
+        await conn.execute("DELETE FROM courses WHERE id = $1", c_uuid)
+
+    await write_audit(ctx, action="permanent_delete", entity_type="courses", entity_id=str(c_uuid), detail=f"Permanently purged course {course_id}")
+    return {"success": True, "message": "Course permanently deleted from the platform."}
+
+
+@router.get("/profile")
+async def super_admin_profile(ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    """Super Admin platform-wide profile and security telemetry."""
+    if settings.USE_POSTGRES:
+        async with get_pg_connection() as conn:
+            admin_uuid = UUID(str(ctx.user_id)) if ctx.user_id else None
+            admin_row = await conn.fetchrow(
+                "SELECT id, name, email, role, status, created_at, last_login_at FROM users WHERE id = $1",
+                admin_uuid
+            ) if admin_uuid else None
+
+            colleges_cnt = await conn.fetchval("SELECT count(*) FROM institutions WHERE deleted_at IS NULL") or 0
+            courses_cnt = await conn.fetchval("SELECT count(*) FROM courses WHERE deleted_at IS NULL") or 0
+            users_cnt = await conn.fetchval("SELECT count(*) FROM users WHERE deleted_at IS NULL") or 0
+
+            return {
+                "success": True,
+                "data": {
+                    "id": str(admin_row["id"]) if admin_row else str(ctx.user_id),
+                    "name": admin_row["name"] if admin_row else ctx.name or "Super Admin",
+                    "email": admin_row["email"] if admin_row else ctx.email or "superadmin@eedilms.app",
+                    "role": "SUPER_ADMIN",
+                    "status": "ACTIVE",
+                    "scope": "PLATFORM_WIDE",
+                    "collegesCount": colleges_cnt,
+                    "coursesCount": courses_cnt,
+                    "totalUsersCount": users_cnt,
+                    "lastLoginAt": admin_row["last_login_at"].isoformat() if admin_row and admin_row.get("last_login_at") else None,
+                    "createdAt": admin_row["created_at"].isoformat() if admin_row and admin_row.get("created_at") else None,
+                }
+            }
+    return {
+        "success": True,
+        "data": {
+            "name": ctx.name or "Super Admin",
+            "email": ctx.email or "superadmin@eedilms.app",
+            "role": "SUPER_ADMIN",
+            "scope": "PLATFORM_WIDE",
+        }
+    }
 
 
 @router.get("/courses/{course_id}/revenue")

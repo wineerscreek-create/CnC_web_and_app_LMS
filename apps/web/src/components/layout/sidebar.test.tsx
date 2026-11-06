@@ -31,14 +31,12 @@ describe('portal sidebar', () => {
     expect(current).toHaveTextContent('Participants');
   });
 
-  it('renders locked scope items as non-interactive, with the reason readable', () => {
+  it('ensures out-of-scope items are completely excluded from sidebar', () => {
     render(<Sidebar user={hod} open onClose={() => {}} />);
-    // "Other Departments" must never be a link — it is refused server-side too.
+    // "Other Departments" and "Other Colleges" must never appear in the HOD sidebar.
     expect(screen.queryByRole('link', { name: /other departments/i })).not.toBeInTheDocument();
-    expect(screen.getByText('Other Departments')).toBeInTheDocument();
-    expect(
-      screen.getAllByText(/not rendered; also blocked server-side/i).length,
-    ).toBeGreaterThan(0);
+    expect(screen.queryByText('Other Departments')).not.toBeInTheDocument();
+    expect(screen.queryByText('Other Colleges')).not.toBeInTheDocument();
   });
 
   it('shows the HOD their scope so the boundary is never a guess', () => {

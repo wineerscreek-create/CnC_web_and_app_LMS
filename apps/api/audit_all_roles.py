@@ -70,7 +70,6 @@ ENDPOINTS_BY_ROLE = {
         "/api/v1/trainer/courses",
         "/api/v1/trainer/ebooks",
         "/api/v1/trainer/games",
-        "/api/v1/trainer/payments",
         "/api/v1/trainer/profile",
         "/api/v1/trainer/training-modules",
         "/api/v1/auth/me",

@@ -672,23 +672,30 @@ async def require_parent_student_link(ctx: ScopeContext, student_id: Any) -> Obj
 
 async def require_student_in_scope(ctx: ScopeContext, student_id: Any) -> Any:
     """Resolve a student and prove they sit inside the caller's scope (check 5)."""
-    sid_str = str(student_id)
-    if settings.USE_POSTGRES and len(sid_str) == 36:
+    sid_str = str(student_id).strip()
+    if settings.USE_POSTGRES:
         try:
             from uuid import UUID
             from app.db.postgres import get_pg_connection
-            s_uuid = UUID(sid_str)
+            from app.repositories.game_repo import _safe_uuid
+
+            s_uuid = _safe_uuid(sid_str)
             async with get_pg_connection() as conn:
                 prof = await conn.fetchrow("""
-                    SELECT sp.user_id, sp.batch_id, u.institution_id, u.department_id
-                    FROM users u
-                    JOIN student_profiles sp ON sp.user_id = u.id
-                    WHERE u.id = $1 AND u.deleted_at IS NULL
-                """, s_uuid)
+                    SELECT sp.user_id, sp.id as profile_id, sp.roll_number, sp.batch_id, u.institution_id, u.department_id
+                    FROM student_profiles sp
+                    JOIN users u ON sp.user_id = u.id
+                    WHERE (u.id = $1::uuid OR sp.id = $1::uuid OR LOWER(sp.roll_number) = LOWER($2))
+                      AND u.deleted_at IS NULL
+                """, s_uuid, sid_str)
                 if not prof:
                     raise ScopeForbidden()
                 if ctx.is_platform_wide:
-                    return student_id
+                    return str(prof["user_id"])
+                if ctx.college_id and prof["institution_id"] and str(prof["institution_id"]) != str(ctx.college_id):
+                    await _deny_scope(ctx, f"cross-college student access attempt ({student_id})")
+                if ctx.role is Role.HOD and ctx.department_id and prof.get("department_id") and str(prof["department_id"]) != str(ctx.department_id):
+                    await _deny_scope(ctx, f"cross-department student access attempt ({student_id})")
                 if ctx.role is Role.TRAINER:
                     is_assigned = await conn.fetchval(
                         """
@@ -702,15 +709,23 @@ async def require_student_in_scope(ctx: ScopeContext, student_id: Any) -> Any:
                     )
                     if not is_assigned:
                         await _deny_scope(ctx, f"trainer requested student outside assigned batches ({student_id})")
-                return student_id
+                return str(prof["user_id"])
         except ScopeForbidden:
             raise
         except Exception:
             pass
-    oid = ObjectId(str(student_id))
-    profile = await get_db().student_profiles.find_one(
-        {"userId": oid}, {"collegeId": 1, "departmentId": 1, "batchId": 1}
-    )
+    try:
+        oid = ObjectId(str(student_id))
+    except Exception:
+        oid = None
+    if oid:
+        profile = await get_db().student_profiles.find_one(
+            {"userId": oid}, {"collegeId": 1, "departmentId": 1, "batchId": 1}
+        )
+    else:
+        profile = await get_db().student_profiles.find_one(
+            {"rollNumber": sid_str}, {"collegeId": 1, "departmentId": 1, "batchId": 1}
+        )
     if not profile:
         # Do not confirm existence outside scope — same shape as a scope denial (SRS §13.1).
         raise ScopeForbidden()

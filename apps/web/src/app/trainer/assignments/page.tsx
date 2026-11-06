@@ -54,8 +54,15 @@ function CreateAssignmentDialog({
     dueAt: '',
     maxScore: '100',
   });
+  const [allowedFormats, setAllowedFormats] = React.useState<string[]>(['TEXT', 'PDF']);
   const [pending, setPending] = React.useState(false);
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
+
+  const toggleFormat = (fmt: string) => {
+    setAllowedFormats((prev) =>
+      prev.includes(fmt) ? (prev.length > 1 ? prev.filter((f) => f !== fmt) : prev) : [...prev, fmt]
+    );
+  };
 
   async function submit() {
     setPending(true);
@@ -69,6 +76,7 @@ function CreateAssignmentDialog({
         // `datetime-local` has no zone; send it as the browser's local instant.
         dueAt: new Date(form.dueAt).toISOString(),
         maxScore: Number(form.maxScore),
+        allowedFormats,
       });
       toast.success('Assignment created — the batch has been notified');
       onOpenChange(false);
@@ -84,7 +92,7 @@ function CreateAssignmentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[560px]">
+      <DialogContent className="max-w-[560px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New assignment</DialogTitle>
         </DialogHeader>
@@ -103,9 +111,40 @@ function CreateAssignmentDialog({
                 rows={4}
                 value={form.description}
                 onChange={(event) => setForm({ ...form, description: event.target.value })}
-                placeholder="What to submit, and how it will be marked."
+                placeholder="What to submit, instructions, rubric guidelines..."
               />
             </Field>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-foreground">
+                Accepted Submission Formats
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { id: 'TEXT', label: 'Text Entry' },
+                  { id: 'PDF', label: 'PDF Upload' },
+                  { id: 'AUDIO', label: 'Audio Recording' },
+                  { id: 'VIDEO', label: 'Video Recording' },
+                ].map((fmt) => {
+                  const active = allowedFormats.includes(fmt.id);
+                  return (
+                    <button
+                      key={fmt.id}
+                      type="button"
+                      onClick={() => toggleFormat(fmt.id)}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                        active
+                          ? 'bg-primary text-primary-foreground shadow-xs'
+                          : 'border border-border bg-card text-muted-foreground hover:bg-muted'
+                      }`}
+                    >
+                      {fmt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="batchId" className="mb-1.5 block text-sm font-semibold">

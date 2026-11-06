@@ -147,6 +147,18 @@ async def attendance_report(ctx: ScopeContext, filters: dict[str, Any]):
         params.append(u_uuid)
         conditions.append(f"sp.user_id = ${len(params)}")
 
+    if filters.get("academicYear"):
+        params.append(str(filters["academicYear"]))
+        conditions.append(f"sp.academic_year = ${len(params)}")
+
+    if filters.get("semester"):
+        try:
+            sem_val = int(filters["semester"])
+            params.append(sem_val)
+            conditions.append(f"(sp.current_semester = ${len(params)} OR b.semester = ${len(params)})")
+        except (ValueError, TypeError):
+            pass
+
     date_where_cte = ""
     date_join_cond = ""
     has_date_filter = bool(start_d or end_d)
@@ -160,7 +172,23 @@ async def attendance_report(ctx: ScopeContext, filters: dict[str, Any]):
         date_join_cond += f" AND ts.session_date <= ${len(params)}"
 
     where_clause = " AND ".join(conditions)
-    having_clause = "HAVING COALESCE(bs.total_sessions, 0) > 0" if has_date_filter else ""
+
+    having_conds = []
+    if has_date_filter:
+        having_conds.append("COALESCE(bs.total_sessions, 0) > 0")
+    if filters.get("attendanceMin") is not None:
+        try:
+            amin = float(filters["attendanceMin"])
+            having_conds.append(f"CASE WHEN COALESCE(bs.total_sessions, 0) > 0 THEN ROUND((COUNT(CASE WHEN ar.status IN ('PRESENT', 'LATE') THEN 1 END)::numeric / bs.total_sessions::numeric) * 100, 1) ELSE 0.0 END >= {amin}")
+        except (ValueError, TypeError):
+            pass
+    if filters.get("attendanceMax") is not None:
+        try:
+            amax = float(filters["attendanceMax"])
+            having_conds.append(f"CASE WHEN COALESCE(bs.total_sessions, 0) > 0 THEN ROUND((COUNT(CASE WHEN ar.status IN ('PRESENT', 'LATE') THEN 1 END)::numeric / bs.total_sessions::numeric) * 100, 1) ELSE 0.0 END <= {amax}")
+        except (ValueError, TypeError):
+            pass
+    having_clause = f"HAVING {' AND '.join(having_conds)}" if having_conds else ""
 
     sql = f"""
         WITH batch_sess AS (
@@ -173,7 +201,7 @@ async def attendance_report(ctx: ScopeContext, filters: dict[str, Any]):
             sp.roll_number,
             u.name as student_name,
             u.email as student_email,
-            d.name as department_name,
+            COALESCE(d.name, 'Unassigned') as department_name,
             COALESCE(b.name, 'Unassigned') as batch_name,
             COALESCE(bs.total_sessions, 0) as sessions_total,
             COUNT(CASE WHEN ar.status = 'PRESENT' THEN 1 END) as sessions_present,
@@ -186,7 +214,7 @@ async def attendance_report(ctx: ScopeContext, filters: dict[str, Any]):
             END as attendance_pct
         FROM student_profiles sp
         JOIN users u ON u.id = sp.user_id
-        JOIN departments d ON d.id = sp.department_id
+        LEFT JOIN departments d ON d.id = sp.department_id
         LEFT JOIN batches b ON b.id = sp.batch_id
         LEFT JOIN batch_sess bs ON bs.batch_id = b.id
         LEFT JOIN attendance_records ar ON ar.participant_user_id = u.id
@@ -194,7 +222,7 @@ async def attendance_report(ctx: ScopeContext, filters: dict[str, Any]):
         WHERE {where_clause}
         GROUP BY sp.id, sp.roll_number, u.name, u.email, d.name, b.name, bs.total_sessions
         {having_clause}
-        ORDER BY d.name, b.name, sp.roll_number;
+        ORDER BY d.name NULLS LAST, b.name, sp.roll_number;
     """
 
     async with get_pg_connection() as conn:
@@ -293,7 +321,7 @@ async def assessment_report(ctx: ScopeContext, filters: dict[str, Any]):
             sp.roll_number,
             u.name as student_name,
             u.email as student_email,
-            d.name as department_name,
+            COALESCE(d.name, 'Unassigned') as department_name,
             COALESCE(b.name, 'Unassigned') as batch_name,
             ee.semester,
             ee.eedi_score,
@@ -304,11 +332,11 @@ async def assessment_report(ctx: ScopeContext, filters: dict[str, Any]):
         FROM eedi_evaluations ee
         JOIN users u ON u.id = ee.participant_user_id
         JOIN student_profiles sp ON sp.user_id = u.id
-        JOIN departments d ON d.id = ee.department_id
+        LEFT JOIN departments d ON d.id = COALESCE(ee.department_id, sp.department_id)
         LEFT JOIN batches b ON b.id = sp.batch_id
         LEFT JOIN users tu ON tu.id = ee.trainer_user_id
         WHERE {where_clause}
-        ORDER BY d.name, b.name, sp.roll_number;
+        ORDER BY d.name NULLS LAST, b.name, sp.roll_number;
     """
 
     async with get_pg_connection() as conn:
@@ -395,7 +423,7 @@ async def enrollment_report(ctx: ScopeContext, filters: dict[str, Any]):
             sp.roll_number,
             u.name as student_name,
             u.email as student_email,
-            d.name as department_name,
+            COALESCE(d.name, 'Unassigned') as department_name,
             COALESCE(b.name, 'Unassigned') as batch_name,
             c.code as course_code,
             c.title as course_title,
@@ -407,11 +435,11 @@ async def enrollment_report(ctx: ScopeContext, filters: dict[str, Any]):
         FROM enrollments e
         JOIN users u ON u.id = e.participant_user_id
         JOIN student_profiles sp ON sp.user_id = u.id
-        JOIN departments d ON d.id = e.department_id
+        LEFT JOIN departments d ON d.id = COALESCE(e.department_id, sp.department_id)
         LEFT JOIN batches b ON b.id = e.batch_id
         JOIN courses c ON c.id = e.course_id
         WHERE {where_clause}
-        ORDER BY d.name, b.name, sp.roll_number;
+        ORDER BY d.name NULLS LAST, b.name, sp.roll_number;
     """
 
     async with get_pg_connection() as conn:
@@ -868,7 +896,7 @@ async def prediction_report(ctx: ScopeContext, filters: dict[str, Any]):
             sp.roll_number,
             u.name as student_name,
             u.email as student_email,
-            d.name as department_name,
+            COALESCE(d.name, 'Unassigned') as department_name,
             COALESCE(b.name, 'Unassigned') as batch_name,
             COUNT(ar.id) as sessions_total,
             CASE 
@@ -879,7 +907,7 @@ async def prediction_report(ctx: ScopeContext, filters: dict[str, Any]):
             ee.eedi_score
         FROM student_profiles sp
         JOIN users u ON u.id = sp.user_id
-        JOIN departments d ON d.id = sp.department_id
+        LEFT JOIN departments d ON d.id = sp.department_id
         LEFT JOIN batches b ON b.id = sp.batch_id
         LEFT JOIN attendance_records ar ON ar.participant_user_id = u.id
         LEFT JOIN eedi_evaluations ee ON ee.participant_user_id = u.id
@@ -932,10 +960,10 @@ async def student_progress_report(ctx: ScopeContext, filters: dict[str, Any]):
     u_uuid = _to_uuid(ctx.user_id)
     async with get_pg_connection() as conn:
         profile = await conn.fetchrow("""
-            SELECT sp.roll_number, u.name, u.email, d.name as dept, COALESCE(b.name, 'Unassigned') as batch, sp.academic_year
+            SELECT sp.roll_number, u.name, u.email, COALESCE(d.name, 'Unassigned') as dept, COALESCE(b.name, 'Unassigned') as batch, sp.academic_year
             FROM student_profiles sp
             JOIN users u ON u.id = sp.user_id
-            JOIN departments d ON d.id = sp.department_id
+            LEFT JOIN departments d ON d.id = sp.department_id
             LEFT JOIN batches b ON b.id = sp.batch_id
             WHERE sp.user_id = $1;
         """, u_uuid)
@@ -1075,34 +1103,6 @@ async def feedback_report(ctx: ScopeContext, filters: dict[str, Any]):
         "Trainer", "Room", "Status", "Start Time", "End Time"
     ]
     return columns, rows, "Trainer Sessions & Feedback"
-
-
-# --------------------------------------------------------------------------- Certification
-@dataset("certification")
-async def certification_report(ctx: ScopeContext, filters: dict[str, Any]):
-    if not settings.USE_POSTGRES:
-        from app.services import mongo_report_datasets
-        return await mongo_report_datasets.certification_report(ctx, filters)
-    cols, all_rows, _ = await attendance_report(ctx, filters)
-    rows = []
-    for r in all_rows:
-        pct = float(str(r[9]).replace("%", "")) if r[9] else 0.0
-        eligible = "Eligible" if pct >= 75.0 and r[5] > 0 else "Not Eligible"
-        rows.append([
-            r[0], r[1], r[2], r[3], r[4], f"{pct}%", eligible,
-            "Criteria met" if eligible == "Eligible" else "Attendance below 75%"
-        ])
-    columns = ["Roll No.", "Participant", "Email", "Department", "Batch", "Attendance %", "Certification Status", "Details"]
-    return columns, rows, "Certification Status"
-
-
-# --------------------------------------------------------------------------- Placement
-@dataset("placement")
-async def placement_report(ctx: ScopeContext, filters: dict[str, Any]):
-    if not settings.USE_POSTGRES:
-        from app.services import mongo_report_datasets
-        return await mongo_report_datasets.placement_report(ctx, filters)
-    return await learning_report(ctx, filters)
 
 
 # --------------------------------------------------------------------------- Audit

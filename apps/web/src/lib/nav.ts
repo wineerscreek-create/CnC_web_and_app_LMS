@@ -82,7 +82,6 @@ const TRAINER: NavGroup[] = [
       { label: 'E-Books', href: '/trainer/ebooks', icon: BookOpen },
       { label: 'Messages', href: '/trainer/chat', icon: MessageSquare },
       { label: 'Games', href: '/trainer/games', icon: Gamepad2 },
-      { label: 'Payments', href: '/trainer/payments', icon: CreditCard },
       { label: 'Course Progress', href: '/trainer/course-progress', icon: TrendingUp },
       { label: 'Reports', href: '/trainer/reports', icon: FileSpreadsheet },
       { label: 'Alerts', href: '/trainer/alerts', icon: AlertTriangle },
@@ -90,7 +89,7 @@ const TRAINER: NavGroup[] = [
   },
 ];
 
-/** HOD Portal — the "Department workspace" + locked "Scope" group from the screenshots. */
+/** HOD Portal — the "Department workspace" strictly isolated to their own department. */
 const HOD: NavGroup[] = [
   {
     label: 'Department workspace',
@@ -103,25 +102,6 @@ const HOD: NavGroup[] = [
       { label: 'Games & Activities', href: '/hod/games', icon: Gamepad2 },
       { label: 'Enrollment', href: '/hod/enrollment', icon: ClipboardList },
       { label: 'Reports', href: '/hod/reports', icon: FileSpreadsheet },
-    ],
-  },
-  {
-    label: 'Scope',
-    items: [
-      {
-        label: 'Other Departments',
-        href: '#other-departments',
-        icon: Users,
-        locked: true,
-        lockReason: 'Not rendered; also blocked server-side',
-      },
-      {
-        label: 'Other Colleges',
-        href: '#other-colleges',
-        icon: Building2,
-        locked: true,
-        lockReason: 'Not rendered; also blocked server-side',
-      },
     ],
   },
 ];
@@ -142,7 +122,6 @@ const ADMIN: NavGroup[] = [
     items: [
       { label: 'Reports & analytics', href: '/admin/reports', icon: BarChart3 },
       { label: 'Games', href: '/admin/games', icon: Gamepad2 },
-      { label: 'AI & server usage', href: '/admin/system', icon: Server },
     ],
   },
   {

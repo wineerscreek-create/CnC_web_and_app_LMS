@@ -314,10 +314,10 @@ function RoleChangeDialog({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {['STUDENT', 'TRAINER', 'HOD', 'ADMIN', 'PARENT'].map(
+              {['STUDENT', 'TRAINER'].map(
                 (value) => (
                   <SelectItem key={value} value={value}>
-                    {ROLE_LABEL[value] ?? titleCase(value)}
+                    {ROLE_LABEL[value] ?? (value === 'STUDENT' ? 'Participant' : 'Trainer')}
                   </SelectItem>
                 ),
               )}

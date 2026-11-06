@@ -40,8 +40,10 @@ from app.repositories.collections import (
     UserRepo,
 )
 from app.schemas.requests import (
+    AssignBatchToTrainerRequest,
     AssignStudentsRequest,
     AssignTrainersRequest,
+    ReassignTrainerBatchRequest,
     UpdateTrainerAssignmentRequest,
     BatchPatch,
     BatchRequest,
@@ -314,6 +316,13 @@ async def create_department(
                 """,
                 inst_uuid, payload.name, payload.code.upper(),
             )
+            if payload.hodUserId:
+                hod_uuid = _safe_uuid(payload.hodUserId)
+                if hod_uuid:
+                    await conn.execute(
+                        "UPDATE users SET department_id = $1 WHERE id = $2 AND (institution_id = $3 OR institution_id IS NULL)",
+                        row["id"], hod_uuid, inst_uuid,
+                    )
             dept_dict = {
                 "id": str(row["id"]),
                 "_id": str(row["id"]),
@@ -435,6 +444,13 @@ async def update_department(
                 )
                 if not row:
                     raise NotFound("Department not found")
+                if "hodUserId" in updates:
+                    hod_uuid = _safe_uuid(updates["hodUserId"])
+                    if hod_uuid:
+                        await conn.execute(
+                            "UPDATE users SET department_id = $1 WHERE id = $2",
+                            d_uuid, hod_uuid,
+                        )
                 return {
                     "success": True,
                     "message": "Department updated",
@@ -1592,6 +1608,210 @@ async def get_trainer_assignments(
     return {"success": True, "data": []}
 
 
+@router.post("/trainers/{trainer_id}/assignments", status_code=status.HTTP_201_CREATED)
+async def assign_batch_to_trainer(
+    trainer_id: str,
+    payload: AssignBatchToTrainerRequest,
+    ctx: ScopeContext = AdminCtx,
+) -> dict[str, Any]:
+    """Directly assign a batch with schedule to a trainer."""
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        from app.repositories.game_repo import _safe_uuid
+
+        t_uuid = _safe_uuid(trainer_id)
+        b_uuid = _safe_uuid(payload.batchId)
+        if not t_uuid or not b_uuid:
+            raise ValidationError("Invalid trainer or batch identifier")
+
+        async with get_pg_connection() as conn:
+            user = await conn.fetchrow(
+                "SELECT id, role, institution_id, name FROM users WHERE id = $1 AND deleted_at IS NULL",
+                t_uuid,
+            )
+            if not user or user["role"] != "TRAINER":
+                raise NotFound("Trainer not found")
+
+            batch = await conn.fetchrow(
+                "SELECT id, institution_id, name, start_date, end_date FROM batches WHERE id = $1 AND deleted_at IS NULL",
+                b_uuid,
+            )
+            if not batch:
+                raise NotFound("Batch not found")
+
+            if ctx.college_id and batch["institution_id"] and str(batch["institution_id"]) != str(ctx.college_id):
+                raise ScopeForbidden("Cannot assign batch outside your institution.")
+            if ctx.college_id and user["institution_id"] and str(user["institution_id"]) != str(ctx.college_id):
+                raise ScopeForbidden("Cannot assign trainer from another institution.")
+
+            admin_uuid = _safe_uuid(ctx.user_id)
+            start_d = payload.startDate or batch.get("start_date")
+            end_d = payload.endDate or batch.get("end_date")
+            w_days = payload.weekdays if payload.weekdays else [1, 2, 3, 4, 5, 6, 7]
+            status_val = payload.status or "ACTIVE"
+
+            await conn.execute(
+                """
+                INSERT INTO batch_trainers (
+                    id, batch_id, trainer_user_id, assigned_at,
+                    institution_id, start_date, end_date, weekdays, status, assigned_by, notes, updated_at
+                )
+                VALUES (gen_random_uuid(), $1, $2, NOW(), $3, $4, $5, $6, $7, $8, $9, NOW())
+                ON CONFLICT (batch_id, trainer_user_id) DO UPDATE SET
+                    institution_id = EXCLUDED.institution_id,
+                    start_date = EXCLUDED.start_date,
+                    end_date = EXCLUDED.end_date,
+                    weekdays = EXCLUDED.weekdays,
+                    status = EXCLUDED.status,
+                    assigned_by = EXCLUDED.assigned_by,
+                    notes = EXCLUDED.notes,
+                    updated_at = NOW()
+                """,
+                b_uuid, t_uuid, batch["institution_id"], start_d, end_d, w_days, status_val, admin_uuid, payload.notes
+            )
+            await session_service.revoke_all_sessions(str(t_uuid), reason="assignment_changed")
+            return {"success": True, "message": f"Trainer assigned to {batch['name']}"}
+
+    return {"success": True, "message": "Trainer assigned"}
+
+
+@router.post("/trainers/{trainer_id}/reassign")
+async def reassign_trainer_batch(
+    trainer_id: str,
+    payload: ReassignTrainerBatchRequest,
+    ctx: ScopeContext = AdminCtx,
+) -> dict[str, Any]:
+    """Atomically reassign trainer from old batch to new batch without deleting evaluation/attendance history."""
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        from app.repositories.game_repo import _safe_uuid
+
+        t_uuid = _safe_uuid(trainer_id)
+        old_b_uuid = _safe_uuid(payload.oldBatchId)
+        new_b_uuid = _safe_uuid(payload.newBatchId)
+        if not t_uuid or not old_b_uuid or not new_b_uuid:
+            raise ValidationError("Invalid trainer or batch identifier")
+
+        async with get_pg_connection() as conn:
+            user = await conn.fetchrow(
+                "SELECT id, role, institution_id, name FROM users WHERE id = $1 AND deleted_at IS NULL",
+                t_uuid,
+            )
+            if not user or user["role"] != "TRAINER":
+                raise NotFound("Trainer not found")
+
+            new_batch = await conn.fetchrow(
+                "SELECT id, institution_id, name, start_date, end_date FROM batches WHERE id = $1 AND deleted_at IS NULL",
+                new_b_uuid,
+            )
+            if not new_batch:
+                raise NotFound("Target batch not found")
+
+            if ctx.college_id and new_batch["institution_id"] and str(new_batch["institution_id"]) != str(ctx.college_id):
+                raise ScopeForbidden("Target batch is outside your institution.")
+
+            admin_uuid = _safe_uuid(ctx.user_id)
+            start_d = payload.startDate or new_batch.get("start_date")
+            end_d = payload.endDate or new_batch.get("end_date")
+            w_days = payload.weekdays if payload.weekdays else [1, 2, 3, 4, 5, 6, 7]
+
+            # Remove old assignment
+            await conn.execute(
+                "DELETE FROM batch_trainers WHERE batch_id = $1 AND trainer_user_id = $2",
+                old_b_uuid, t_uuid
+            )
+
+            # Assign new batch
+            await conn.execute(
+                """
+                INSERT INTO batch_trainers (
+                    id, batch_id, trainer_user_id, assigned_at,
+                    institution_id, start_date, end_date, weekdays, status, assigned_by, notes, updated_at
+                )
+                VALUES (gen_random_uuid(), $1, $2, NOW(), $3, $4, $5, $6, 'ACTIVE', $7, $8, NOW())
+                ON CONFLICT (batch_id, trainer_user_id) DO UPDATE SET
+                    institution_id = EXCLUDED.institution_id,
+                    start_date = EXCLUDED.start_date,
+                    end_date = EXCLUDED.end_date,
+                    weekdays = EXCLUDED.weekdays,
+                    status = 'ACTIVE',
+                    assigned_by = EXCLUDED.assigned_by,
+                    notes = EXCLUDED.notes,
+                    updated_at = NOW()
+                """,
+                new_b_uuid, t_uuid, new_batch["institution_id"], start_d, end_d, w_days, admin_uuid, payload.notes
+            )
+            await session_service.revoke_all_sessions(str(t_uuid), reason="trainer_reassigned")
+            return {"success": True, "message": f"Trainer reassigned to {new_batch['name']}"}
+
+    return {"success": True, "message": "Trainer reassigned"}
+
+
+@router.get("/trainers/{trainer_id}/assignment-history")
+async def get_trainer_assignment_history(
+    trainer_id: str,
+    ctx: ScopeContext = AdminCtx,
+) -> dict[str, Any]:
+    """Retrieve full batch assignment history (active and past) for this trainer."""
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        from app.repositories.game_repo import _safe_uuid
+
+        t_uuid = _safe_uuid(trainer_id)
+        if not t_uuid:
+            raise ValidationError("Not a valid identifier")
+
+        async with get_pg_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT 
+                    bt.id,
+                    bt.batch_id,
+                    b.name as batch_name,
+                    b.code as batch_code,
+                    b.academic_year,
+                    b.semester,
+                    d.name as department_name,
+                    bt.start_date,
+                    bt.end_date,
+                    bt.weekdays,
+                    bt.status,
+                    bt.notes,
+                    bt.assigned_at,
+                    admin_u.name as assigned_by_name
+                FROM batch_trainers bt
+                JOIN batches b ON bt.batch_id = b.id
+                LEFT JOIN departments d ON b.department_id = d.id
+                LEFT JOIN users admin_u ON bt.assigned_by = admin_u.id
+                WHERE bt.trainer_user_id = $1
+                ORDER BY bt.assigned_at DESC
+                """,
+                t_uuid,
+            )
+            out = [
+                {
+                    "id": str(r["id"]),
+                    "batchId": str(r["batch_id"]),
+                    "batchName": r["batch_name"],
+                    "batchCode": r["batch_code"],
+                    "academicYear": r["academic_year"],
+                    "semester": r["semester"],
+                    "departmentName": r["department_name"] or "",
+                    "startDate": r["start_date"].isoformat() if r["start_date"] else None,
+                    "endDate": r["end_date"].isoformat() if r["end_date"] else None,
+                    "weekdays": list(r["weekdays"]) if r["weekdays"] else [1, 2, 3, 4, 5, 6, 7],
+                    "status": r["status"] or "ACTIVE",
+                    "notes": r["notes"] or "",
+                    "assignedAt": r["assigned_at"].isoformat() if r["assigned_at"] else None,
+                    "assignedByName": r["assigned_by_name"] or "Administrator",
+                }
+                for r in rows
+            ]
+            return {"success": True, "data": out}
+
+    return {"success": True, "data": []}
+
+
 # --------------------------------------------------------------------------- trainers & users
 @router.get("/trainers")
 async def trainers(
@@ -1943,9 +2163,8 @@ async def users(
         **response,
         "meta": {
             "roles": [
-                {"value": str(r), "label": ROLE_LABEL[r]}
-                for r in Role
-                if r is not Role.SUPER_ADMIN
+                {"value": str(Role.TRAINER), "label": ROLE_LABEL[Role.TRAINER]},
+                {"value": str(Role.STUDENT), "label": "Participant"},
             ],
             "statuses": ["active", "deactivated", "pending"],
         },
@@ -1955,8 +2174,8 @@ async def users(
 @router.post("/users", status_code=status.HTTP_201_CREATED)
 async def create_user(payload: UserRequest, ctx: ScopeContext = AdminCtx) -> dict[str, Any]:
     role = parse_role(payload.role)
-    if role is Role.SUPER_ADMIN:
-        raise BusinessRuleViolation("Super Admin accounts cannot be created from a college admin")
+    if role not in (Role.TRAINER, Role.STUDENT):
+        raise BusinessRuleViolation("College Admins can only create Trainer or Participant accounts")
 
     db = get_db()
     email = payload.email.lower()
@@ -2150,8 +2369,8 @@ async def change_role(
 ) -> dict[str, Any]:
     """A role change takes effect immediately — existing sessions are invalidated (§31)."""
     role = parse_role(payload.role)
-    if role is Role.SUPER_ADMIN:
-        raise BusinessRuleViolation("Super Admin cannot be granted from a college admin")
+    if role not in (Role.TRAINER, Role.STUDENT):
+        raise BusinessRuleViolation("College Admins can only assign Trainer or Participant roles")
     repo = UserRepo(ctx)
     user = await repo.get(user_id)
     if user["_id"] == ctx.user_id:
@@ -2640,9 +2859,16 @@ async def recalculate_scores(
     }
 
 
-# --------------------------------------------------------------------------- Games
+# --------------------------------------------------------------------------- Games (Read-Only Analytics)
 @router.get("/games")
-async def admin_list_games(ctx: ScopeContext = AdminCtx) -> dict[str, Any]:
+async def admin_list_games(
+    batchId: str | None = Query(None),
+    departmentId: str | None = Query(None),
+    participantId: str | None = Query(None),
+    dateFrom: date | None = Query(None),
+    dateTo: date | None = Query(None),
+    ctx: ScopeContext = AdminCtx,
+) -> dict[str, Any]:
     if settings.USE_POSTGRES:
         from app.db.postgres import get_pg_connection
         from app.repositories.game_repo import _safe_uuid
@@ -2651,12 +2877,40 @@ async def admin_list_games(ctx: ScopeContext = AdminCtx) -> dict[str, Any]:
         inst_uuid = _safe_uuid(ctx.college_id) or UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
         async with get_pg_connection() as conn:
             games_rows = await conn.fetch("SELECT id, code, title, category, status FROM games ORDER BY title ASC")
-            attempts_rows = await conn.fetch("""
+
+            where_clauses = ["(ga.institution_id = $1 OR ga.institution_id IS NULL)"]
+            params: list[Any] = [inst_uuid]
+
+            if batchId:
+                b_uuid = _safe_uuid(batchId)
+                if b_uuid:
+                    params.append(b_uuid)
+                    where_clauses.append(f"sp.batch_id = ${len(params)}")
+            if departmentId:
+                d_uuid = _safe_uuid(departmentId)
+                if d_uuid:
+                    params.append(d_uuid)
+                    where_clauses.append(f"sp.department_id = ${len(params)}")
+            if participantId:
+                p_uuid = _safe_uuid(participantId)
+                if p_uuid:
+                    params.append(p_uuid)
+                    where_clauses.append(f"ga.participant_user_id = ${len(params)}")
+            if dateFrom:
+                params.append(dateFrom)
+                where_clauses.append(f"ga.started_at >= ${len(params)}")
+            if dateTo:
+                params.append(dateTo)
+                where_clauses.append(f"ga.started_at <= ${len(params)}")
+
+            sql = f"""
                 SELECT ga.game_id, COUNT(*) as attempts, AVG(ga.raw_score) as avg_score, SUM(ga.xp_earned) as total_xp
                 FROM game_attempts ga
-                WHERE ga.institution_id = $1 OR ga.institution_id IS NULL
+                LEFT JOIN student_profiles sp ON sp.user_id = ga.participant_user_id
+                WHERE {" AND ".join(where_clauses)}
                 GROUP BY ga.game_id
-            """, inst_uuid)
+            """
+            attempts_rows = await conn.fetch(sql, *params)
             by_game = {
                 str(r["game_id"]): {
                     "attempts": r["attempts"],
@@ -2695,16 +2949,6 @@ async def admin_list_games(ctx: ScopeContext = AdminCtx) -> dict[str, Any]:
         by_game[code]["scores"].append(a.get("score", 0))
         by_game[code]["xp"] += a.get("xpEarned", 0)
 
-    # Check college game config
-    college_query = {"$or": [{"_id": ctx.college_id}, {"_id": str(ctx.college_id)}]}
-    try:
-        from bson import ObjectId
-        college_query["$or"].append({"_id": ObjectId(str(ctx.college_id))})
-    except Exception:
-        pass
-    college = await get_db().colleges.find_one(college_query)
-    disabled_games = set((college or {}).get("disabledGameCodes", []))
-
     items = []
     for d in definitions:
         code = d.get("code")
@@ -2717,7 +2961,7 @@ async def admin_list_games(ctx: ScopeContext = AdminCtx) -> dict[str, Any]:
             "category": d.get("category"),
             "difficulty": d.get("difficulty"),
             "xpReward": d.get("xpReward", 50),
-            "isEnabled": code not in disabled_games,
+            "isEnabled": True,
             "totalAttempts": st["attempts"],
             "averageScore": avg,
             "totalXpEarned": st["xp"],
@@ -2726,36 +2970,150 @@ async def admin_list_games(ctx: ScopeContext = AdminCtx) -> dict[str, Any]:
     return {"success": True, "data": items}
 
 
-@router.patch("/games/{game_code}/availability")
-async def admin_toggle_game_availability(
-    game_code: str,
-    payload: dict[str, Any],
+@router.get("/games/{game_id}/attempts")
+async def admin_game_attempts(
+    game_id: str,
+    batchId: str | None = Query(None),
+    departmentId: str | None = Query(None),
+    participantId: str | None = Query(None),
+    dateFrom: date | None = Query(None),
+    dateTo: date | None = Query(None),
+    page: int = Query(1, ge=1),
+    pageSize: int = Query(25, ge=1, le=100),
     ctx: ScopeContext = AdminCtx,
 ) -> dict[str, Any]:
-    is_enabled = bool(payload.get("enabled", True))
-    col = get_db().colleges
+    """Retrieve persisted participant attempt history for a specific game."""
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        from app.repositories.game_repo import _safe_uuid
+        from uuid import UUID
 
-    college_query = {"$or": [{"_id": ctx.college_id}, {"_id": str(ctx.college_id)}]}
-    try:
-        from bson import ObjectId
-        college_query["$or"].append({"_id": ObjectId(str(ctx.college_id))})
-    except Exception:
-        pass
-    college = await col.find_one(college_query)
-    target_id = college["_id"] if college else str(ctx.college_id)
+        inst_uuid = _safe_uuid(ctx.college_id) or UUID("39a363c8-635a-4a0b-b9c0-d0c51529774f")
+        gid_uuid = _safe_uuid(game_id)
 
-    if is_enabled:
-        await col.update_one({"_id": target_id}, {"$pull": {"disabledGameCodes": game_code}}, upsert=True)
-    else:
-        await col.update_one({"_id": target_id}, {"$addToSet": {"disabledGameCodes": game_code}}, upsert=True)
+        async with get_pg_connection() as conn:
+            where_clauses = ["(ga.institution_id = $1 OR ga.institution_id IS NULL)"]
+            params: list[Any] = [inst_uuid]
 
-    await write_audit(
-        ctx,
-        action="update",
-        entity_type="game_definitions",
-        detail=f"Toggled game {game_code} availability to {is_enabled}",
-    )
-    return {"success": True, "message": f"Game {game_code} availability updated.", "enabled": is_enabled}
+            if gid_uuid:
+                params.append(gid_uuid)
+                where_clauses.append(f"(ga.game_id = ${len(params)} OR g.id = ${len(params)})")
+            else:
+                params.append(game_id)
+                where_clauses.append(f"g.code = ${len(params)}")
+
+            if batchId:
+                b_uuid = _safe_uuid(batchId)
+                if b_uuid:
+                    params.append(b_uuid)
+                    where_clauses.append(f"sp.batch_id = ${len(params)}")
+            if departmentId:
+                d_uuid = _safe_uuid(departmentId)
+                if d_uuid:
+                    params.append(d_uuid)
+                    where_clauses.append(f"sp.department_id = ${len(params)}")
+            if participantId:
+                p_uuid = _safe_uuid(participantId)
+                if p_uuid:
+                    params.append(p_uuid)
+                    where_clauses.append(f"ga.participant_user_id = ${len(params)}")
+            if dateFrom:
+                params.append(dateFrom)
+                where_clauses.append(f"ga.started_at >= ${len(params)}")
+            if dateTo:
+                params.append(dateTo)
+                where_clauses.append(f"ga.started_at <= ${len(params)}")
+
+            where_str = " AND ".join(where_clauses)
+            total = await conn.fetchval(
+                f"""
+                SELECT COUNT(*)
+                FROM game_attempts ga
+                JOIN games g ON ga.game_id = g.id
+                JOIN users u ON ga.participant_user_id = u.id
+                LEFT JOIN student_profiles sp ON sp.user_id = u.id
+                WHERE {where_str}
+                """,
+                *params,
+            ) or 0
+
+            offset = (page - 1) * pageSize
+            params_with_paging = list(params)
+            params_with_paging.append(pageSize)
+            limit_idx = len(params_with_paging)
+            params_with_paging.append(offset)
+            offset_idx = len(params_with_paging)
+
+            rows = await conn.fetch(
+                f"""
+                SELECT 
+                    ga.id,
+                    ga.game_id,
+                    g.title as game_title,
+                    g.code as game_code,
+                    ga.participant_user_id as user_id,
+                    u.name as participant_name,
+                    u.email as participant_email,
+                    sp.roll_number,
+                    COALESCE(b.name, 'Unassigned') as batch_name,
+                    COALESCE(d.name, 'Unassigned') as department_name,
+                    ga.raw_score as score,
+                    ga.raw_score,
+                    CASE WHEN ga.total_questions > 0 THEN ROUND((ga.correct_answers::numeric / ga.total_questions) * 100, 1) ELSE 0.0 END as accuracy,
+                    ga.duration_seconds,
+                    ga.status,
+                    ga.xp_earned,
+                    ga.started_at,
+                    ga.completed_at
+                FROM game_attempts ga
+                JOIN games g ON ga.game_id = g.id
+                JOIN users u ON ga.participant_user_id = u.id
+                LEFT JOIN student_profiles sp ON sp.user_id = u.id
+                LEFT JOIN batches b ON sp.batch_id = b.id
+                LEFT JOIN departments d ON sp.department_id = d.id
+                WHERE {where_str}
+                ORDER BY ga.started_at DESC
+                LIMIT ${limit_idx} OFFSET ${offset_idx}
+                """,
+                *params_with_paging,
+            )
+
+            items = [
+                {
+                    "id": str(r["id"]),
+                    "gameId": str(r["game_id"]),
+                    "gameTitle": r["game_title"],
+                    "gameCode": r["game_code"],
+                    "userId": str(r["user_id"]),
+                    "participantName": r["participant_name"],
+                    "participantEmail": r["participant_email"],
+                    "rollNumber": r["roll_number"] or "—",
+                    "batchName": r["batch_name"],
+                    "departmentName": r["department_name"],
+                    "score": r["score"],
+                    "rawScore": r["raw_score"],
+                    "accuracy": float(r["accuracy"]) if r["accuracy"] is not None else None,
+                    "durationSeconds": r["duration_seconds"],
+                    "status": r["status"] or "COMPLETED",
+                    "xpEarned": r["xp_earned"] or 0,
+                    "startedAt": r["started_at"].isoformat() if r["started_at"] else None,
+                    "completedAt": r["completed_at"].isoformat() if r["completed_at"] else None,
+                }
+                for r in rows
+            ]
+
+            return {
+                "success": True,
+                "data": items,
+                "pagination": {
+                    "page": page,
+                    "pageSize": pageSize,
+                    "total": total,
+                    "totalPages": max(1, (total + pageSize - 1) // pageSize),
+                },
+            }
+
+    return {"success": True, "data": [], "pagination": {"page": 1, "pageSize": pageSize, "total": 0, "totalPages": 1}}
 
 
 # --------------------------------------------------------------------------- Payments Management

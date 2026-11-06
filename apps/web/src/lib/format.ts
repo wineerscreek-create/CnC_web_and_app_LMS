@@ -97,3 +97,31 @@ export function hours(minutes?: number | null): string {
   if (minutes === null || minutes === undefined) return '—';
   return `${(minutes / 60).toFixed(1)}h`;
 }
+
+/**
+ * Formats user display name according to institution role standards.
+ * Staff (Trainers, Admins, Super Admins, SPOC/HODs) display with academic titles if present (e.g. Prof., Dr.),
+ * while Participant (Student) names are cleanly presented without salutations.
+ */
+export function formatDisplayName(
+  name?: string | null,
+  role?: string | null,
+  title?: string | null
+): string {
+  if (!name) return '—';
+  const clean = name.trim();
+  const normalizedRole = (role || '').toUpperCase();
+
+  if (normalizedRole === 'STUDENT' || normalizedRole === 'PARTICIPANT') {
+    return clean.replace(/^(Mr\.|Ms\.|Mrs\.|Dr\.|Prof\.)\s+/i, '');
+  }
+
+  if (title && title.trim()) {
+    const t = title.trim();
+    if (!clean.toLowerCase().startsWith(t.toLowerCase())) {
+      return `${t} ${clean}`;
+    }
+  }
+
+  return clean;
+}

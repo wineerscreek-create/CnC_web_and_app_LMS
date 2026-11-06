@@ -340,6 +340,24 @@ class UpdateTrainerAssignmentRequest(Base):
     scheduleReference: Annotated[str, Field(max_length=200)] | None = None
 
 
+class AssignBatchToTrainerRequest(Base):
+    batchId: ObjectIdStr
+    startDate: date | None = None
+    endDate: date | None = None
+    weekdays: list[int] | None = None
+    status: Literal["ACTIVE", "INACTIVE", "SUSPENDED"] = "ACTIVE"
+    notes: Annotated[str, Field(max_length=500)] | None = None
+
+
+class ReassignTrainerBatchRequest(Base):
+    oldBatchId: ObjectIdStr
+    newBatchId: ObjectIdStr
+    startDate: date | None = None
+    endDate: date | None = None
+    weekdays: list[int] | None = None
+    notes: Annotated[str, Field(max_length=500)] | None = None
+
+
 class UserRequest(Base):
     name: Annotated[str, Field(min_length=2, max_length=120)]
     email: EmailStr
