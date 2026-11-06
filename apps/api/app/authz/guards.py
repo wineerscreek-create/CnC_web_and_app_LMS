@@ -168,6 +168,8 @@ async def get_scope_context(request: Request) -> ScopeContext:
 
     if active_role is Role.TRAINER:
         ctx = await _hydrate_trainer_scope(ctx)
+    elif active_role is Role.HOD:
+        ctx = await _hydrate_hod_scope(ctx)
     elif active_role is Role.PARENT:
         ctx = await _hydrate_parent_scope(ctx)
 
@@ -249,11 +251,21 @@ async def _reject_client_scope_claims(request: Request, ctx: ScopeContext) -> No
                 path=str(request.url.path),
             )
         elif kind == "department":
-            if ctx.role in (Role.HOD, Role.STUDENT):
+            if ctx.role is Role.STUDENT:
                 if ctx_dept_str is not None and val_str != ctx_dept_str:
                     await _deny_scope(
                         ctx,
-                        f"{ctx.role} bound to department {ctx.department_id} named department {raw}",
+                        f"STUDENT bound to department {ctx.department_id} named department {raw}",
+                        path=str(request.url.path),
+                    )
+            elif ctx.role is Role.HOD:
+                allowed_depts = list(ctx.department_ids or ())
+                if ctx_dept_str and ctx_dept_str not in allowed_depts:
+                    allowed_depts.append(ctx_dept_str)
+                if allowed_depts and val_str not in allowed_depts:
+                    await _deny_scope(
+                        ctx,
+                        f"SPOC named unassigned department {raw}",
                         path=str(request.url.path),
                     )
             elif ctx.role is Role.TRAINER and ctx.department_ids and val_str not in [str(d) for d in ctx.department_ids]:
@@ -373,6 +385,30 @@ async def _hydrate_trainer_scope(ctx: ScopeContext) -> ScopeContext:
     return ScopeContext(
         **{**ctx.__dict__, "batch_ids": batches, "department_ids": depts}
     )
+
+
+async def _hydrate_hod_scope(ctx: ScopeContext) -> ScopeContext:
+    """SPOC / HOD scope is derived from many-to-many branch assignments."""
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        import uuid
+        async with get_pg_connection() as conn:
+            try:
+                u_uuid = uuid.UUID(str(ctx.user_id))
+            except Exception:
+                u_uuid = None
+            if u_uuid:
+                rows = await conn.fetch('''
+                    SELECT department_id FROM spoc_branch_assignments
+                    WHERE spoc_user_id = $1
+                ''', u_uuid)
+                depts = {str(r["department_id"]) for r in rows if r.get("department_id")}
+                if ctx.department_id:
+                    depts.add(str(ctx.department_id))
+                return ScopeContext(
+                    **{**ctx.__dict__, "department_ids": tuple(depts)}
+                )
+    return ctx
 
 
 async def _hydrate_parent_scope(ctx: ScopeContext) -> ScopeContext:

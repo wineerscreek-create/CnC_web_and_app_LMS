@@ -130,6 +130,18 @@ async def _scope_header(ctx: ScopeContext) -> dict[str, Any]:
         department_name = "Computer Science & Engineering"
         department_code = "CSE"
 
+    assigned_branches = []
+    if settings.USE_POSTGRES and ctx.department_ids:
+        from app.db.postgres import get_pg_connection
+        from uuid import UUID
+        try:
+            async with get_pg_connection() as conn:
+                branch_uuids = [UUID(str(d)) for d in ctx.department_ids]
+                b_rows = await conn.fetch("SELECT id, name, code, status FROM departments WHERE id = ANY($1)", branch_uuids)
+                assigned_branches = [{"id": str(r["id"]), "name": r["name"], "code": r["code"], "status": r["status"]} for r in b_rows]
+        except Exception:
+            pass
+
     return {
         "collegeId": str(ctx.college_id or ""),
         "collegeName": college_name or "Arya College of Engineering and IT",
@@ -138,6 +150,7 @@ async def _scope_header(ctx: ScopeContext) -> dict[str, Any]:
         "departmentName": department_name,
         "departmentCode": department_code,
         "departmentStatus": department_status,
+        "assignedBranches": assigned_branches if assigned_branches else ([{"id": str(ctx.department_id), "name": department_name, "code": department_code}] if ctx.department_id else []),
         "readOnly": department_status == "archived",
         "breadcrumb": f"{college_name or 'Winners Creek University'} › {department_name}",
         "isolationNotice": (

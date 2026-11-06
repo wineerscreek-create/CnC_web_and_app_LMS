@@ -77,3 +77,4 @@ pie title Security Test Verdicts by Threat Category
 4. **Zero-Trust Parameterized Database Layer**:
    - Every database query across all repositories (`UserRepository`, `FeedbackRepository`, `CourseRepository`) uses asyncpg `$1, $2, ...` positional parameter bindings.
    - No SQL concatenation or raw formatting string vulnerabilities exist in public or internal endpoints.
+

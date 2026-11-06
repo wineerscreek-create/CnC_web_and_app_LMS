@@ -49,6 +49,16 @@ const nextConfig = {
     ];
   },
 
+  async redirects() {
+    return [
+      {
+        source: '/super_admin/:path*',
+        destination: '/super-admin/:path*',
+        permanent: true,
+      },
+    ];
+  },
+
   async headers() {
     return [
       {

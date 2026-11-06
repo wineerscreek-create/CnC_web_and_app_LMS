@@ -297,3 +297,239 @@ class EbookRepository:
             )
             return bool(count and count > 0)
 
+    @staticmethod
+    async def list_admin_ebooks(
+        status_filter: str | None = None,
+        category: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> tuple[list[dict[str, Any]], int, dict[str, int]]:
+        conditions = []
+        params: list[Any] = []
+
+        if status_filter == "deleted":
+            conditions.append("(deleted_at IS NOT NULL OR status = 'DELETED')")
+        elif status_filter == "featured":
+            conditions.append("deleted_at IS NULL AND is_featured = TRUE")
+        elif status_filter == "pinned":
+            conditions.append("deleted_at IS NULL AND is_pinned = TRUE")
+        elif status_filter and status_filter != "all":
+            conditions.append(f"deleted_at IS NULL AND status = ${len(params) + 1}")
+            params.append(status_filter.upper())
+        else:
+            conditions.append("deleted_at IS NULL")
+
+        if category and category != "all":
+            conditions.append(f"category = ${len(params) + 1}")
+            params.append(category)
+
+        if search:
+            idx = len(params) + 1
+            conditions.append(f"(title ILIKE ${idx} OR author ILIKE ${idx} OR description ILIKE ${idx})")
+            params.append(f"%{search.strip()}%")
+
+        where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+
+        async with get_pg_connection() as conn:
+            total = await conn.fetchval(f"SELECT COUNT(*) FROM ebooks{where_clause}", *params) or 0
+
+            offset = (page - 1) * limit
+            limit_idx = len(params) + 1
+            params.append(limit)
+            offset_idx = len(params) + 1
+            params.append(offset)
+
+            query = f"""
+                SELECT id, slug, title, author, description, short_description, category,
+                       tags, page_count, file_size_bytes, cover_key, file_key, preview_key,
+                       status, published, is_featured, is_pinned, allow_download,
+                       reads_count, rating as average_rating, reviews_count as ratings_count,
+                       uploaded_by, created_at, published_at, deleted_at
+                FROM ebooks
+                {where_clause}
+                ORDER BY is_pinned DESC, is_featured DESC, created_at DESC
+                LIMIT ${limit_idx} OFFSET ${offset_idx}
+            """
+            rows = await conn.fetch(query, *params)
+
+            # Tab summary counts
+            counts_row = await conn.fetchrow("""
+                SELECT 
+                    COUNT(*) FILTER (WHERE deleted_at IS NULL) as all_count,
+                    COUNT(*) FILTER (WHERE deleted_at IS NULL AND status = 'PENDING_REVIEW') as pending_count,
+                    COUNT(*) FILTER (WHERE deleted_at IS NULL AND status = 'PUBLISHED') as published_count,
+                    COUNT(*) FILTER (WHERE deleted_at IS NULL AND status = 'UNPUBLISHED') as unpublished_count,
+                    COUNT(*) FILTER (WHERE deleted_at IS NULL AND status = 'REJECTED') as rejected_count,
+                    COUNT(*) FILTER (WHERE deleted_at IS NULL AND status = 'DRAFT') as draft_count,
+                    COUNT(*) FILTER (WHERE deleted_at IS NULL AND is_featured = TRUE) as featured_count,
+                    COUNT(*) FILTER (WHERE deleted_at IS NULL AND is_pinned = TRUE) as pinned_count,
+                    COUNT(*) FILTER (WHERE deleted_at IS NOT NULL OR status = 'DELETED') as deleted_count
+                FROM ebooks
+            """)
+
+            counts = {
+                "all": counts_row["all_count"] if counts_row else 0,
+                "pending": counts_row["pending_count"] if counts_row else 0,
+                "published": counts_row["published_count"] if counts_row else 0,
+                "unpublished": counts_row["unpublished_count"] if counts_row else 0,
+                "rejected": counts_row["rejected_count"] if counts_row else 0,
+                "drafts": counts_row["draft_count"] if counts_row else 0,
+                "featured": counts_row["featured_count"] if counts_row else 0,
+                "pinned": counts_row["pinned_count"] if counts_row else 0,
+                "deleted": counts_row["deleted_count"] if counts_row else 0,
+            }
+
+            return [dict(r) for r in rows], total, counts
+
+    @staticmethod
+    async def create_ebook(
+        title: str,
+        slug: str,
+        author: str,
+        description: str,
+        category: str,
+        pdf_key: str,
+        cover_key: str | None,
+        file_size_bytes: int,
+        page_count: int,
+        tags: list[str],
+        uploaded_by: UUID | str | None,
+        published: bool = True,
+        visibility: str = "PUBLIC",
+    ) -> dict[str, Any]:
+        async with get_pg_connection() as conn:
+            u_uuid = UUID(str(uploaded_by)) if uploaded_by else None
+            now = datetime.now(timezone.utc)
+            status_val = "PUBLISHED" if published else "DRAFT"
+            row = await conn.fetchrow(
+                """
+                INSERT INTO ebooks (
+                    title, slug, author, description, short_description, category,
+                    file_key, cover_key, file_size_bytes, page_count, tags,
+                    uploaded_by, status, published, visibility, is_featured, is_pinned,
+                    allow_download, reads_count, rating, reviews_count, created_at, updated_at,
+                    published_at
+                )
+                VALUES (
+                    $1, $2, $3, $4, $5, $6,
+                    $7, $8, $9, $10, $11,
+                    $12, $13, $14, $15, FALSE, FALSE,
+                    FALSE, 0, 0.0, 0, $16, $16,
+                    $17
+                )
+                RETURNING *
+                """,
+                title,
+                slug,
+                author,
+                description,
+                description[:140] + ("..." if len(description) > 140 else ""),
+                category,
+                pdf_key,
+                cover_key,
+                file_size_bytes,
+                page_count,
+                tags,
+                u_uuid,
+                status_val,
+                published,
+                visibility,
+                now,
+                now if published else None,
+            )
+            return dict(row)
+
+    @staticmethod
+    async def update_ebook_status(ebook_id: UUID | str, status: str, published: bool) -> bool:
+        async with get_pg_connection() as conn:
+            now = datetime.now(timezone.utc)
+            published_at = now if published else None
+            res = await conn.execute(
+                """
+                UPDATE ebooks
+                SET status = $1, published = $2,
+                    published_at = COALESCE(published_at, $3),
+                    updated_at = $4
+                WHERE id = $5
+                """,
+                status,
+                published,
+                published_at,
+                now,
+                UUID(str(ebook_id)),
+            )
+            return "UPDATE 1" in res
+
+    @staticmethod
+    async def set_pinned(ebook_id: UUID | str, is_pinned: bool) -> bool:
+        async with get_pg_connection() as conn:
+            res = await conn.execute(
+                "UPDATE ebooks SET is_pinned = $1, updated_at = NOW() WHERE id = $2",
+                is_pinned,
+                UUID(str(ebook_id)),
+            )
+            return "UPDATE 1" in res
+
+    @staticmethod
+    async def set_featured(ebook_id: UUID | str, is_featured: bool) -> bool:
+        async with get_pg_connection() as conn:
+            res = await conn.execute(
+                "UPDATE ebooks SET is_featured = $1, updated_at = NOW() WHERE id = $2",
+                is_featured,
+                UUID(str(ebook_id)),
+            )
+            return "UPDATE 1" in res
+
+    @staticmethod
+    async def update_ebook_meta(ebook_id: UUID | str, updates: dict[str, Any]) -> bool:
+        allowed = {"title", "description", "short_description", "category", "tags", "visibility", "allow_download", "display_order"}
+        clauses = []
+        params: list[Any] = [UUID(str(ebook_id))]
+        for k, v in updates.items():
+            if k in allowed:
+                params.append(v)
+                clauses.append(f"{k} = ${len(params)}")
+        if not clauses:
+            return False
+        clauses.append("updated_at = NOW()")
+        async with get_pg_connection() as conn:
+            res = await conn.execute(
+                f"UPDATE ebooks SET {', '.join(clauses)} WHERE id = $1",
+                *params,
+            )
+            return "UPDATE 1" in res
+
+    @staticmethod
+    async def delete_ebook(ebook_id: UUID | str) -> bool:
+        async with get_pg_connection() as conn:
+            res = await conn.execute(
+                "UPDATE ebooks SET status = 'DELETED', published = FALSE, deleted_at = NOW(), updated_at = NOW() WHERE id = $1",
+                UUID(str(ebook_id)),
+            )
+            return "UPDATE 1" in res
+
+    @staticmethod
+    async def restore_ebook(ebook_id: UUID | str) -> bool:
+        async with get_pg_connection() as conn:
+            res = await conn.execute(
+                "UPDATE ebooks SET status = 'DRAFT', published = FALSE, deleted_at = NULL, updated_at = NOW() WHERE id = $1",
+                UUID(str(ebook_id)),
+            )
+            return "UPDATE 1" in res
+
+    @staticmethod
+    async def list_reports() -> list[dict[str, Any]]:
+        async with get_pg_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, ebook_id, ebook_title, reported_by, reporter_name, reporter_role,
+                       reason, details, status, created_at
+                FROM ebook_reports
+                ORDER BY created_at DESC
+                LIMIT 100
+                """
+            )
+            return [dict(r) for r in rows]
+
+

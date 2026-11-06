@@ -175,3 +175,4 @@ In `apps/api/app/authz/guards.py`, `_reject_client_scope_claims` attempted to pa
 The Winners Creek LMS platform has undergone comprehensive ethical penetration testing, architectural review, and database verification. All identified vulnerabilities have been remediated and verified with regression tests.
 
 The platform meets enterprise security standards and is approved for production operations.
+

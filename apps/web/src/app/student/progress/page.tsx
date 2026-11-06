@@ -65,6 +65,9 @@ const REPORT_TYPES = [
 
 export default function ProgressPage() {
   const query = useApi<any>('/student/progress');
+  const historicalReportsQuery = useApi<any[]>('/student/historical-reports');
+  const historicalReports = Array.isArray(historicalReportsQuery.data) ? historicalReportsQuery.data : [];
+
   const [downloadModalOpen, setDownloadModalOpen] = React.useState(false);
   const [downloading, setDownloading] = React.useState(false);
   const [selectedReportType, setSelectedReportType] = React.useState('student_progress');
@@ -256,6 +259,58 @@ export default function ProgressPage() {
                 </Button>
               }
             />
+
+            {/* PRESERVED HISTORICAL LEARNING REPORTS (Retained After Lifecycle Purge) */}
+            {historicalReports.length > 0 && (
+              <Card className="border-indigo-500/30 bg-indigo-500/5">
+                <CardHeader className="p-4 border-b border-border flex flex-row items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="size-4 text-indigo-400" />
+                    <CardTitle className="text-sm font-bold">
+                      Preserved Historical Learning Snapshots ({historicalReports.length})
+                    </CardTitle>
+                  </div>
+                  <Badge tone="indigo">Permanently Retained</Badge>
+                </CardHeader>
+                <CardBody className="p-4 space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Under platform data retention policy, complete academic progress and completion records are permanently preserved for your account even if a course or institution has completed its operational lifecycle.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                    {historicalReports.map((hr: any) => (
+                      <div key={hr.id} className="p-3.5 rounded-xl border border-border bg-card/60 space-y-2 text-xs">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="font-bold text-foreground text-sm">{hr.course_title}</p>
+                            <p className="text-[11px] font-mono text-muted-foreground">{hr.course_code}</p>
+                          </div>
+                          <Badge tone={hr.overall_grade ? 'success' : 'indigo'}>
+                            Grade: {hr.overall_grade || 'Completed'}
+                          </Badge>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+                          <div className="p-1.5 rounded-lg bg-muted/40">
+                            <p className="text-[10px] text-muted-foreground">Completion</p>
+                            <p className="font-bold text-foreground">{hr.completion_percentage}%</p>
+                          </div>
+                          <div className="p-1.5 rounded-lg bg-muted/40">
+                            <p className="text-[10px] text-muted-foreground">Attendance</p>
+                            <p className="font-bold text-foreground">{hr.total_attendance_hours}h</p>
+                          </div>
+                          <div className="p-1.5 rounded-lg bg-muted/40">
+                            <p className="text-[10px] text-muted-foreground">Assessment</p>
+                            <p className="font-bold text-foreground">{hr.average_assessment_score}%</p>
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground italic pt-1 border-t border-border">
+                          {hr.retention_notice || 'Preserved permanent learning record.'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </CardBody>
+              </Card>
+            )}
 
             {/* TOP AGGREGATED METRICS BAR */}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">

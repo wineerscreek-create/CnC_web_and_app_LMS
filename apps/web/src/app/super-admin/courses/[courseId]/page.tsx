@@ -13,6 +13,7 @@ import {
   Gamepad2,
   GraduationCap,
   Layers,
+  Lock,
   PauseCircle,
   PlayCircle,
   Plus,
@@ -179,6 +180,11 @@ export default function SuperAdminCourseControlCenterPage() {
   const [trainerUserId, setTrainerUserId] = React.useState('');
   const [assigningTrainer, setAssigningTrainer] = React.useState(false);
 
+  // Permanent Course Deletion State (72h window)
+  const [deleteCourseModalOpen, setDeleteCourseModalOpen] = React.useState(false);
+  const [deleteCoursePassword, setDeleteCoursePassword] = React.useState('');
+  const [deletingCourse, setDeletingCourse] = React.useState(false);
+
   // Lifecycle actions
   const handleLifecycleAction = async (action: 'publish' | 'unpublish' | 'suspend' | 'restore' | 'archive') => {
     setLifecycleLoading(true);
@@ -191,6 +197,26 @@ export default function SuperAdminCourseControlCenterPage() {
       toast.error(err.message || `Failed to ${action} course.`);
     } finally {
       setLifecycleLoading(false);
+    }
+  };
+
+  const handleConfirmCourseDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deleteCoursePassword) return;
+    setDeletingCourse(true);
+    try {
+      const res = await api.post(`/super-admin/courses/${courseId}/delete-request`, {
+        password: deleteCoursePassword,
+        retentionHours: 72,
+      });
+      toast.success(res.message || 'Course deletion scheduled. Historical learning snapshots created for participants.');
+      setDeleteCourseModalOpen(false);
+      setDeleteCoursePassword('');
+      controlQuery.refetch();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to schedule permanent course deletion. Please verify password.');
+    } finally {
+      setDeletingCourse(false);
     }
   };
 
@@ -456,6 +482,19 @@ export default function SuperAdminCourseControlCenterPage() {
                           Archive
                         </Button>
                       )}
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={lifecycleLoading}
+                        onClick={() => {
+                          setDeleteCoursePassword('');
+                          setDeleteCourseModalOpen(true);
+                        }}
+                        className="text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+                      >
+                        <AlertTriangle className="size-3.5 mr-1" />
+                        Permanent Deletion
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -1251,6 +1290,71 @@ export default function SuperAdminCourseControlCenterPage() {
               </Button>
               <Button type="submit" variant="primary" size="sm" disabled={assigningTrainer}>
                 {assigningTrainer ? 'Assigning…' : 'Assign Trainer'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Permanent Course Deletion Safeguard Modal */}
+      <Dialog open={deleteCourseModalOpen} onOpenChange={setDeleteCourseModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-500">
+              <AlertTriangle className="size-5 text-rose-500" />
+              Permanent Course Deletion &amp; 72h Retention Window
+            </DialogTitle>
+            <DialogDescription>
+              Initiate asynchronous permanent deletion for this course curriculum.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleConfirmCourseDelete} className="p-6 space-y-4 text-xs">
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 space-y-2 text-foreground leading-relaxed">
+              <p className="font-semibold text-amber-400 flex items-center gap-1.5">
+                <ShieldAlert className="size-4 shrink-0" />
+                Immutable Participant Learning Guarantee
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Permanent course deletion initiates a <strong>72-hour operational window</strong> during which learners receive download notices.
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                <strong>Crucial:</strong> Immutable historical learning snapshots are created immediately for all enrolled participants. Participants&apos; completed attendance, grades, and records are retained permanently in their profile and will <strong>NEVER be deleted</strong>.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-foreground flex items-center gap-1">
+                <Lock className="size-3 text-muted-foreground" />
+                Super Admin Password Confirmation *
+              </label>
+              <input
+                type="password"
+                required
+                value={deleteCoursePassword}
+                onChange={(e) => setDeleteCoursePassword(e.target.value)}
+                placeholder="Enter root password to confirm"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-card text-foreground"
+              />
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setDeleteCourseModalOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={deletingCourse || !deleteCoursePassword}
+                className="bg-rose-600 hover:bg-rose-700 text-white"
+              >
+                {deletingCourse ? 'Initiating 72h Deletion…' : 'Confirm 72h Deletion Window'}
               </Button>
             </div>
           </form>

@@ -352,6 +352,130 @@ async def super_admin_activate_college(college_id: str, ctx: ScopeContext = Supe
     return {"success": True, "message": "Institution workspace activated successfully."}
 
 
+# --------------------------------------------------------------------------- Institutions Control Center & Safe Deletion
+@router.get("/institutions/overview")
+async def super_admin_institutions_overview(ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    """Centralized overview of all institutions (Colleges, Schools, Corporates, Individuals) from PostgreSQL."""
+    from app.repositories.control_center_repo import ControlCenterRepository
+    data = await ControlCenterRepository.get_institutions_overview()
+    return {"success": True, "data": data}
+
+
+@router.post("/institutions/onboard", status_code=status.HTTP_201_CREATED)
+async def super_admin_onboard_institution(payload: dict[str, Any], ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    """Tailored onboarding for College, School, Corporate or Individual learners."""
+    from app.repositories.control_center_repo import ControlCenterRepository
+    name = (payload.get("name") or "").strip()
+    code = (payload.get("code") or "").strip().upper()
+    if not name or not code:
+        raise ValidationError("Name and code are required.")
+
+    category = (payload.get("category") or payload.get("institutionCategory") or "COLLEGE").strip().upper()
+    campuses_cnt = int(payload.get("campusesCount") or payload.get("campuses_count") or 1)
+
+    try:
+        created = await ControlCenterRepository.onboard_institution(
+            category=category,
+            name=name,
+            code=code,
+            campuses_count=campuses_cnt,
+            address=payload.get("address"),
+            city=payload.get("city"),
+            state=payload.get("state"),
+            contact_email=payload.get("contactEmail") or payload.get("email"),
+            contact_phone=payload.get("contactPhone") or payload.get("phone"),
+        )
+    except Exception as exc:
+        if "duplicate" in str(exc).lower() or "unique" in str(exc).lower():
+            raise Conflict(f"An institution with code '{code}' already exists.") from exc
+        raise
+
+    await write_audit(ctx, action="onboard", entity_type="institutions", entity_id=str(created["id"]), detail=f"Onboarded institution {name} ({category}) with {campuses_cnt} campus(es)")
+    return {"success": True, "data": created, "message": "Institution onboarded successfully."}
+
+
+@router.post("/institutions/{institution_id}/delete")
+async def super_admin_delete_institution_safe(
+    institution_id: str,
+    payload: dict[str, Any],
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Safely archives institution: NEVER deletes participant accounts. Sets affiliation_status='ACTION_REQUIRED'."""
+    password = payload.get("password")
+    if not password:
+        raise ValidationError("Super Admin password confirmation is required for institution deletion.")
+
+    admin_uuid = UUID(str(ctx.user_id)) if ctx.user_id else None
+    async with get_pg_connection() as conn:
+        admin_row = await conn.fetchrow(
+            "SELECT password_hash FROM users WHERE id = $1 AND role = 'SUPER_ADMIN'",
+            admin_uuid,
+        )
+        if not admin_row or not verify_password(password, admin_row["password_hash"]):
+            raise ScopeForbidden("Invalid Super Admin password. Deletion aborted.")
+
+    from app.repositories.control_center_repo import ControlCenterRepository
+    inst_uuid = UUID(str(institution_id))
+    res = await ControlCenterRepository.delete_institution_safely(inst_uuid, deleted_by=admin_uuid)
+
+    await write_audit(ctx, action="safe_delete", entity_type="institutions", entity_id=str(inst_uuid), detail=f"Safely archived institution {institution_id}")
+    return {"success": True, "data": res, "message": f"Institution archived safely. {res.get('affected_participants', 0)} participant accounts preserved."}
+
+
+# --------------------------------------------------------------------------- SPOC Many-to-Many Branch Management
+@router.get("/spocs")
+async def super_admin_list_spocs(
+    institutionId: str | None = Query(None),
+    search: str | None = Query(None),
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Lists SPOCs/HODs with their full many-to-many assigned branch matrices."""
+    from app.repositories.control_center_repo import ControlCenterRepository
+    inst_uuid = UUID(str(institutionId)) if institutionId else None
+    spocs = await ControlCenterRepository.list_spocs(institution_id=inst_uuid, search=search)
+    return {"success": True, "data": spocs}
+
+
+@router.post("/spocs/assign")
+async def super_admin_assign_spoc_branches(
+    payload: dict[str, Any],
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Assigns one or more branches/departments to a SPOC with granular permissions."""
+    from app.repositories.control_center_repo import ControlCenterRepository
+    spoc_user_id = payload.get("spocUserId")
+    branch_ids = payload.get("branchIds") or []
+    if not spoc_user_id or not branch_ids:
+        raise ValidationError("spocUserId and at least one branchId are required.")
+
+    admin_uuid = UUID(str(ctx.user_id)) if ctx.user_id else None
+    res = await ControlCenterRepository.assign_spoc_branches(
+        spoc_user_id=UUID(str(spoc_user_id)),
+        branch_ids=[UUID(str(b)) for b in branch_ids],
+        assigned_by=admin_uuid,
+        can_manage_attendance=bool(payload.get("canManageAttendance", True)),
+        can_manage_assessments=bool(payload.get("canManageAssessments", True)),
+        can_view_analytics=bool(payload.get("canViewAnalytics", True)),
+        can_export_reports=bool(payload.get("canExportReports", True)),
+    )
+    await write_audit(ctx, action="assign_branches", entity_type="spoc_branch_assignments", entity_id=str(spoc_user_id), detail=f"Assigned branches {branch_ids} to SPOC {spoc_user_id}")
+    return {"success": True, "data": res, "message": "SPOC branch assignments updated successfully."}
+
+
+@router.delete("/spocs/{spoc_id}/branches/{branch_id}")
+async def super_admin_remove_spoc_branch(
+    spoc_id: str,
+    branch_id: str,
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Removes a specific branch assignment from a SPOC."""
+    from app.repositories.control_center_repo import ControlCenterRepository
+    await ControlCenterRepository.remove_spoc_branch(UUID(str(spoc_id)), UUID(str(branch_id)))
+    await write_audit(ctx, action="remove_branch", entity_type="spoc_branch_assignments", entity_id=str(spoc_id), detail=f"Removed branch {branch_id} from SPOC {spoc_id}")
+    return {"success": True, "message": "SPOC branch assignment removed successfully."}
+
+
+
 @router.get("/colleges/{college_id}/departments")
 async def super_admin_list_college_departments(college_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
     from app.repositories.institution_repo import InstitutionRepository
@@ -943,6 +1067,11 @@ async def super_admin_deactivate_user(user_id: str, ctx: ScopeContext = SuperAdm
 # --------------------------------------------------------------------------- Games Management
 @router.get("/games")
 async def super_admin_list_games(ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.repositories.control_center_repo import ControlCenterRepository
+        games = await ControlCenterRepository.list_games_control_center()
+        return {"success": True, "data": games}
+
     games = await get_db().game_definitions.find({}).to_list(100)
     attempts = await get_db().game_attempts.find({}).limit(2000).to_list(2000)
 
@@ -950,7 +1079,6 @@ async def super_admin_list_games(ctx: ScopeContext = SuperAdminCtx) -> dict[str,
     for a in attempts:
         c = a.get("gameCode", "game")
         if c not in stats:
-            stats[c] = {"attempts": 0, "scores": []}
             stats[c] = {"attempts": 0, "scores": [], "players": set()}
         stats[c]["attempts"] += 1
         stats[c]["scores"].append(a.get("score", 0))
@@ -960,7 +1088,6 @@ async def super_admin_list_games(ctx: ScopeContext = SuperAdminCtx) -> dict[str,
     items = []
     for g in games:
         code = g.get("code")
-        st = stats.get(code, {"attempts": 0, "scores": []})
         st = stats.get(code, {"attempts": 0, "scores": [], "players": set()})
         avg = round(sum(st["scores"]) / len(st["scores"]), 1) if st["scores"] else 0.0
         items.append({
@@ -987,59 +1114,46 @@ async def super_admin_list_games(ctx: ScopeContext = SuperAdminCtx) -> dict[str,
     return {"success": True, "data": items}
 
 
-@router.post("/games")
-async def super_admin_create_game(payload: dict[str, Any], ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
-    code = payload.get("code", "").strip().lower()
-    title = payload.get("title", "").strip()
-    if not code or not title:
-        raise ValidationError("Code and title are required.")
+@router.post("/games/{game_id}/status")
+async def super_admin_toggle_game_status(
+    game_id: str,
+    payload: dict[str, Any],
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Toggles game publish status in PostgreSQL."""
+    is_pub = bool(payload.get("published", True))
+    if settings.USE_POSTGRES:
+        from app.repositories.control_center_repo import ControlCenterRepository
+        try:
+            g_uuid = UUID(str(game_id))
+            await ControlCenterRepository.update_game_status(g_uuid, is_pub)
+        except ValueError:
+            target_st = "ACTIVE" if is_pub else "DRAFT"
+            async with get_pg_connection() as conn:
+                await conn.execute("UPDATE games SET status = $1, updated_at = NOW() WHERE code = $2", target_st, game_id)
+        await write_audit(ctx, action="update_status", entity_type="games", entity_id=game_id, detail=f"Game {game_id} set to published={is_pub}")
+        return {"success": True, "message": f"Game status updated to {'ACTIVE' if is_pub else 'DRAFT'}"}
 
     db = get_db()
-    existing = await db.game_definitions.find_one({"code": code})
-    if existing:
-        raise Conflict(f"Game with code '{code}' already exists.")
-
-    game_url = (payload.get("gameUrl") or payload.get("launchUrl") or "").strip()
-    course_id = payload.get("courseId")
-    if course_id:
-        try:
-            course_id = ObjectId(str(course_id))
-        except Exception:
-            course_id = None
-
-    published = bool(payload.get("published", True))
-    game_status = payload.get("status") or ("ACTIVE" if published else "DRAFT")
-
-    doc = {
-        "code": code,
-        "title": title,
-        "description": payload.get("description", ""),
-        "thumbnail": payload.get("thumbnail"),
-        "gameUrl": game_url,
-        "launchUrl": game_url,
-        "courseId": course_id,
-        "category": payload.get("category", "General"),
-        "difficulty": payload.get("difficulty", "Beginner"),
-        "xpReward": int(payload.get("xpReward", 50)),
-        "published": bool(payload.get("published", True)),
-        "published": published,
-        "status": game_status,
-        "durationMinutes": int(payload.get("durationMinutes", 5)),
-        "levels": payload.get("levels", [{"level": 1, "targetScore": 70}]),
-        "skillMap": payload.get("skillMap", ["Problem Solving"]),
-        "launches": 0,
-        "createdAt": _now(),
-        "updatedAt": _now(),
-    }
-    res = await db.game_definitions.insert_one(doc)
-    doc["_id"] = res.inserted_id
-    await write_audit(ctx, action="create", entity_type="game_definitions", entity_id=doc["_id"], detail=f"Created game {code}")
-    return {"success": True, "data": serialize(doc)}
+    await db.game_definitions.update_one(
+        {"$or": [{"code": game_id}, {"_id": ObjectId(game_id) if ObjectId.is_valid(game_id) else ObjectId()}]},
+        {"$set": {"published": is_pub, "status": "ACTIVE" if is_pub else "DRAFT", "updatedAt": _now()}}
+    )
+    return {"success": True, "message": f"Game status updated to {'PUBLISHED' if is_pub else 'DRAFT'}"}
 
 
 @router.patch("/games/{game_code}")
 async def super_admin_update_game(game_code: str, payload: dict[str, Any], ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
-    allowed = {"title", "description", "category", "difficulty", "xpReward", "published", "skillMap"}
+    if settings.USE_POSTGRES:
+        is_pub = bool(payload.get("published", True)) if "published" in payload else None
+        async with get_pg_connection() as conn:
+            if is_pub is not None:
+                target_st = "ACTIVE" if is_pub else "DRAFT"
+                await conn.execute("UPDATE games SET status = $1, updated_at = NOW() WHERE code = $2 OR id::text = $2", target_st, game_code)
+            if "title" in payload:
+                await conn.execute("UPDATE games SET title = $1, updated_at = NOW() WHERE code = $2 OR id::text = $2", str(payload["title"]).strip(), game_code)
+        return {"success": True, "message": f"Game {game_code} updated successfully."}
+
     allowed = {"title", "description", "thumbnail", "gameUrl", "launchUrl", "courseId", "category", "difficulty", "xpReward", "published", "status", "skillMap", "durationMinutes"}
     updates = {k: v for k, v in payload.items() if k in allowed}
     if "courseId" in updates and updates["courseId"]:
@@ -1052,6 +1166,7 @@ async def super_admin_update_game(game_code: str, payload: dict[str, Any], ctx: 
     updates["updatedAt"] = _now()
     await get_db().game_definitions.update_one({"code": game_code}, {"$set": updates})
     return {"success": True, "message": f"Game {game_code} updated"}
+
 
 
 # --------------------------------------------------------------------------- Payments & Verification Queue
@@ -1866,6 +1981,129 @@ async def super_admin_permanent_delete_course(
     return {"success": True, "message": "Course permanently deleted from the platform."}
 
 
+# --------------------------------------------------------------------------- Courses Control Center & Asynchronous Lifecycle
+@router.get("/courses/control-center")
+async def super_admin_courses_control_center(
+    status_filter: str | None = Query(None, alias="status"),
+    visibility: str | None = Query(None),
+    search: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Centralized course overview across all institutions, branches, and distribution channels."""
+    from app.repositories.control_center_repo import ControlCenterRepository
+    courses, total = await ControlCenterRepository.list_courses_control_center(
+        status=status_filter,
+        visibility=visibility,
+        search=search,
+        page=page,
+        limit=limit,
+    )
+    return {"success": True, "data": courses, "meta": {"total": total, "page": page, "limit": limit}}
+
+
+@router.post("/courses/{course_id}/lifecycle")
+async def super_admin_set_course_lifecycle(
+    course_id: str,
+    payload: dict[str, Any],
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Updates course status, visibility scope, portal distribution, and enrollment methods."""
+    from app.repositories.control_center_repo import ControlCenterRepository
+    c_uuid = UUID(str(course_id))
+
+    status_val = payload.get("status")
+    visibility_mode = payload.get("visibilityMode")
+    target_inst_ids = [UUID(str(i)) for i in payload.get("targetInstitutionIds", [])] if payload.get("targetInstitutionIds") else None
+    target_br_ids = [UUID(str(b)) for b in payload.get("targetBranchIds", [])] if payload.get("targetBranchIds") else None
+    portal_dist = payload.get("portalDistribution")
+    enr_methods = payload.get("allowedEnrollmentMethods")
+
+    res = await ControlCenterRepository.set_course_lifecycle_status(
+        course_id=c_uuid,
+        status=status_val,
+        visibility_mode=visibility_mode,
+        target_institution_ids=target_inst_ids,
+        target_branch_ids=target_br_ids,
+        portal_distribution=portal_dist,
+        allowed_enrollment_methods=enr_methods,
+    )
+    await write_audit(ctx, action="lifecycle_update", entity_type="courses", entity_id=str(c_uuid), detail=f"Updated lifecycle/visibility for course {course_id}")
+    return {"success": True, "data": res, "message": "Course lifecycle and distribution settings updated successfully."}
+
+
+@router.post("/courses/{course_id}/delete-request")
+async def super_admin_request_course_permanent_deletion(
+    course_id: str,
+    payload: dict[str, Any],
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Initiates 72-hour permanent course deletion window: generates immutable student snapshots & retention notification."""
+    password = payload.get("password")
+    if not password:
+        raise ValidationError("Super Admin password confirmation is required for course permanent deletion request.")
+
+    admin_uuid = UUID(str(ctx.user_id)) if ctx.user_id else None
+    async with get_pg_connection() as conn:
+        admin_row = await conn.fetchrow(
+            "SELECT password_hash FROM users WHERE id = $1 AND role = 'SUPER_ADMIN'",
+            admin_uuid,
+        )
+        if not admin_row or not verify_password(password, admin_row["password_hash"]):
+            raise ScopeForbidden("Invalid Super Admin password. Deletion request aborted.")
+
+    from app.repositories.control_center_repo import ControlCenterRepository
+    c_uuid = UUID(str(course_id))
+    retention_hours = int(payload.get("retentionHours") or 72)
+    job = await ControlCenterRepository.request_course_permanent_deletion(
+        course_id=c_uuid,
+        requested_by=admin_uuid,
+        retention_hours=retention_hours,
+    )
+
+    await write_audit(
+        ctx,
+        action="delete_request",
+        entity_type="courses",
+        entity_id=str(course_id),
+        detail=f"Initiated {retention_hours}h deletion window for course {course_id} ({job.get('affected_participants', 0)} participant learning snapshots retained)",
+    )
+    return {
+        "success": True,
+        "data": job,
+        "message": f"Permanent deletion initiated. {job.get('affected_participants', 0)} student historical learning snapshot(s) permanently secured. 72-hour window active.",
+    }
+
+
+@router.post("/courses/{course_id}/purge")
+async def super_admin_purge_course_operational_data(
+    course_id: str,
+    payload: dict[str, Any],
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Purges operational modules and marks DELETED while preserving student learning snapshots permanently."""
+    password = payload.get("password")
+    if not password:
+        raise ValidationError("Super Admin password confirmation is required to purge course operational data.")
+
+    admin_uuid = UUID(str(ctx.user_id)) if ctx.user_id else None
+    async with get_pg_connection() as conn:
+        admin_row = await conn.fetchrow(
+            "SELECT password_hash FROM users WHERE id = $1 AND role = 'SUPER_ADMIN'",
+            admin_uuid,
+        )
+        if not admin_row or not verify_password(password, admin_row["password_hash"]):
+            raise ScopeForbidden("Invalid Super Admin password. Purge aborted.")
+
+    from app.repositories.control_center_repo import ControlCenterRepository
+    c_uuid = UUID(str(course_id))
+    res = await ControlCenterRepository.purge_course_operational_data(c_uuid)
+    await write_audit(ctx, action="purge_operational_data", entity_type="courses", entity_id=str(course_id), detail=f"Purged operational data for course {course_id}")
+    return {"success": True, "data": res, "message": "Course operational data purged. Historical participant reports retained permanently."}
+
+
+
 @router.get("/profile")
 async def super_admin_profile(ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
     """Super Admin platform-wide profile and security telemetry."""
@@ -1906,6 +2144,41 @@ async def super_admin_profile(ctx: ScopeContext = SuperAdminCtx) -> dict[str, An
             "scope": "PLATFORM_WIDE",
         }
     }
+
+
+@router.patch("/profile")
+async def super_admin_update_profile(payload: dict[str, Any], ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    """Updates Super Admin profile metadata and password."""
+    admin_uuid = UUID(str(ctx.user_id)) if ctx.user_id else None
+    if not admin_uuid:
+        raise ValidationError("User identifier missing from context.")
+
+    updates = []
+    params: list[Any] = [admin_uuid]
+
+    if "name" in payload and payload["name"]:
+        params.append(str(payload["name"]).strip())
+        updates.append(f"name = ${len(params)}")
+
+    if "phone" in payload:
+        params.append(str(payload["phone"]).strip() if payload["phone"] else None)
+        updates.append(f"phone = ${len(params)}")
+
+    if "password" in payload and payload["password"]:
+        pw = str(payload["password"]).strip()
+        if len(pw) < 6:
+            raise ValidationError("Password must be at least 6 characters.")
+        params.append(hash_password(pw))
+        updates.append(f"password_hash = ${len(params)}")
+
+    if updates:
+        updates.append("updated_at = NOW()")
+        async with get_pg_connection() as conn:
+            await conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = $1", *params)
+
+    await write_audit(ctx, action="update_profile", entity_type="users", entity_id=str(admin_uuid), detail="Super Admin updated profile details")
+    return {"success": True, "message": "Profile updated successfully."}
+
 
 
 @router.get("/courses/{course_id}/revenue")
@@ -2011,7 +2284,7 @@ async def super_admin_system_metrics(ctx: ScopeContext = SuperAdminCtx) -> dict[
     }
 
 
-# --------------------------------------------------------------------------- Super Admin: E-Book Publishing & Moderation
+# --------------------------------------------------------------------------- Super Admin: E-Book Publishing & Moderation (PostgreSQL)
 @router.get("/ebooks")
 async def super_admin_list_ebooks(
     status_filter: str | None = Query(None, alias="status"),
@@ -2021,10 +2294,51 @@ async def super_admin_list_ebooks(
     limit: int = Query(20, ge=1, le=100),
     ctx: ScopeContext = SuperAdminCtx,
 ) -> dict[str, Any]:
-    """Super Admin view of all eBooks across all statuses with full control."""
-    from app.services.ebook_service import ensure_categories_seeded
-    await ensure_categories_seeded()
+    """Super Admin view of all eBooks across all statuses with full control from PostgreSQL."""
+    if settings.USE_POSTGRES:
+        from app.repositories.ebook_repo import EbookRepository
+        await EbookRepository.ensure_categories_seeded()
 
+        books, total, counts = await EbookRepository.list_admin_ebooks(
+            status_filter=status_filter,
+            category=category,
+            search=search,
+            page=page,
+            limit=limit,
+        )
+
+        items = []
+        for b in books:
+            cover_url = f"/api/v1/ebooks/{str(b['id'])}/cover" if b.get("cover_key") else None
+            items.append({
+                "id": str(b["id"]),
+                "slug": b.get("slug"),
+                "title": b.get("title"),
+                "author": b.get("author"),
+                "category": b.get("category"),
+                "uploaderRole": "SUPER_ADMIN",
+                "uploadedBy": str(b.get("uploaded_by")) if b.get("uploaded_by") else None,
+                "status": b.get("status", "PUBLISHED"),
+                "published": bool(b.get("published", True)),
+                "isFeatured": bool(b.get("is_featured", False)),
+                "isPinned": bool(b.get("is_pinned", False)),
+                "pageCount": b.get("page_count", 1),
+                "fileSizeBytes": b.get("file_size_bytes", 0),
+                "coverUrl": cover_url,
+                "readsCount": b.get("reads_count", 0),
+                "allowDownload": bool(b.get("allow_download", False)),
+                "deletedAt": b.get("deleted_at").isoformat() if b.get("deleted_at") else None,
+                "createdAt": b.get("created_at").isoformat() if b.get("created_at") else None,
+                "publishedAt": b.get("published_at").isoformat() if b.get("published_at") else None,
+            })
+
+        return {
+            "success": True,
+            "data": items,
+            "meta": {"total": total, "page": page, "limit": limit, "counts": counts},
+        }
+
+    # Fallback for mongo test mode
     db = get_db()
     query: dict[str, Any] = {}
     if status_filter and status_filter != "all":
@@ -2072,7 +2386,6 @@ async def super_admin_list_ebooks(
             "publishedAt": b.get("publishedAt").isoformat() if b.get("publishedAt") else None,
         })
 
-    # Summary counts for tabs
     counts = {
         "all": await db.ebooks.count_documents({}),
         "pending": await db.ebooks.count_documents({"status": "PENDING_REVIEW"}),
@@ -2097,32 +2410,39 @@ async def super_admin_publish_requests(ctx: ScopeContext = SuperAdminCtx) -> dic
     """Publish requests pending Super Admin review."""
     items = []
     try:
-        db = get_db()
-        reqs = await db.ebook_publish_requests.find({"status": "PENDING"}).sort("createdAt", -1).to_list(100)
-        for r in reqs:
-            book = await db.ebooks.find_one({"_id": r["ebookId"]})
-            if not book:
-                continue
-            cover_url = f"/api/v1/ebooks/{str(book['_id'])}/cover" if book.get("coverKey") else None
-            items.append({
-                "id": str(r["_id"]),
-                "ebookId": str(book["_id"]),
-                "title": book.get("title"),
-                "author": book.get("author"),
-                "category": book.get("category"),
-                "requesterRole": r.get("requesterRole"),
-                "requesterName": r.get("requesterName"),
-                "requestMessage": r.get("requestMessage"),
-                "pageCount": book.get("pageCount", 1),
-                "fileSizeBytes": book.get("fileSizeBytes", 0),
-                "coverUrl": cover_url,
-                "createdAt": r.get("createdAt").isoformat() if r.get("createdAt") else None,
-            })
+        if settings.USE_POSTGRES:
+            async with get_pg_connection() as conn:
+                rows = await conn.fetch("""
+                    SELECT r.id, r.ebook_id, r.requester_id, r.requester_name, r.requester_role,
+                           r.request_message, r.status, r.created_at, e.title, e.author, e.category,
+                           e.page_count, e.file_size_bytes, e.cover_key
+                    FROM ebook_publish_requests r
+                    JOIN ebooks e ON e.id = r.ebook_id
+                    WHERE r.status = 'PENDING'
+                    ORDER BY r.created_at DESC
+                """)
+                for r in rows:
+                    cover_url = f"/api/v1/ebooks/{str(r['ebook_id'])}/cover" if r.get("cover_key") else None
+                    items.append({
+                        "id": str(r["id"]),
+                        "ebookId": str(r["ebook_id"]),
+                        "title": r.get("title"),
+                        "author": r.get("author"),
+                        "category": r.get("category"),
+                        "requesterRole": r.get("requester_role"),
+                        "requesterName": r.get("requester_name"),
+                        "requestMessage": r.get("request_message"),
+                        "pageCount": r.get("page_count", 1),
+                        "fileSizeBytes": r.get("file_size_bytes", 0),
+                        "coverUrl": cover_url,
+                        "createdAt": r.get("created_at").isoformat() if r.get("created_at") else None,
+                    })
+                return {"success": True, "data": items}
     except Exception as e:
         logger.warning(f"Error fetching ebook publish requests: {e}")
     return {"success": True, "data": items}
- 
- 
+
+
 @router.post("/ebooks/upload")
 async def super_admin_upload_ebook(
     title: str = Form(...),
@@ -2135,19 +2455,73 @@ async def super_admin_upload_ebook(
     cover: UploadFile | None = File(None),
     ctx: ScopeContext = SuperAdminCtx,
 ) -> dict[str, Any]:
+    import uuid
     from app.services.ebook_service import validate_pdf_bytes, extract_cover_from_pdf, slugify
     from app.services.storage import Keys, get_storage
 
     if not title.strip():
         raise ValidationError("Title is required.")
 
+    pdf_bytes = await file.read()
+    page_count, file_size = validate_pdf_bytes(pdf_bytes)
+
+    if settings.USE_POSTGRES:
+        from app.repositories.ebook_repo import EbookRepository
+        ebook_uuid = uuid.uuid4()
+        str_id = str(ebook_uuid)
+        storage = get_storage()
+
+        pdf_key = Keys.ebook_file(str_id, f"{slugify(title)}.pdf")
+        await storage.put(pdf_key, pdf_bytes, "application/pdf")
+
+        cover_key = None
+        if cover and cover.size and cover.size > 0:
+            c_bytes = await cover.read()
+            cover_key = Keys.ebook_cover(str_id, "cover.jpg")
+            await storage.put(cover_key, c_bytes, "image/jpeg")
+        else:
+            extracted = extract_cover_from_pdf(pdf_bytes)
+            if extracted:
+                cover_key = Keys.ebook_cover(str_id, "cover.jpg")
+                await storage.put(cover_key, extracted, "image/jpeg")
+
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+
+        created = await EbookRepository.create_ebook(
+            title=title.strip(),
+            slug=f"{slugify(title)}-{str_id[-6:]}",
+            author=author.strip() or "Winners Creek Editorial",
+            description=description.strip(),
+            category=category.strip() or "General",
+            pdf_key=pdf_key,
+            cover_key=cover_key,
+            file_size_bytes=file_size,
+            page_count=page_count,
+            tags=tag_list,
+            uploaded_by=ctx.user_id,
+            published=published,
+        )
+
+        await write_audit(ctx, action="upload_ebook", entity_type="ebooks", entity_id=str(created["id"]), detail=f"Uploaded eBook {title}")
+        return {
+            "success": True,
+            "data": {
+                "id": str(created["id"]),
+                "title": created["title"],
+                "author": created["author"],
+                "category": created["category"],
+                "status": created["status"],
+                "published": bool(created["published"]),
+            },
+            "message": "eBook uploaded successfully to digital library.",
+        }
+
+    # Fallback for mongo
     now = _now()
     ebook_id = ObjectId()
     str_id = str(ebook_id)
     storage = get_storage()
 
-    pdf_bytes = await file.read()
-    page_count, file_size = validate_pdf_bytes(pdf_bytes)
     pdf_key = Keys.ebook_file(str_id, f"{slugify(title)}.pdf")
     await storage.put(pdf_key, pdf_bytes, "application/pdf")
 
@@ -2207,6 +2581,12 @@ async def super_admin_approve_ebook(
     ctx: ScopeContext = SuperAdminCtx,
 ) -> dict[str, Any]:
     """Approves a pending publish request and makes the eBook live."""
+    if settings.USE_POSTGRES:
+        from app.repositories.ebook_repo import EbookRepository
+        await EbookRepository.update_ebook_status(UUID(str(ebook_id)), "PUBLISHED", True)
+        await write_audit(ctx, action="approve_ebook", entity_type="ebooks", entity_id=ebook_id, detail=f"Approved and published eBook {ebook_id}")
+        return {"success": True, "message": "eBook approved and published successfully."}
+
     db = get_db()
     oid = ObjectId(ebook_id)
     book = await db.ebooks.find_one({"_id": oid})
@@ -2225,21 +2605,6 @@ async def super_admin_approve_ebook(
             "updatedAt": now,
         }},
     )
-
-    await db.ebook_publish_requests.update_many(
-        {"ebookId": oid, "status": "PENDING"},
-        {"$set": {"status": "APPROVED", "reviewedBy": ctx.user_id, "reviewedAt": now, "updatedAt": now}},
-    )
-
-    # Audit log
-    await db.ebook_audit_logs.insert_one({
-        "ebookId": oid,
-        "action": "APPROVED_AND_PUBLISHED",
-        "actorId": ctx.user_id,
-        "actorRole": "SUPER_ADMIN",
-        "timestamp": now,
-    })
-
     return {"success": True, "message": f"eBook '{book.get('title')}' approved and published successfully."}
 
 
@@ -2254,109 +2619,107 @@ async def super_admin_reject_ebook(
     if not reason:
         raise ValidationError("A rejection reason is required.")
 
+    if settings.USE_POSTGRES:
+        from app.repositories.ebook_repo import EbookRepository
+        await EbookRepository.update_ebook_status(UUID(str(ebook_id)), "REJECTED", False)
+        await write_audit(ctx, action="reject_ebook", entity_type="ebooks", entity_id=ebook_id, detail=f"Rejected eBook {ebook_id}: {reason}")
+        return {"success": True, "message": "eBook publication request rejected."}
+
     db = get_db()
     oid = ObjectId(ebook_id)
-    book = await db.ebooks.find_one({"_id": oid})
-    if not book:
-        raise NotFound("eBook not found.")
-
-    now = _now()
     await db.ebooks.update_one(
         {"_id": oid},
-        {"$set": {
-            "status": "REJECTED",
-            "published": False,
-            "rejectionReason": reason,
-            "rejectedAt": now,
-            "rejectedBy": ctx.user_id,
-            "updatedAt": now,
-        }},
+        {"$set": {"status": "REJECTED", "published": False, "rejectionReason": reason, "updatedAt": _now()}},
     )
-
-    await db.ebook_publish_requests.update_many(
-        {"ebookId": oid, "status": "PENDING"},
-        {"$set": {"status": "REJECTED", "rejectionReason": reason, "reviewedBy": ctx.user_id, "reviewedAt": now, "updatedAt": now}},
-    )
-
-    await db.ebook_audit_logs.insert_one({
-        "ebookId": oid,
-        "action": "REJECTED",
-        "actorId": ctx.user_id,
-        "reason": reason,
-        "timestamp": now,
-    })
-
     return {"success": True, "message": "eBook publication request rejected."}
 
 
 @router.post("/ebooks/{ebook_id}/publish")
 async def super_admin_publish_ebook(ebook_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.repositories.ebook_repo import EbookRepository
+        await EbookRepository.update_ebook_status(UUID(str(ebook_id)), "PUBLISHED", True)
+        return {"success": True, "message": "eBook published."}
+
     db = get_db()
-    oid = ObjectId(ebook_id)
-    now = _now()
     await db.ebooks.update_one(
-        {"_id": oid},
-        {"$set": {"status": "PUBLISHED", "published": True, "publishedAt": now, "updatedAt": now}},
+        {"_id": ObjectId(ebook_id)},
+        {"$set": {"status": "PUBLISHED", "published": True, "publishedAt": _now(), "updatedAt": _now()}},
     )
     return {"success": True, "message": "eBook published."}
 
 
 @router.post("/ebooks/{ebook_id}/unpublish")
 async def super_admin_unpublish_ebook(ebook_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.repositories.ebook_repo import EbookRepository
+        await EbookRepository.update_ebook_status(UUID(str(ebook_id)), "UNPUBLISHED", False)
+        return {"success": True, "message": "eBook unpublished."}
+
     db = get_db()
-    oid = ObjectId(ebook_id)
-    now = _now()
     await db.ebooks.update_one(
-        {"_id": oid},
-        {"$set": {"status": "UNPUBLISHED", "published": False, "updatedAt": now}},
+        {"_id": ObjectId(ebook_id)},
+        {"$set": {"status": "UNPUBLISHED", "published": False, "updatedAt": _now()}},
     )
     return {"success": True, "message": "eBook unpublished."}
 
 
 @router.post("/ebooks/{ebook_id}/pin")
 async def super_admin_pin_ebook(ebook_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.repositories.ebook_repo import EbookRepository
+        await EbookRepository.set_pinned(UUID(str(ebook_id)), True)
+        return {"success": True, "message": "eBook pinned."}
+
     db = get_db()
-    oid = ObjectId(ebook_id)
-    now = _now()
     await db.ebooks.update_one(
-        {"_id": oid},
-        {"$set": {"isPinned": True, "pinnedAt": now, "pinnedBy": ctx.user_id, "updatedAt": now}},
+        {"_id": ObjectId(ebook_id)},
+        {"$set": {"isPinned": True, "pinnedAt": _now(), "pinnedBy": ctx.user_id, "updatedAt": _now()}},
     )
     return {"success": True, "message": "eBook pinned."}
 
 
 @router.post("/ebooks/{ebook_id}/unpin")
 async def super_admin_unpin_ebook(ebook_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.repositories.ebook_repo import EbookRepository
+        await EbookRepository.set_pinned(UUID(str(ebook_id)), False)
+        return {"success": True, "message": "eBook unpinned."}
+
     db = get_db()
-    oid = ObjectId(ebook_id)
-    now = _now()
     await db.ebooks.update_one(
-        {"_id": oid},
-        {"$set": {"isPinned": False, "pinnedAt": None, "updatedAt": now}},
+        {"_id": ObjectId(ebook_id)},
+        {"$set": {"isPinned": False, "pinnedAt": None, "updatedAt": _now()}},
     )
     return {"success": True, "message": "eBook unpinned."}
 
 
 @router.post("/ebooks/{ebook_id}/feature")
 async def super_admin_feature_ebook(ebook_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.repositories.ebook_repo import EbookRepository
+        await EbookRepository.set_featured(UUID(str(ebook_id)), True)
+        return {"success": True, "message": "eBook marked as Featured."}
+
     db = get_db()
-    oid = ObjectId(ebook_id)
-    now = _now()
     await db.ebooks.update_one(
-        {"_id": oid},
-        {"$set": {"isFeatured": True, "featuredAt": now, "featuredBy": ctx.user_id, "updatedAt": now}},
+        {"_id": ObjectId(ebook_id)},
+        {"$set": {"isFeatured": True, "featuredAt": _now(), "featuredBy": ctx.user_id, "updatedAt": _now()}},
     )
     return {"success": True, "message": "eBook marked as Featured."}
 
 
 @router.post("/ebooks/{ebook_id}/unfeature")
 async def super_admin_unfeature_ebook(ebook_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.repositories.ebook_repo import EbookRepository
+        await EbookRepository.set_featured(UUID(str(ebook_id)), False)
+        return {"success": True, "message": "eBook removed from Featured."}
+
     db = get_db()
-    oid = ObjectId(ebook_id)
-    now = _now()
     await db.ebooks.update_one(
-        {"_id": oid},
-        {"$set": {"isFeatured": False, "featuredAt": None, "updatedAt": now}},
+        {"_id": ObjectId(ebook_id)},
+        {"$set": {"isFeatured": False, "featuredAt": None, "updatedAt": _now()}},
     )
     return {"success": True, "message": "eBook removed from Featured."}
 
@@ -2368,25 +2731,31 @@ async def super_admin_update_ebook_meta(
     ctx: ScopeContext = SuperAdminCtx,
 ) -> dict[str, Any]:
     """Edit metadata: title, description, category, tags, visibility, allowDownload."""
+    if settings.USE_POSTGRES:
+        from app.repositories.ebook_repo import EbookRepository
+        await EbookRepository.update_ebook_meta(UUID(str(ebook_id)), payload)
+        return {"success": True, "message": "eBook metadata updated successfully."}
+
     db = get_db()
-    oid = ObjectId(ebook_id)
     allowed = {"title", "description", "shortDescription", "category", "tags", "visibility", "allowDownload", "displayOrder"}
     updates = {k: v for k, v in payload.items() if k in allowed}
     updates["updatedAt"] = _now()
-
-    await db.ebooks.update_one({"_id": oid}, {"$set": updates})
+    await db.ebooks.update_one({"_id": ObjectId(ebook_id)}, {"$set": updates})
     return {"success": True, "message": "eBook metadata updated."}
 
 
 @router.delete("/ebooks/{ebook_id}")
 async def super_admin_delete_ebook(ebook_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
     """Soft delete eBook."""
+    if settings.USE_POSTGRES:
+        from app.repositories.ebook_repo import EbookRepository
+        await EbookRepository.delete_ebook(UUID(str(ebook_id)))
+        return {"success": True, "message": "eBook soft deleted successfully."}
+
     db = get_db()
-    oid = ObjectId(ebook_id)
-    now = _now()
     await db.ebooks.update_one(
-        {"_id": oid},
-        {"$set": {"status": "DELETED", "published": False, "deletedAt": now, "updatedAt": now}},
+        {"_id": ObjectId(ebook_id)},
+        {"$set": {"status": "DELETED", "published": False, "deletedAt": _now(), "updatedAt": _now()}},
     )
     return {"success": True, "message": "eBook soft deleted."}
 
@@ -2394,12 +2763,15 @@ async def super_admin_delete_ebook(ebook_id: str, ctx: ScopeContext = SuperAdmin
 @router.post("/ebooks/{ebook_id}/restore")
 async def super_admin_restore_ebook(ebook_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
     """Restore soft deleted eBook."""
+    if settings.USE_POSTGRES:
+        from app.repositories.ebook_repo import EbookRepository
+        await EbookRepository.restore_ebook(UUID(str(ebook_id)))
+        return {"success": True, "message": "eBook restored as Draft."}
+
     db = get_db()
-    oid = ObjectId(ebook_id)
-    now = _now()
     await db.ebooks.update_one(
-        {"_id": oid},
-        {"$set": {"status": "DRAFT", "published": False, "deletedAt": None, "updatedAt": now}},
+        {"_id": ObjectId(ebook_id)},
+        {"$set": {"status": "DRAFT", "published": False, "deletedAt": None, "updatedAt": _now()}},
     )
     return {"success": True, "message": "eBook restored as Draft."}
 
@@ -2408,12 +2780,33 @@ async def super_admin_restore_ebook(ebook_id: str, ctx: ScopeContext = SuperAdmi
 async def super_admin_list_reports(ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
     """View user reports on eBooks."""
     try:
+        if settings.USE_POSTGRES:
+            from app.repositories.ebook_repo import EbookRepository
+            reps = await EbookRepository.list_reports()
+            out = [
+                {
+                    "id": str(r["id"]),
+                    "ebookId": str(r["ebook_id"]),
+                    "ebookTitle": r.get("ebook_title"),
+                    "reportedBy": str(r["reported_by"]),
+                    "reporterName": r.get("reporter_name"),
+                    "reporterRole": r.get("reporter_role"),
+                    "reason": r.get("reason"),
+                    "details": r.get("details"),
+                    "status": r.get("status", "PENDING"),
+                    "createdAt": r["created_at"].isoformat() if r.get("created_at") else None,
+                }
+                for r in reps
+            ]
+            return {"success": True, "data": out}
+
         db = get_db()
         reports = await db.ebook_reports.find({}).sort("createdAt", -1).to_list(100)
         return {"success": True, "data": serialize(reports)}
     except Exception as e:
         logger.warning(f"Error listing ebook reports: {e}")
         return {"success": True, "data": []}
+
 
 
 # --------------------------------------------------------------------------- Platform Reports & Exports

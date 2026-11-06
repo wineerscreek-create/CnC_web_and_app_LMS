@@ -3595,3 +3595,49 @@ async def student_get_evaluation_report(report_id: str, ctx: ScopeContext = Stud
     return {"success": True, "data": report}
 
 
+# --------------------------------------------------------------------------- Historical Learning Snapshots (Retained After Course/Institution Deletion)
+@router.get("/historical-reports")
+async def student_get_historical_reports(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    """Retrieves immutable permanent learning reports for courses even if deleted or archived."""
+    from uuid import UUID
+    from app.repositories.control_center_repo import ControlCenterRepository
+
+    user_uuid = UUID(str(ctx.user_id)) if ctx.user_id else None
+    if not user_uuid:
+        return {"success": True, "data": []}
+
+    reports = await ControlCenterRepository.get_participant_historical_reports(user_uuid)
+    return {"success": True, "data": reports}
+
+
+@router.get("/historical-reports/{snapshot_id}")
+async def student_get_single_historical_report(snapshot_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    """Retrieves single immutable snapshot with full progress metrics and grade breakdown."""
+    from uuid import UUID
+    from app.db.postgres import get_pg_connection
+
+    user_uuid = UUID(str(ctx.user_id)) if ctx.user_id else None
+    s_uuid = UUID(str(snapshot_id))
+
+    async with get_pg_connection() as conn:
+        row = await conn.fetchrow("""
+            SELECT id, participant_user_id, course_id, course_title, course_code,
+                   total_attendance_hours, completion_percentage, average_assessment_score,
+                   overall_grade, total_sessions_attended, total_quizzes_taken,
+                   full_report_json, retention_notice, preserved_at
+            FROM historical_learning_snapshots
+            WHERE id = $1 AND participant_user_id = $2
+        """, s_uuid, user_uuid)
+
+        if not row:
+            raise NotFound("Historical learning snapshot not found.")
+
+        d = dict(row)
+        d["id"] = str(d["id"])
+        d["participant_user_id"] = str(d["participant_user_id"])
+        d["course_id"] = str(d["course_id"])
+        d["preserved_at"] = d["preserved_at"].isoformat() if d.get("preserved_at") else None
+        return {"success": True, "data": d}
+
+
+

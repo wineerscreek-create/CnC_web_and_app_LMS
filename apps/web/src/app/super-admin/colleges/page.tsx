@@ -1,19 +1,26 @@
 'use client';
 
 import {
+  AlertTriangle,
   Building2,
   CheckCircle2,
   Edit2,
   GraduationCap,
+  Layers,
+  Lock,
   Mail,
   MapPin,
   Phone,
   Plus,
   Power,
   Search,
+  ShieldAlert,
+  Trash2,
+  UserCheck,
   Users,
 } from 'lucide-react';
 import * as React from 'react';
+import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -45,6 +52,7 @@ interface College {
   timezone: string;
   institutionType?: string;
   trainingType?: string;
+  campusesCount?: number;
   departmentsCount: number;
   studentsCount: number;
   participantsCount?: number;
@@ -58,14 +66,27 @@ export default function SuperAdminCollegesPage() {
   });
 
   const [search, setSearch] = React.useState('');
+  const [categoryFilter, setCategoryFilter] = React.useState<'ALL' | 'COLLEGE' | 'SCHOOL' | 'COMPANY' | 'INDIVIDUAL'>('ALL');
   const [createModalOpen, setCreateModalOpen] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [errorMsg, setErrorMsg] = React.useState('');
+
+  // Safe Deletion state
+  const [deleteModalOpen, setDeleteModalOpen] = React.useState(false);
+  const [selectedCollegeForDeletion, setSelectedCollegeForDeletion] = React.useState<College | null>(null);
+  const [deletePassword, setDeletePassword] = React.useState('');
+  const [deleting, setDeleting] = React.useState(false);
+
+  // SPOC Multi-Branch Manager state
+  const [spocModalOpen, setSpocModalOpen] = React.useState(false);
+  const [spocsList, setSpocsList] = React.useState<any[]>([]);
+  const [loadingSpocs, setLoadingSpocs] = React.useState(false);
 
   // Form state
   const [formName, setFormName] = React.useState('');
   const [formCode, setFormCode] = React.useState('');
   const [formType, setFormType] = React.useState('COLLEGE');
+  const [formCampuses, setFormCampuses] = React.useState(1);
   const [formAddress, setFormAddress] = React.useState('');
   const [formEmail, setFormEmail] = React.useState('');
   const [formPhone, setFormPhone] = React.useState('');
@@ -80,19 +101,22 @@ export default function SuperAdminCollegesPage() {
 
     setSubmitting(true);
     try {
-      await api.post('/super-admin/colleges', {
-        name: formName,
-        code: formCode.toUpperCase(),
-        institutionType: formType,
-        address: formAddress,
-        email: formEmail,
-        phone: formPhone,
+      await api.post('/super-admin/institutions/onboard', {
+        name: formName.trim(),
+        code: formCode.trim().toUpperCase(),
+        category: formType,
+        campusesCount: Number(formCampuses) || 1,
+        address: formAddress.trim(),
+        contactEmail: formEmail.trim(),
+        contactPhone: formPhone.trim(),
         timezone: formTimezone,
       });
+      toast.success(`Institution ${formName} onboarded successfully.`);
       setCreateModalOpen(false);
       setFormName('');
       setFormCode('');
       setFormType('COLLEGE');
+      setFormCampuses(1);
       setFormAddress('');
       setFormEmail('');
       setFormPhone('');
@@ -104,46 +128,132 @@ export default function SuperAdminCollegesPage() {
     }
   };
 
+  const handleOpenDelete = (college: College) => {
+    setSelectedCollegeForDeletion(college);
+    setDeletePassword('');
+    setDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCollegeForDeletion || !deletePassword) return;
+
+    setDeleting(true);
+    try {
+      const res = await api.post(`/super-admin/institutions/${selectedCollegeForDeletion.id}/delete`, {
+        password: deletePassword,
+      });
+      toast.success(res.message || 'Institution safely archived. Student accounts preserved.');
+      setDeleteModalOpen(false);
+      setSelectedCollegeForDeletion(null);
+      setDeletePassword('');
+      query.refetch();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete institution. Please verify password.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleOpenSpocManager = async () => {
+    setSpocModalOpen(true);
+    setLoadingSpocs(true);
+    try {
+      const res = await api.get('/super-admin/spocs');
+      setSpocsList(res.data || []);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load SPOCs list');
+    } finally {
+      setLoadingSpocs(false);
+    }
+  };
+
   const toggleCollegeStatus = async (college: College) => {
     const nextStatus = college.status === 'active' ? 'suspended' : 'active';
     try {
       await api.patch(`/super-admin/colleges/${college.id}`, {
         status: nextStatus,
       });
+      toast.success(`Institution status updated to ${nextStatus}`);
       query.refetch();
-    } catch {
-      // ignore
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update status');
     }
   };
 
-  const filtered = colleges.filter(
-    (c) =>
+  const filtered = colleges.filter((c) => {
+    const matchSearch =
       c.name.toLowerCase().includes(search.toLowerCase()) ||
       c.code.toLowerCase().includes(search.toLowerCase()) ||
-      c.address.toLowerCase().includes(search.toLowerCase())
-  );
+      (c.address && c.address.toLowerCase().includes(search.toLowerCase()));
+
+    const instType = (c.institutionType || 'COLLEGE').toUpperCase();
+    const matchCat =
+      categoryFilter === 'ALL' ||
+      (categoryFilter === 'COLLEGE' && (instType === 'COLLEGE' || instType === 'UNIVERSITY')) ||
+      (categoryFilter === 'SCHOOL' && instType === 'SCHOOL') ||
+      (categoryFilter === 'COMPANY' && (instType === 'COMPANY' || instType === 'CORPORATE')) ||
+      (categoryFilter === 'INDIVIDUAL' && instType === 'INDIVIDUAL');
+
+    return matchSearch && matchCat;
+  });
 
   return (
     <GlobalPageBackground image="/images/backgrounds/colleges.webp" variant="dark">
       <div className="space-y-6">
       <PageHeader
-        title="Colleges & Institutions"
-        description="Onboard and manage academic tenant environments, campuses, and quota configurations."
+        title="Institutions & Multi-Campus Control Center"
+        description="Onboard, manage tenant environments, and configure SPOC branch assignments across Colleges, Schools, Corporates, and Individual Learners."
         actions={
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => {
-              setErrorMsg('');
-              setCreateModalOpen(true);
-            }}
-            className="flex items-center gap-1.5"
-          >
-            <Plus className="size-4" />
-            Onboard New College
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleOpenSpocManager}
+              className="flex items-center gap-1.5"
+            >
+              <Users className="size-4 text-indigo-400" />
+              SPOC Branch Matrix
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                setErrorMsg('');
+                setCreateModalOpen(true);
+              }}
+              className="flex items-center gap-1.5"
+            >
+              <Plus className="size-4" />
+              Onboard Institution
+            </Button>
+          </div>
         }
       />
+
+      {/* Category Tabs */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
+        {[
+          { key: 'ALL', label: 'All Institutions' },
+          { key: 'COLLEGE', label: 'Colleges & Universities' },
+          { key: 'SCHOOL', label: 'Schools & Academies' },
+          { key: 'COMPANY', label: 'Corporate Partners' },
+          { key: 'INDIVIDUAL', label: 'Individual Learners' },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setCategoryFilter(tab.key as any)}
+            className={cn(
+              'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
+              categoryFilter === tab.key
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
       {/* Filter and stats */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -153,14 +263,14 @@ export default function SuperAdminCollegesPage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by college name, code, or city…"
+            placeholder="Search by institution name, code, or city…"
             className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground"
           />
         </div>
 
         <div className="flex items-center gap-2">
           <Badge tone="indigo" dot>
-            {colleges.length} Institutions Total
+            {filtered.length} Displayed / {colleges.length} Total
           </Badge>
         </div>
       </div>
@@ -171,7 +281,7 @@ export default function SuperAdminCollegesPage() {
           <Card
             key={college.id}
             className={cn(
-              'flex flex-col justify-between transition-all hover:shadow-md',
+              'flex flex-col justify-between transition-all hover:shadow-md border border-border',
               college.status !== 'active' && 'opacity-70 bg-card/40'
             )}
           >
@@ -183,7 +293,7 @@ export default function SuperAdminCollegesPage() {
                   </span>
                   <div className="flex items-center gap-1.5 flex-wrap justify-end">
                     <Badge tone="indigo">
-                      {college.trainingType === 'COOPERATIVE' ? 'Cooperative' : college.trainingType === 'SCHOOL' ? 'School' : 'College Training'}
+                      {college.institutionType || 'COLLEGE'}
                     </Badge>
                     <Badge tone={college.status === 'active' ? 'success' : 'danger'}>
                       {college.status}
@@ -197,7 +307,14 @@ export default function SuperAdminCollegesPage() {
                       {college.name}
                     </h3>
                   </div>
-                  <span className="text-xs font-mono text-indigo font-bold">{college.code}</span>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-xs font-mono text-indigo font-bold">{college.code}</span>
+                    {college.campusesCount && college.campusesCount > 1 && (
+                      <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                        {college.campusesCount} Campuses
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-3 space-y-1.5 text-xs text-muted-foreground">
@@ -226,7 +343,7 @@ export default function SuperAdminCollegesPage() {
                     <p className="font-bold text-foreground text-sm">
                       {num(college.departmentsCount)}
                     </p>
-                    <p className="text-[10px] text-muted-foreground">Depts</p>
+                    <p className="text-[10px] text-muted-foreground">Branches</p>
                   </div>
                   <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
                     <p className="font-bold text-foreground text-sm">
@@ -244,31 +361,42 @@ export default function SuperAdminCollegesPage() {
               </div>
 
               <div className="pt-3 border-t border-border flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">
+                <span className="text-muted-foreground text-[11px]">
                   Onboarded {college.createdAt ? formatDate(college.createdAt) : 'Recently'}
                 </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => toggleCollegeStatus(college)}
-                  className="text-xs flex items-center gap-1 h-7 p-1"
-                >
-                  <Power className="size-3" />
-                  {college.status === 'active' ? 'Suspend' : 'Activate'}
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => toggleCollegeStatus(college)}
+                    className="text-xs flex items-center gap-1 h-7 p-1 text-muted-foreground hover:text-foreground"
+                    title={college.status === 'active' ? 'Suspend' : 'Activate'}
+                  >
+                    <Power className="size-3" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleOpenDelete(college)}
+                    className="text-xs flex items-center gap-1 h-7 p-1 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
+                    title="Safely Archive Institution"
+                  >
+                    <Trash2 className="size-3" />
+                  </Button>
+                </div>
               </div>
             </CardBody>
           </Card>
         ))}
       </div>
 
-      {/* Onboard College Modal */}
+      {/* Onboard Institution Modal */}
       <Dialog open={createModalOpen} onOpenChange={setCreateModalOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Onboard New Institution</DialogTitle>
+            <DialogTitle>Onboard New Tenant Institution</DialogTitle>
             <DialogDescription>
-              Create an isolated tenant workspace for a new college, university, or institute.
+              Create an isolated tenant workspace for a College, School, Corporate, or Individual learner cohort.
             </DialogDescription>
           </DialogHeader>
 
@@ -280,22 +408,23 @@ export default function SuperAdminCollegesPage() {
             )}
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Institution Type (Auto-Configures Training Model) *
+              <label className="text-xs font-semibold text-foreground">
+                Institution Category *
               </label>
               <select
                 value={formType}
                 onChange={(e) => setFormType(e.target.value)}
                 className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-card text-foreground"
               >
-                <option value="COLLEGE">College / University → College Training</option>
-                <option value="COMPANY">Company / Corporate → Cooperative Training</option>
-                <option value="SCHOOL">School / Academy → School Training</option>
+                <option value="COLLEGE">College / University (Semester/Degree programmes)</option>
+                <option value="SCHOOL">School / Academy (Foundation/K-12 programmes)</option>
+                <option value="COMPANY">Corporate / Enterprise (Executive/Workforce training)</option>
+                <option value="INDIVIDUAL">Individual Learner Track (Direct access)</option>
               </select>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <label className="text-xs font-semibold text-foreground">
                 Institution Name *
               </label>
               <input
@@ -310,8 +439,8 @@ export default function SuperAdminCollegesPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  College Code (Unique) *
+                <label className="text-xs font-semibold text-foreground">
+                  Institution Code (Unique) *
                 </label>
                 <input
                   type="text"
@@ -324,21 +453,23 @@ export default function SuperAdminCollegesPage() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Timezone
+                <label className="text-xs font-semibold text-foreground">
+                  Campuses Count
                 </label>
                 <input
-                  type="text"
-                  value={formTimezone}
-                  onChange={(e) => setFormTimezone(e.target.value)}
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={formCampuses}
+                  onChange={(e) => setFormCampuses(Number(e.target.value))}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-card text-foreground"
                 />
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Campus Address
+              <label className="text-xs font-semibold text-foreground">
+                Primary Campus Address
               </label>
               <input
                 type="text"
@@ -351,7 +482,7 @@ export default function SuperAdminCollegesPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                <label className="text-xs font-semibold text-foreground">
                   Admin Contact Email
                 </label>
                 <input
@@ -364,7 +495,7 @@ export default function SuperAdminCollegesPage() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                <label className="text-xs font-semibold text-foreground">
                   Phone
                 </label>
                 <input
@@ -396,6 +527,130 @@ export default function SuperAdminCollegesPage() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Safe Archive / Deletion Modal */}
+      <Dialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-500">
+              <AlertTriangle className="size-5 text-rose-500" />
+              Safe Archive Institution
+            </DialogTitle>
+            <DialogDescription>
+              {selectedCollegeForDeletion?.name} ({selectedCollegeForDeletion?.code})
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleConfirmDelete} className="p-6 space-y-4 text-xs">
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 space-y-2 text-foreground leading-relaxed">
+              <p className="font-semibold text-amber-400 flex items-center gap-1.5">
+                <ShieldAlert className="size-4 shrink-0" />
+                Participant Protection Guarantee
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Deleting or archiving an institution <strong>NEVER deletes participant accounts</strong>. All registered students retain access to their profiles, courses, assessments, and verifiable historical certificates.
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Affected students are automatically flagged with <em>Affiliation Action Required</em> and prompted to select a new academic institution upon next login.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-foreground flex items-center gap-1">
+                <Lock className="size-3 text-muted-foreground" />
+                Super Admin Password Re-authentication *
+              </label>
+              <input
+                type="password"
+                required
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                placeholder="Enter root password to confirm"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-card text-foreground"
+              />
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setDeleteModalOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={deleting || !deletePassword}
+                className="bg-rose-600 hover:bg-rose-700 text-white"
+              >
+                {deleting ? 'Safely Archiving…' : 'Confirm Safe Archive'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* SPOC Multi-Branch Manager Modal */}
+      <Dialog open={spocModalOpen} onOpenChange={setSpocModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="size-5 text-indigo-400" />
+              SPOC (HOD) Many-to-Many Branch Matrix
+            </DialogTitle>
+            <DialogDescription>
+              A single SPOC can govern multiple academic branches (e.g., CSE, IT, AI&DS). Branch-scoped security is strictly verified server-side.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+            {loadingSpocs ? (
+              <p className="text-xs text-muted-foreground text-center py-6">Loading SPOC matrices…</p>
+            ) : spocsList.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-6">No SPOCs currently registered.</p>
+            ) : (
+              <div className="space-y-3">
+                {spocsList.map((spoc) => (
+                  <div
+                    key={spoc.id}
+                    className="p-3.5 rounded-xl border border-border bg-card/60 space-y-2 text-xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-foreground text-sm">{spoc.name}</p>
+                        <p className="text-muted-foreground text-[11px]">{spoc.email} · {spoc.institution_name || 'All Campuses'}</p>
+                      </div>
+                      <Badge tone="indigo">
+                        {spoc.assigned_branches?.length || 0} Branches Assigned
+                      </Badge>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                      {spoc.assigned_branches && spoc.assigned_branches.length > 0 ? (
+                        spoc.assigned_branches.map((b: any) => (
+                          <span
+                            key={b.branch_id}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[11px] font-mono"
+                          >
+                            {b.branch_name} ({b.branch_code})
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground italic">
+                          No branch assigned yet. SPOC operates across general college scope.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

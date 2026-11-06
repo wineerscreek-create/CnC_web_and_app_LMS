@@ -102,3 +102,4 @@ Re-running the red-team suite confirmed:
 ## 4. Verification Sign-Off
 
 All identified weaknesses have been addressed and verified through repeatable, non-destructive automated test runs. The application demonstrates solid resilience against unauthorized access, privilege escalation, cross-tenant leaks, and injection attacks.
+
