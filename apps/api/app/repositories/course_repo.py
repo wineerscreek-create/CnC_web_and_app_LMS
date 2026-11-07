@@ -408,7 +408,7 @@ class CourseRepository:
         department_id: UUID | str | None = None,
         assigned_by: UUID | str | None = None,
     ) -> dict[str, Any]:
-        """Assigns a trainer to a course with institutional and role validation."""
+        """Assigns a trainer to a course with institutional, course eligibility, and role validation."""
         cid = _safe_uuid(course_id)
         if not cid:
             raise NotFound("Invalid course ID.")
@@ -421,9 +421,14 @@ class CourseRepository:
 
         async with get_pg_connection() as conn:
             async with conn.transaction():
-                # 1. Course validation
+                # 1. Course validation with row-level lock for concurrency safety
                 course = await conn.fetchrow(
-                    "SELECT id, title, visibility_mode, target_institution_ids, deleted_at FROM courses WHERE id = $1 AND deleted_at IS NULL",
+                    """
+                    SELECT id, title, visibility_mode, target_institution_ids, target_branch_ids, deleted_at 
+                    FROM courses 
+                    WHERE id = $1 AND deleted_at IS NULL 
+                    FOR UPDATE
+                    """,
                     cid,
                 )
                 if not course:
@@ -456,6 +461,16 @@ class CourseRepository:
                 if trainer["institution_id"] and resolved_inst_id and trainer["institution_id"] != resolved_inst_id:
                     raise ScopeForbidden("Trainer belongs to a different institution. Cross-institution assignment is prohibited.")
 
+                # 4. Check Course's institutional eligibility (ADDITIONAL AUDIT Requirement 1)
+                vis_mode = str(course.get("visibility_mode") or "EVERYONE").upper()
+                target_insts = [str(x) for x in (course.get("target_institution_ids") or [])]
+                if vis_mode in ("SELECTED_INSTITUTIONS", "SELECTED_COLLEGES") and target_insts:
+                    if not resolved_inst_id or str(resolved_inst_id) not in target_insts:
+                        raise ScopeForbidden(
+                            f"Course '{course['title']}' is restricted to specific institutions. "
+                            "The assigned trainer's institution is not eligible for this course."
+                        )
+
                 # If department_id is provided, verify it exists, belongs to the institution, and is not deleted
                 resolved_dept_id = d_uuid
                 if resolved_dept_id:
@@ -468,21 +483,29 @@ class CourseRepository:
                     if resolved_inst_id and dept["institution_id"] != resolved_inst_id:
                         raise ScopeForbidden("Specified department does not belong to the trainer's institution.")
 
-                # 4. Check for duplicate assignment
-                if resolved_dept_id:
-                    existing = await conn.fetchval(
-                        "SELECT id FROM course_trainer_assignments WHERE course_id = $1 AND trainer_user_id = $2 AND department_id = $3",
-                        cid, tid, resolved_dept_id,
-                    )
-                else:
-                    existing = await conn.fetchval(
-                        "SELECT id FROM course_trainer_assignments WHERE course_id = $1 AND trainer_user_id = $2 AND department_id IS NULL",
-                        cid, tid,
-                    )
-                if existing:
-                    raise Conflict(f"Trainer '{trainer['name']}' is already assigned to this course.")
+                # If course has target branches restricted, check branch eligibility
+                target_branches = [str(x) for x in (course.get("target_branch_ids") or [])]
+                if vis_mode == "SELECTED_BRANCHES" and target_branches:
+                    if not resolved_dept_id or str(resolved_dept_id) not in target_branches:
+                        raise ScopeForbidden(
+                            f"Course '{course['title']}' is restricted to specific branches. "
+                            "The assigned department is not eligible for this course."
+                        )
 
-                # 5. Insert assignment record
+                # 5. Check for duplicate assignment under row-level lock (Concurrency Safe)
+                existing_assignments = await conn.fetch(
+                    "SELECT id, department_id FROM course_trainer_assignments WHERE course_id = $1 AND trainer_user_id = $2 FOR UPDATE",
+                    cid, tid,
+                )
+                for er in existing_assignments:
+                    if resolved_dept_id:
+                        if er["department_id"] == resolved_dept_id:
+                            raise Conflict(f"Trainer '{trainer['name']}' is already assigned to this course for this department.")
+                    else:
+                        if er["department_id"] is None:
+                            raise Conflict(f"Trainer '{trainer['name']}' is already assigned to this course without department scoping.")
+
+                # 6. Insert assignment record
                 assign_id = await conn.fetchval("""
                     INSERT INTO course_trainer_assignments (
                         course_id, trainer_user_id, institution_id, department_id, assigned_by, created_at
@@ -509,8 +532,9 @@ class CourseRepository:
         course_id: UUID | str,
         trainer_user_id: UUID | str,
         department_id: UUID | str | None = None,
-    ) -> bool:
-        """Removes a trainer assignment from a course."""
+        caller_institution_id: UUID | str | None = None,
+    ) -> dict[str, Any]:
+        """Removes a trainer assignment from a course with department scoping, conflict resolution, and tenant isolation."""
         cid = _safe_uuid(course_id)
         if not cid:
             raise NotFound("Invalid course ID.")
@@ -518,27 +542,68 @@ class CourseRepository:
         if not tid:
             raise ValidationError("Invalid trainer user ID.")
         d_uuid = _safe_uuid(department_id) if department_id else None
+        caller_inst_uuid = _safe_uuid(caller_institution_id) if caller_institution_id else None
 
         async with get_pg_connection() as conn:
-            course_exists = await conn.fetchval(
-                "SELECT 1 FROM courses WHERE id = $1 AND deleted_at IS NULL", cid
-            )
-            if not course_exists:
-                raise NotFound("Course not found or has been deleted.")
-
-            if d_uuid:
-                deleted = await conn.execute(
-                    "DELETE FROM course_trainer_assignments WHERE course_id = $1 AND trainer_user_id = $2 AND department_id = $3",
-                    cid, tid, d_uuid,
+            async with conn.transaction():
+                # 1. Check course exists
+                course = await conn.fetchrow(
+                    "SELECT id, title FROM courses WHERE id = $1 AND deleted_at IS NULL", cid
                 )
-            else:
-                deleted = await conn.execute(
-                    "DELETE FROM course_trainer_assignments WHERE course_id = $1 AND trainer_user_id = $2",
-                    cid, tid,
+                if not course:
+                    raise NotFound("Course not found or has been deleted.")
+
+                # 2. Lock and retrieve all assignments for this course and trainer
+                assignments = await conn.fetch("""
+                    SELECT id, course_id, trainer_user_id, institution_id, department_id
+                    FROM course_trainer_assignments
+                    WHERE course_id = $1 AND trainer_user_id = $2
+                    FOR UPDATE
+                """, cid, tid)
+
+                if not assignments:
+                    raise NotFound("Trainer assignment not found for this course.")
+
+                # 3. Determine target assignment to delete (ISSUE 2 Requirements 1-4)
+                target_assignment = None
+
+                if d_uuid:
+                    # Specific department assignment requested
+                    for a in assignments:
+                        if a["department_id"] == d_uuid:
+                            target_assignment = a
+                            break
+                    if not target_assignment:
+                        raise NotFound(f"Trainer assignment for department '{d_uuid}' not found.")
+                else:
+                    # Ambiguous deletion check: if trainer is assigned to multiple departments
+                    if len(assignments) > 1:
+                        raise Conflict(
+                            f"Multiple assignments ({len(assignments)}) exist for this trainer on course '{course['title']}' "
+                            "across different departments. Please specify departmentId to remove a specific assignment."
+                        )
+                    target_assignment = assignments[0]
+
+                # 4. Tenant isolation: verify target assignment belongs to caller's institution scope (Requirement 5)
+                if caller_inst_uuid and target_assignment["institution_id"]:
+                    if target_assignment["institution_id"] != caller_inst_uuid:
+                        raise ScopeForbidden("Cannot remove trainer assignment belonging to another institution.")
+
+                # 5. Delete exact assignment row by its unique primary key
+                await conn.execute(
+                    "DELETE FROM course_trainer_assignments WHERE id = $1",
+                    target_assignment["id"],
                 )
 
-            count = int(deleted.split(" ")[-1]) if deleted else 0
-            if count == 0:
-                raise NotFound("Trainer assignment not found for this course.")
-            return True
+                # 6. Return exact deleted assignment information (Requirement 6)
+                return {
+                    "success": True,
+                    "deletedAssignmentId": str(target_assignment["id"]),
+                    "courseId": str(cid),
+                    "courseTitle": course["title"],
+                    "trainerUserId": str(tid),
+                    "institutionId": str(target_assignment["institution_id"]) if target_assignment["institution_id"] else None,
+                    "departmentId": str(target_assignment["department_id"]) if target_assignment["department_id"] else None,
+                    "message": f"Trainer assignment successfully removed from course '{course['title']}'.",
+                }
 

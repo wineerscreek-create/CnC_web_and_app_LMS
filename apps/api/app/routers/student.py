@@ -3770,12 +3770,16 @@ async def student_get_single_historical_report(snapshot_id: str, ctx: ScopeConte
         raw_snap = row["snapshot_data"]
         snap_data = raw_snap if isinstance(raw_snap, dict) else (json.loads(raw_snap) if raw_snap else {})
 
-        progress = float(row["progress_percent"]) if row["progress_percent"] is not None else 0.0
-        attendance = float(row["attendance_percentage"]) if row["attendance_percentage"] is not None else 0.0
+        progress = float(row["progress_percent"]) if row["progress_percent"] is not None else None
+        attendance = float(row["attendance_percentage"]) if row["attendance_percentage"] is not None else None
         avg_quiz = float(row["average_quiz_score"]) if row["average_quiz_score"] is not None else None
 
-        hours_attended = snap_data.get("attendanceHours") or round(attendance * 0.4, 1)
-        grade = "A" if progress >= 80 else ("B" if progress >= 60 else "Completed")
+        # ISSUE 1 REMEDIATION: Never fabricate missing historical data. Use verified values or None.
+        hours_attended = float(snap_data["attendanceHours"]) if ("attendanceHours" in snap_data and snap_data["attendanceHours"] is not None) else None
+        avg_assessment = float(snap_data["averageAssessmentScore"]) if ("averageAssessmentScore" in snap_data and snap_data["averageAssessmentScore"] is not None) else avg_quiz
+        overall_grade = str(snap_data["overallGrade"]).strip() if ("overallGrade" in snap_data and snap_data["overallGrade"]) else None
+        sessions_attended = int(snap_data["totalSessionsAttended"]) if ("totalSessionsAttended" in snap_data and snap_data["totalSessionsAttended"] is not None) else None
+        quizzes_taken = int(snap_data["totalQuizzesTaken"]) if ("totalQuizzesTaken" in snap_data and snap_data["totalQuizzesTaken"] is not None) else None
 
         data = {
             "id": str(row["id"]),
@@ -3802,10 +3806,10 @@ async def student_get_single_historical_report(snapshot_id: str, ctx: ScopeConte
             "total_lessons": row["total_lessons"],
             "totalLessons": row["total_lessons"],
             "average_quiz_score": avg_quiz,
-            "average_assessment_score": avg_quiz if avg_quiz is not None else progress,
-            "overall_grade": grade,
-            "total_sessions_attended": row["completed_lessons"],
-            "total_quizzes_taken": 1 if avg_quiz is not None else 0,
+            "average_assessment_score": avg_assessment,
+            "overall_grade": overall_grade,
+            "total_sessions_attended": sessions_attended,
+            "total_quizzes_taken": quizzes_taken,
             "eedi_scores": row["eedi_scores"] or {},
             "assessment_results": row["assessment_results"] or [],
             "game_performance": row["game_performance"] or [],

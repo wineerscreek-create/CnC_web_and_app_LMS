@@ -2286,9 +2286,17 @@ async def super_admin_remove_course_trainer(
     except (ValueError, TypeError):
         raise NotFound("Trainer assignment not found for this course.")
 
-    res = await CourseRepository.remove_course_trainer(c_uuid, t_uuid, department_id=departmentId)
+    dept_uuid = UUID(str(departmentId)) if departmentId else None
+    caller_inst_uuid = UUID(str(ctx.college_id)) if (ctx.college_id and not ctx.is_platform_wide) else None
+
+    res = await CourseRepository.remove_course_trainer(
+        course_id=c_uuid,
+        trainer_user_id=t_uuid,
+        department_id=dept_uuid,
+        caller_institution_id=caller_inst_uuid,
+    )
     await write_audit(ctx, action="unassign", entity_type="course_trainers", entity_id=str(c_uuid), detail=f"Removed trainer {trainer_id} from course {course_id}")
-    return {"success": res, "message": "Trainer removed from course"}
+    return res
 
 
 # --------------------------------------------------------------------------- System Telemetry & AI

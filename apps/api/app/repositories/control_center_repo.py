@@ -910,10 +910,14 @@ class ControlCenterRepository:
             for r in rows:
                 raw_snap = r["snapshot_data"]
                 snap_data = raw_snap if isinstance(raw_snap, dict) else (json.loads(raw_snap) if raw_snap else {})
-                progress = float(r["progress_percent"]) if r["progress_percent"] is not None else 0.0
-                attendance = float(r["attendance_percentage"]) if r["attendance_percentage"] is not None else 0.0
+                progress = float(r["progress_percent"]) if r["progress_percent"] is not None else None
+                attendance = float(r["attendance_percentage"]) if r["attendance_percentage"] is not None else None
                 avg_quiz = float(r["average_quiz_score"]) if r.get("average_quiz_score") is not None else None
-                grade = "A" if progress >= 80 else ("B" if progress >= 60 else "Completed")
+
+                # ISSUE 1 REMEDIATION: Never fabricate missing historical data. Use verified values or None.
+                hours_attended = float(snap_data["attendanceHours"]) if ("attendanceHours" in snap_data and snap_data["attendanceHours"] is not None) else None
+                avg_assessment = float(snap_data["averageAssessmentScore"]) if ("averageAssessmentScore" in snap_data and snap_data["averageAssessmentScore"] is not None) else avg_quiz
+                overall_grade = str(snap_data["overallGrade"]).strip() if ("overallGrade" in snap_data and snap_data["overallGrade"]) else None
 
                 items.append({
                     "id": str(r["id"]),
@@ -932,12 +936,12 @@ class ControlCenterRepository:
                     "completion_percentage": progress,
                     "attendancePercentage": attendance,
                     "attendance_percentage": attendance,
-                    "total_attendance_hours": snap_data.get("attendanceHours") or round(attendance * 0.4, 1),
+                    "total_attendance_hours": hours_attended,
                     "completedLessons": r["completed_lessons"],
                     "totalLessons": r["total_lessons"],
                     "average_quiz_score": avg_quiz,
-                    "average_assessment_score": avg_quiz if avg_quiz is not None else progress,
-                    "overall_grade": grade,
+                    "average_assessment_score": avg_assessment,
+                    "overall_grade": overall_grade,
                     "retentionExpiresAt": r["retention_expires_at"].isoformat() if r["retention_expires_at"] else None,
                     "retention_expires_at": r["retention_expires_at"].isoformat() if r["retention_expires_at"] else None,
                     "retention_notice": "Under platform data retention policy, this learning record is permanently preserved for your account.",

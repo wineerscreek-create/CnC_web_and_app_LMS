@@ -284,22 +284,36 @@ export default function ProgressPage() {
                             <p className="font-bold text-foreground text-sm">{hr.course_title}</p>
                             <p className="text-[11px] font-mono text-muted-foreground">{hr.course_code}</p>
                           </div>
-                          <Badge tone={hr.overall_grade ? 'success' : 'indigo'}>
-                            Grade: {hr.overall_grade || 'Completed'}
+                          <Badge tone={hr.overall_grade ? 'success' : 'neutral'}>
+                            Grade: {hr.overall_grade || 'N/A'}
                           </Badge>
                         </div>
                         <div className="grid grid-cols-3 gap-2 pt-1 text-center">
                           <div className="p-1.5 rounded-lg bg-muted/40">
                             <p className="text-[10px] text-muted-foreground">Completion</p>
-                            <p className="font-bold text-foreground">{hr.completion_percentage}%</p>
+                            <p className="font-bold text-foreground">
+                              {hr.completion_percentage !== null && hr.completion_percentage !== undefined
+                                ? `${hr.completion_percentage}%`
+                                : 'N/A'}
+                            </p>
                           </div>
                           <div className="p-1.5 rounded-lg bg-muted/40">
                             <p className="text-[10px] text-muted-foreground">Attendance</p>
-                            <p className="font-bold text-foreground">{hr.total_attendance_hours}h</p>
+                            <p className="font-bold text-foreground">
+                              {hr.attendance_percentage !== null && hr.attendance_percentage !== undefined
+                                ? `${hr.attendance_percentage}%`
+                                : (hr.total_attendance_hours !== null && hr.total_attendance_hours !== undefined
+                                    ? `${hr.total_attendance_hours}h`
+                                    : 'N/A')}
+                            </p>
                           </div>
                           <div className="p-1.5 rounded-lg bg-muted/40">
                             <p className="text-[10px] text-muted-foreground">Assessment</p>
-                            <p className="font-bold text-foreground">{hr.average_assessment_score}%</p>
+                            <p className="font-bold text-foreground">
+                              {hr.average_assessment_score !== null && hr.average_assessment_score !== undefined
+                                ? `${hr.average_assessment_score}%`
+                                : 'N/A'}
+                            </p>
                           </div>
                         </div>
                         <p className="text-[10px] text-muted-foreground italic pt-1 border-t border-border">
