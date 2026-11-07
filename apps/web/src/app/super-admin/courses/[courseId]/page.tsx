@@ -4,13 +4,17 @@ import {
   AlertTriangle,
   Archive,
   ArrowLeft,
+  Briefcase,
   Building2,
+  Check,
   CheckCircle2,
   Clock,
   CreditCard,
   DollarSign,
   Download,
+  ExternalLink,
   Gamepad2,
+  Globe,
   GraduationCap,
   Layers,
   Lock,
@@ -21,8 +25,10 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  Search,
   ShieldAlert,
   ShieldCheck,
+  Sliders,
   TrendingUp,
   UserCheck,
   UserPlus,
@@ -77,8 +83,27 @@ export default function SuperAdminCourseControlCenterPage() {
   });
 
   // State
-  const [activeTab, setActiveTab] = React.useState<'overview' | 'scheme_config' | 'payment_config' | 'revenue' | 'trainers'>('overview');
+  const [activeTab, setActiveTab] = React.useState<'overview' | 'scheme_config' | 'payment_config' | 'distribution' | 'revenue' | 'trainers'>('overview');
   const [lifecycleLoading, setLifecycleLoading] = React.useState(false);
+
+  // Institution Targeting & Distribution State
+  const [visibilityMode, setVisibilityMode] = React.useState('EVERYONE');
+  const [targetInstitutionIds, setTargetInstitutionIds] = React.useState<string[]>([]);
+  const [portalDistribution, setPortalDistribution] = React.useState({
+    spoc: true,
+    admin: true,
+    trainer: true,
+    participant: true,
+  });
+  const [allowedEnrollmentMethods, setAllowedEnrollmentMethods] = React.useState<string[]>([
+    'SELF',
+    'ADMIN',
+    'SPOC',
+    'SUPER_ADMIN',
+  ]);
+  const [savingDistribution, setSavingDistribution] = React.useState(false);
+  const [instSearchQuery, setInstSearchQuery] = React.useState('');
+  const [distributionSynced, setDistributionSynced] = React.useState(false);
 
   // Scheme Configuration State
   const [schemeType, setSchemeType] = React.useState('SEMESTER');
@@ -142,6 +167,63 @@ export default function SuperAdminCourseControlCenterPage() {
       toast.error(err?.message || 'Failed to update course scheme.');
     } finally {
       setSavingScheme(false);
+    }
+  };
+
+  // Sync targeting & distribution when control data loads
+  React.useEffect(() => {
+    if (controlQuery.data?.course && !distributionSynced) {
+      const c = controlQuery.data.course;
+      if (c.visibilityMode) setVisibilityMode(c.visibilityMode);
+      if (Array.isArray(c.targetInstitutionIds)) setTargetInstitutionIds(c.targetInstitutionIds);
+      if (c.portalDistribution) {
+        setPortalDistribution({
+          spoc: Boolean(c.portalDistribution.spoc ?? true),
+          admin: Boolean(c.portalDistribution.admin ?? true),
+          trainer: Boolean(c.portalDistribution.trainer ?? true),
+          participant: Boolean(c.portalDistribution.participant ?? true),
+        });
+      }
+      if (Array.isArray(c.allowedEnrollmentMethods) && c.allowedEnrollmentMethods.length > 0) {
+        setAllowedEnrollmentMethods(c.allowedEnrollmentMethods);
+      }
+      setDistributionSynced(true);
+    }
+  }, [controlQuery.data, distributionSynced]);
+
+  const handleSaveDistribution = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingDistribution(true);
+    try {
+      await api.put(`/super-admin/courses/${courseId}/distribution`, {
+        visibilityMode,
+        targetInstitutionIds,
+        portalDistribution,
+        allowedEnrollmentMethods,
+      });
+      toast.success('Course targeting and institution distribution saved successfully!');
+      controlQuery.refetch();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to update course targeting rules.');
+    } finally {
+      setSavingDistribution(false);
+    }
+  };
+
+  const handleToggleInstitution = (instId: string) => {
+    setTargetInstitutionIds((prev) =>
+      prev.includes(instId) ? prev.filter((id) => id !== instId) : [...prev, instId]
+    );
+  };
+
+  const handleQuickDisassociate = async (instId: string) => {
+    try {
+      await api.delete(`/super-admin/institutions/${instId}/courses/${courseId}/disassociate`);
+      toast.success('Course disassociated from institution.');
+      setTargetInstitutionIds((prev) => prev.filter((id) => id !== instId));
+      controlQuery.refetch();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to disassociate institution.');
     }
   };
 
@@ -345,6 +427,16 @@ export default function SuperAdminCourseControlCenterPage() {
             }`}
           >
             Payment & 3-Day Trial Config
+          </button>
+          <button
+            onClick={() => setActiveTab('distribution')}
+            className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+              activeTab === 'distribution'
+                ? 'bg-accent text-accent-foreground shadow-sm font-bold'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Targeting &amp; Distribution
           </button>
           <button
             onClick={() => setActiveTab('revenue')}
@@ -1056,6 +1148,390 @@ export default function SuperAdminCourseControlCenterPage() {
                     </form>
                   </CardBody>
                 </Card>
+              )}
+
+              {/* TAB: INSTITUTION TARGETING & DISTRIBUTION */}
+              {activeTab === 'distribution' && (
+                <div className="space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <h2 className="text-lg font-bold text-foreground">
+                        Institution Targeting &amp; Portal Distribution Controls
+                      </h2>
+                      <p className="text-xs text-muted-foreground">
+                        Define multi-tenant audience visibility, whitelist affiliated Colleges &amp; Corporate enterprises, and govern portal-level access.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      onClick={handleSaveDistribution}
+                      disabled={savingDistribution}
+                      className="flex items-center gap-1.5 self-start sm:self-auto"
+                    >
+                      <Save className="size-3.5" />
+                      {savingDistribution ? 'Saving Access Rules…' : 'Save Targeting Rules'}
+                    </Button>
+                  </div>
+
+                  {/* 1. Audience Visibility Mode */}
+                  <Card>
+                    <CardHeader className="p-4 border-b border-border">
+                      <CardTitle className="text-sm font-bold flex items-center gap-2">
+                        <Globe className="size-4 text-indigo-500" />
+                        Audience Visibility Scope
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground">
+                        Determines who can discover and access this curriculum across portals, catalog search, and direct enrollment links.
+                      </p>
+                    </CardHeader>
+                    <CardBody className="p-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                        {[
+                          {
+                            value: 'EVERYONE',
+                            title: 'Universal Public Catalog',
+                            desc: 'Open to all authenticated participants and direct self-enrollments.',
+                            tone: 'indigo',
+                          },
+                          {
+                            value: 'COLLEGE',
+                            title: 'All Colleges',
+                            desc: 'Available across all higher education university & college campuses.',
+                            tone: 'teal',
+                          },
+                          {
+                            value: 'CORPORATE',
+                            title: 'All Corporates',
+                            desc: 'Exclusive enterprise training across corporate clients and organizations.',
+                            tone: 'purple',
+                          },
+                          {
+                            value: 'SCHOOL',
+                            title: 'All Schools',
+                            desc: 'Restricted to K-12 and secondary educational organizations.',
+                            tone: 'amber',
+                          },
+                          {
+                            value: 'SELECTED_INSTITUTIONS',
+                            title: 'Selected Institutions',
+                            desc: 'Targeted only to explicitly whitelisted Colleges & Corporate partners below.',
+                            tone: 'emerald',
+                          },
+                          {
+                            value: 'SELECTED_CAMPUSES',
+                            title: 'Specific Campuses',
+                            desc: 'Restricted strictly to designated geographical campus locations.',
+                            tone: 'blue',
+                          },
+                          {
+                            value: 'SELECTED_BRANCHES',
+                            title: 'Specific Branches / Teams',
+                            desc: 'Constrained to specific academic departments or corporate business units.',
+                            tone: 'cyan',
+                          },
+                          {
+                            value: 'INVITE_ONLY',
+                            title: 'Private Invite Only',
+                            desc: 'Hidden from catalog; accessible only via administrative seat allocation.',
+                            tone: 'rose',
+                          },
+                        ].map((mode) => (
+                          <div
+                            key={mode.value}
+                            onClick={() => setVisibilityMode(mode.value)}
+                            className={cn(
+                              'cursor-pointer rounded-xl border p-3.5 transition-all flex flex-col justify-between space-y-2',
+                              visibilityMode === mode.value
+                                ? 'border-primary bg-primary/5 ring-1 ring-primary shadow-xs'
+                                : 'border-border bg-card/60 hover:border-border/80 hover:bg-card'
+                            )}
+                          >
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-foreground text-xs">{mode.title}</span>
+                                {visibilityMode === mode.value && (
+                                  <span className="size-4 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[10px]">
+                                    ✓
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                                {mode.desc}
+                              </p>
+                            </div>
+                            <span className="text-[10px] font-mono text-muted-foreground uppercase">
+                              Mode: {mode.value}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </CardBody>
+                  </Card>
+
+                  {/* 2. Portal Distribution & Enrollment Methods */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Portal Distribution */}
+                    <Card>
+                      <CardHeader className="p-4 border-b border-border">
+                        <CardTitle className="text-sm font-bold flex items-center gap-2">
+                          <Sliders className="size-4 text-indigo-500" />
+                          Portal Distribution Permissions
+                        </CardTitle>
+                        <p className="text-xs text-muted-foreground">
+                          Toggle which stakeholder portals display and deliver this course.
+                        </p>
+                      </CardHeader>
+                      <CardBody className="p-4 space-y-3 text-xs">
+                        {[
+                          {
+                            key: 'participant',
+                            label: 'Participant / Student Portal',
+                            desc: 'Enrolled students and employees can access video lectures, eBooks, and practice games.',
+                          },
+                          {
+                            key: 'spoc',
+                            label: 'SPOC / HOD / Program Manager Portal',
+                            desc: 'Campus SPOCs can view curriculum progress, assign batches, and track branch metrics.',
+                          },
+                          {
+                            key: 'admin',
+                            label: 'Institutional Admin Portal',
+                            desc: 'College/Corporate administrators have governance, faculty assignment, and report access.',
+                          },
+                          {
+                            key: 'trainer',
+                            label: 'Faculty Trainer Portal',
+                            desc: 'Trainers can mark attendance, review assignments, and conduct live sessions.',
+                          },
+                        ].map((portal) => (
+                          <label
+                            key={portal.key}
+                            className="flex items-start gap-3 p-2.5 rounded-lg border border-border bg-card/60 hover:bg-card cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={Boolean((portalDistribution as any)[portal.key])}
+                              onChange={(e) =>
+                                setPortalDistribution((prev) => ({
+                                  ...prev,
+                                  [portal.key]: e.target.checked,
+                                }))
+                              }
+                              className="mt-0.5 size-4 rounded border-border text-primary focus:ring-ring"
+                            />
+                            <div className="space-y-0.5">
+                              <p className="font-semibold text-foreground text-xs">{portal.label}</p>
+                              <p className="text-[11px] text-muted-foreground">{portal.desc}</p>
+                            </div>
+                          </label>
+                        ))}
+                      </CardBody>
+                    </Card>
+
+                    {/* Enrollment Methods */}
+                    <Card>
+                      <CardHeader className="p-4 border-b border-border">
+                        <CardTitle className="text-sm font-bold flex items-center gap-2">
+                          <CheckCircle2 className="size-4 text-emerald-500" />
+                          Permitted Enrollment Methods
+                        </CardTitle>
+                        <p className="text-xs text-muted-foreground">
+                          Specify permitted authorization pathways for enrolling into this curriculum.
+                        </p>
+                      </CardHeader>
+                      <CardBody className="p-4 space-y-3 text-xs">
+                        {[
+                          {
+                            id: 'SELF',
+                            label: 'Participant Self-Enrollment',
+                            desc: 'Learners can register directly via course catalog and checkout or free trial.',
+                          },
+                          {
+                            id: 'SPOC',
+                            label: 'SPOC / Branch Manager Enrollment',
+                            desc: 'Department SPOCs can assign cohorts or classes into this course.',
+                          },
+                          {
+                            id: 'ADMIN',
+                            label: 'Institutional Admin Provisioning',
+                            desc: 'College or Corporate Admins can execute batch or CSV roster enrollments.',
+                          },
+                          {
+                            id: 'SUPER_ADMIN',
+                            label: 'Central Super Admin Only',
+                            desc: 'Reserved for direct administrative provisioning and enterprise license seeds.',
+                          },
+                        ].map((method) => {
+                          const isChecked = allowedEnrollmentMethods.includes(method.id);
+                          return (
+                            <label
+                              key={method.id}
+                              className="flex items-start gap-3 p-2.5 rounded-lg border border-border bg-card/60 hover:bg-card cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setAllowedEnrollmentMethods((prev) => [...prev, method.id]);
+                                  } else {
+                                    setAllowedEnrollmentMethods((prev) => prev.filter((m) => m !== method.id));
+                                  }
+                                }}
+                                className="mt-0.5 size-4 rounded border-border text-primary focus:ring-ring"
+                              />
+                              <div className="space-y-0.5">
+                                <p className="font-semibold text-foreground text-xs">{method.label}</p>
+                                <p className="text-[11px] text-muted-foreground">{method.desc}</p>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </CardBody>
+                    </Card>
+                  </div>
+
+                  {/* 3. Associated Institutions Whitelist */}
+                  <Card>
+                    <CardHeader className="p-4 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <CardTitle className="text-sm font-bold flex items-center gap-2">
+                          <Building2 className="size-4 text-indigo-500" />
+                          Associated Colleges &amp; Corporate Clients Whitelist
+                        </CardTitle>
+                        <p className="text-xs text-muted-foreground">
+                          {targetInstitutionIds.length} institutions currently targeted. Students and staff of these institutions will automatically receive scoped access.
+                        </p>
+                      </div>
+                      <div className="relative w-full sm:w-64">
+                        <Search className="size-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <input
+                          type="text"
+                          value={instSearchQuery}
+                          onChange={(e) => setInstSearchQuery(e.target.value)}
+                          placeholder="Search institutions…"
+                          className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-border bg-card text-foreground"
+                        />
+                      </div>
+                    </CardHeader>
+                    <CardBody className="p-0">
+                      {/* Active Associations */}
+                      {course.associatedInstitutions && course.associatedInstitutions.length > 0 && (
+                        <div className="p-4 bg-muted/40 border-b border-border">
+                          <p className="text-xs font-bold text-foreground mb-2">
+                            Currently Associated Institutions ({course.associatedInstitutions.length}):
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {course.associatedInstitutions.map((inst: any) => (
+                              <div
+                                key={inst.id}
+                                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-border bg-card text-xs shadow-xs"
+                              >
+                                {inst.category === 'CORPORATE' ? (
+                                  <Briefcase className="size-3.5 text-purple-500 shrink-0" />
+                                ) : (
+                                  <Building2 className="size-3.5 text-indigo-500 shrink-0" />
+                                )}
+                                <div>
+                                  <span className="font-semibold text-foreground">{inst.name}</span>
+                                  <span className="ml-1 text-[10px] font-mono text-muted-foreground">({inst.code})</span>
+                                </div>
+                                <Badge tone={inst.category === 'CORPORATE' ? 'purple' : 'teal'}>
+                                  {inst.category}
+                                </Badge>
+                                <Link
+                                  href={inst.category === 'CORPORATE' ? `/super-admin/corporates/${inst.id}` : `/super-admin/colleges/${inst.id}`}
+                                  className="text-muted-foreground hover:text-foreground text-[11px] underline flex items-center ml-1"
+                                  title="Open Institution Control Center"
+                                >
+                                  <ExternalLink className="size-3" />
+                                </Link>
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickDisassociate(inst.id)}
+                                  className="text-rose-500 hover:text-rose-700 font-bold ml-1"
+                                  title="Disassociate institution"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Searchable Toggle Table */}
+                      <div className="max-h-80 overflow-y-auto divide-y divide-border text-xs">
+                        {(data.availableInstitutions || [])
+                          .filter((inst: any) =>
+                            !instSearchQuery ||
+                            inst.name.toLowerCase().includes(instSearchQuery.toLowerCase()) ||
+                            inst.code.toLowerCase().includes(instSearchQuery.toLowerCase())
+                          )
+                          .map((inst: any) => {
+                            const isSelected = targetInstitutionIds.includes(inst.id);
+                            return (
+                              <div
+                                key={inst.id}
+                                onClick={() => handleToggleInstitution(inst.id)}
+                                className={cn(
+                                  'p-3 flex items-center justify-between cursor-pointer transition-colors',
+                                  isSelected
+                                    ? 'bg-primary/5 hover:bg-primary/10'
+                                    : 'hover:bg-muted/50'
+                                )}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => {}} // handled by div click
+                                    className="size-4 rounded border-border text-primary focus:ring-ring"
+                                  />
+                                  <div className="flex items-center gap-2">
+                                    {inst.category === 'CORPORATE' ? (
+                                      <Briefcase className="size-4 text-purple-500" />
+                                    ) : (
+                                      <Building2 className="size-4 text-indigo-500" />
+                                    )}
+                                    <span className="font-semibold text-foreground text-xs">{inst.name}</span>
+                                    <span className="text-[10px] font-mono text-muted-foreground">({inst.code})</span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Badge tone={inst.category === 'CORPORATE' ? 'purple' : 'teal'}>
+                                    {inst.category}
+                                  </Badge>
+                                  <span className="text-[11px] font-medium text-muted-foreground">
+                                    {isSelected ? 'Targeted' : 'Not Targeted'}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+
+                      <div className="p-3 bg-muted/30 border-t border-border flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground text-[11px]">
+                          {targetInstitutionIds.length} institutions selected for course access
+                        </span>
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          onClick={handleSaveDistribution}
+                          disabled={savingDistribution}
+                          className="flex items-center gap-1.5"
+                        >
+                          <Save className="size-3.5" />
+                          {savingDistribution ? 'Saving…' : 'Save Access Configuration'}
+                        </Button>
+                      </div>
+                    </CardBody>
+                  </Card>
+                </div>
               )}
 
               {/* TAB 3: REVENUE & TRANSACTIONS */}

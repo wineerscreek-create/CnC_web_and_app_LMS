@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.core.config import settings
+from app.core.config import get_settings, settings
 from app.core.redis_client import ping_redis
 from app.db.postgres import are_migrations_ready, ping_postgres
 from app.services.ai_provider import provider_health
@@ -15,7 +15,8 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "app": settings.APP_NAME, "env": settings.ENV, "version": "1.0.0"}
+    s = get_settings()
+    return {"status": "ok", "app": s.APP_NAME, "env": s.ENV, "version": "1.0.0"}
 
 
 @router.get("/health/ready")

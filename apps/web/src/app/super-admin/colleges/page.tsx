@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  ArrowRight,
   Building2,
   CheckCircle2,
   Edit2,
@@ -19,6 +20,7 @@ import {
   UserCheck,
   Users,
 } from 'lucide-react';
+import Link from 'next/link';
 import * as React from 'react';
 import { toast } from 'sonner';
 
@@ -76,6 +78,8 @@ export default function SuperAdminCollegesPage() {
   const [selectedCollegeForDeletion, setSelectedCollegeForDeletion] = React.useState<College | null>(null);
   const [deletePassword, setDeletePassword] = React.useState('');
   const [deleting, setDeleting] = React.useState(false);
+  const [deletionPreview, setDeletionPreview] = React.useState<any>(null);
+  const [loadingPreview, setLoadingPreview] = React.useState(false);
 
   // SPOC Multi-Branch Manager state
   const [spocModalOpen, setSpocModalOpen] = React.useState(false);
@@ -128,10 +132,20 @@ export default function SuperAdminCollegesPage() {
     }
   };
 
-  const handleOpenDelete = (college: College) => {
+  const handleOpenDelete = async (college: College) => {
     setSelectedCollegeForDeletion(college);
     setDeletePassword('');
+    setDeletionPreview(null);
     setDeleteModalOpen(true);
+    setLoadingPreview(true);
+    try {
+      const res = await api.get<any>(`/super-admin/institutions/${college.id}/deletion-preview`);
+      setDeletionPreview(res.data ?? res);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to load institution dependency preview.');
+    } finally {
+      setLoadingPreview(false);
+    }
   };
 
   const handleConfirmDelete = async (e: React.FormEvent) => {
@@ -360,31 +374,40 @@ export default function SuperAdminCollegesPage() {
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-border flex items-center justify-between text-xs">
-                <span className="text-muted-foreground text-[11px]">
-                  Onboarded {college.createdAt ? formatDate(college.createdAt) : 'Recently'}
-                </span>
-                <div className="flex items-center gap-1">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => toggleCollegeStatus(college)}
-                    className="text-xs flex items-center gap-1 h-7 p-1 text-muted-foreground hover:text-foreground"
-                    title={college.status === 'active' ? 'Suspend' : 'Activate'}
-                  >
-                    <Power className="size-3" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => handleOpenDelete(college)}
-                    className="text-xs flex items-center gap-1 h-7 p-1 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
-                    title="Safely Archive Institution"
-                  >
-                    <Trash2 className="size-3" />
+                <div className="pt-3 border-t border-border">
+                  <Button asChild size="sm" variant="secondary" className="w-full text-xs">
+                    <Link href={`/super-admin/colleges/${college.id}`} className="flex items-center justify-center gap-1.5">
+                      Open Control Center
+                      <ArrowRight className="size-3.5" />
+                    </Link>
                   </Button>
                 </div>
-              </div>
+
+                <div className="pt-2 border-t border-border flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground text-[11px]">
+                    Onboarded {college.createdAt ? formatDate(college.createdAt) : 'Recently'}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => toggleCollegeStatus(college)}
+                      className="text-xs flex items-center gap-1 h-7 p-1 text-muted-foreground hover:text-foreground"
+                      title={college.status === 'active' ? 'Suspend' : 'Activate'}
+                    >
+                      <Power className="size-3" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleOpenDelete(college)}
+                      className="text-xs flex items-center gap-1 h-7 p-1 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
+                      title="Safely Archive Institution"
+                    >
+                      <Trash2 className="size-3" />
+                    </Button>
+                  </div>
+                </div>
             </CardBody>
           </Card>
         ))}
@@ -544,18 +567,80 @@ export default function SuperAdminCollegesPage() {
           </DialogHeader>
 
           <form onSubmit={handleConfirmDelete} className="p-6 space-y-4 text-xs">
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 space-y-2 text-foreground leading-relaxed">
-              <p className="font-semibold text-amber-400 flex items-center gap-1.5">
-                <ShieldAlert className="size-4 shrink-0" />
-                Participant Protection Guarantee
-              </p>
-              <p className="text-[11px] text-muted-foreground">
-                Deleting or archiving an institution <strong>NEVER deletes participant accounts</strong>. All registered students retain access to their profiles, courses, assessments, and verifiable historical certificates.
-              </p>
-              <p className="text-[11px] text-muted-foreground">
-                Affected students are automatically flagged with <em>Affiliation Action Required</em> and prompted to select a new academic institution upon next login.
-              </p>
-            </div>
+            {loadingPreview ? (
+              <div className="py-6 text-center text-xs text-muted-foreground animate-pulse">
+                Auditing institutional dependencies and safety constraints…
+              </div>
+            ) : deletionPreview ? (
+              <div className="space-y-3">
+                <div className="rounded-xl border border-border bg-muted/40 p-3 space-y-2">
+                  <p className="text-xs font-bold text-foreground">Impact &amp; Dependency Audit:</p>
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="p-2 rounded-lg bg-card border border-border">
+                      <span className="text-muted-foreground">Participants:</span>{' '}
+                      <strong className="text-emerald-500 font-bold">
+                        {deletionPreview.dependencies?.participants ?? 0} (Preserved)
+                      </strong>
+                    </div>
+                    <div className="p-2 rounded-lg bg-card border border-border">
+                      <span className="text-muted-foreground">Staff &amp; HODs:</span>{' '}
+                      <strong className="text-amber-500 font-bold">
+                        {deletionPreview.dependencies?.staff ?? 0} (Unlinked)
+                      </strong>
+                    </div>
+                    <div className="p-2 rounded-lg bg-card border border-border">
+                      <span className="text-muted-foreground">Departments:</span>{' '}
+                      <strong className="text-foreground">
+                        {deletionPreview.dependencies?.departments ?? 0}
+                      </strong>
+                    </div>
+                    <div className="p-2 rounded-lg bg-card border border-border">
+                      <span className="text-muted-foreground">Batches:</span>{' '}
+                      <strong className="text-foreground">
+                        {deletionPreview.dependencies?.batches ?? 0}
+                      </strong>
+                    </div>
+                    <div className="p-2 rounded-lg bg-card border border-border">
+                      <span className="text-muted-foreground">Course Enrollments:</span>{' '}
+                      <strong className="text-emerald-500">
+                        {deletionPreview.dependencies?.enrollments ?? 0} (Preserved)
+                      </strong>
+                    </div>
+                    <div className="p-2 rounded-lg bg-card border border-border">
+                      <span className="text-muted-foreground">Targeted Courses:</span>{' '}
+                      <strong className="text-foreground">
+                        {deletionPreview.dependencies?.associatedCourses ?? 0}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 space-y-1.5 text-foreground leading-relaxed">
+                  <p className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 text-xs">
+                    <CheckCircle2 className="size-3.5 shrink-0" />
+                    Guaranteed Participant Protection
+                  </p>
+                  <ul className="text-[11px] text-muted-foreground space-y-1 list-disc pl-4">
+                    {deletionPreview.preservationGuarantees?.map((g: string, i: number) => (
+                      <li key={i}>{g}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 space-y-2 text-foreground leading-relaxed">
+                <p className="font-semibold text-amber-400 flex items-center gap-1.5">
+                  <ShieldAlert className="size-4 shrink-0" />
+                  Participant Protection Guarantee
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Deleting or archiving an institution <strong>NEVER deletes participant accounts</strong>. All registered students retain access to their profiles, courses, assessments, and verifiable historical certificates.
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Affected students are automatically flagged with <em>Affiliation Action Required</em> and prompted to select a new academic institution upon next login.
+                </p>
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-foreground flex items-center gap-1">

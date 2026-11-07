@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,7 +14,26 @@ class Settings(BaseSettings):
     )
 
     # ---------- runtime ----------
-    ENV: Literal["development", "test", "staging", "production"] = "development"
+    ENV: Literal["development", "test", "staging", "production"] = Field(
+        default="development",
+        validation_alias=AliasChoices("ENV", "ENVIRONMENT", "APP_ENV"),
+    )
+
+    @field_validator("ENV", mode="before")
+    @classmethod
+    def _normalize_env(cls, v: Any) -> str:
+        if isinstance(v, str):
+            v_clean = v.strip().lower()
+            if v_clean in ("prod", "production"):
+                return "production"
+            if v_clean in ("dev", "development"):
+                return "development"
+            if v_clean in ("stage", "staging"):
+                return "staging"
+            if v_clean in ("test", "testing"):
+                return "test"
+            return v_clean
+        return v
     APP_NAME: str = "Winners Creek API"
     API_V1_PREFIX: str = "/api/v1"
     DEBUG: bool = False

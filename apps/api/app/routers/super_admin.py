@@ -395,6 +395,18 @@ async def super_admin_onboard_institution(payload: dict[str, Any], ctx: ScopeCon
     return {"success": True, "data": created, "message": "Institution onboarded successfully."}
 
 
+@router.get("/institutions/{institution_id}/deletion-preview")
+async def super_admin_get_institution_deletion_preview(
+    institution_id: str,
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Provides dependency breakdown & account preservation guarantees before permanent/safe deletion."""
+    from app.repositories.control_center_repo import ControlCenterRepository
+    inst_uuid = UUID(str(institution_id))
+    preview = await ControlCenterRepository.get_institution_deletion_preview(inst_uuid)
+    return {"success": True, "data": preview}
+
+
 @router.post("/institutions/{institution_id}/delete")
 async def super_admin_delete_institution_safe(
     institution_id: str,
@@ -417,10 +429,81 @@ async def super_admin_delete_institution_safe(
 
     from app.repositories.control_center_repo import ControlCenterRepository
     inst_uuid = UUID(str(institution_id))
-    res = await ControlCenterRepository.delete_institution_safely(inst_uuid, deleted_by=admin_uuid)
+    res = await ControlCenterRepository.delete_institution_safely(inst_uuid, deleted_by=admin_uuid, super_admin_id=admin_uuid)
 
     await write_audit(ctx, action="safe_delete", entity_type="institutions", entity_id=str(inst_uuid), detail=f"Safely archived institution {institution_id}")
-    return {"success": True, "data": res, "message": f"Institution archived safely. {res.get('affected_participants', 0)} participant accounts preserved."}
+    return {"success": True, "data": res, "message": f"Institution archived safely. {res.get('affectedParticipantsCount', 0)} participant accounts preserved."}
+
+
+@router.get("/institutions/{institution_id}/control-center")
+async def super_admin_institution_control_center(
+    institution_id: str,
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Provides complete 15-section Control Center data for College or Corporate institution."""
+    from app.repositories.control_center_repo import ControlCenterRepository
+    inst_uuid = UUID(str(institution_id))
+    res = await ControlCenterRepository.get_institution_control_center(inst_uuid)
+    return res
+
+
+@router.patch("/institutions/{institution_id}/profile")
+async def super_admin_update_institution_profile(
+    institution_id: str,
+    payload: dict[str, Any],
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Updates core profile and configuration for an institution."""
+    from app.repositories.control_center_repo import ControlCenterRepository
+    inst_uuid = UUID(str(institution_id))
+    res = await ControlCenterRepository.update_institution_profile(inst_uuid, payload)
+    await write_audit(ctx, action="update_profile", entity_type="institutions", entity_id=str(inst_uuid), detail=f"Updated institution {institution_id} profile")
+    return {"success": True, "data": res, "message": "Institution profile updated successfully."}
+
+
+@router.post("/institutions/{institution_id}/departments", status_code=status.HTTP_201_CREATED)
+async def super_admin_create_institution_department(
+    institution_id: str,
+    payload: dict[str, Any],
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Creates a new department or business unit under an institution."""
+    name = (payload.get("name") or "").strip()
+    code = (payload.get("code") or "").strip().upper()
+    if not name or not code:
+        raise ValidationError("Department name and code are required.")
+
+    inst_uuid = UUID(str(institution_id))
+    from app.repositories.institution_repo import InstitutionRepository
+    dept = await InstitutionRepository.create_department(inst_uuid, name, code)
+    await write_audit(ctx, action="create_department", entity_type="departments", entity_id=str(dept["id"]), detail=f"Created department {name} ({code}) under institution {institution_id}")
+    return {"success": True, "data": dept, "message": "Department created successfully."}
+
+
+@router.post("/institutions/{institution_id}/courses/{course_id}/associate")
+async def super_admin_associate_institution_course(
+    institution_id: str,
+    course_id: str,
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Associates a course with an institution."""
+    from app.repositories.control_center_repo import ControlCenterRepository
+    res = await ControlCenterRepository.associate_course_institution(course_id, institution_id)
+    await write_audit(ctx, action="associate_course", entity_type="courses", entity_id=course_id, detail=f"Associated course {course_id} with institution {institution_id}")
+    return res
+
+
+@router.delete("/institutions/{institution_id}/courses/{course_id}/disassociate")
+async def super_admin_disassociate_institution_course(
+    institution_id: str,
+    course_id: str,
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Disassociates a course from an institution."""
+    from app.repositories.control_center_repo import ControlCenterRepository
+    res = await ControlCenterRepository.disassociate_course_institution(course_id, institution_id)
+    await write_audit(ctx, action="disassociate_course", entity_type="courses", entity_id=course_id, detail=f"Disassociated course {course_id} from institution {institution_id}")
+    return res
 
 
 # --------------------------------------------------------------------------- SPOC Many-to-Many Branch Management
@@ -1515,6 +1598,17 @@ async def super_admin_create_course(payload: dict[str, Any], ctx: ScopeContext =
         raw_payment = payload.get("paymentConfig") or payload.get("payment_config") or {}
         payment_config_json = json.dumps(raw_payment)
 
+        visibility_mode = (payload.get("visibilityMode") or payload.get("visibility_mode") or "EVERYONE").strip().upper()
+        raw_target_insts = payload.get("targetInstitutionIds") or payload.get("target_institution_ids") or []
+        target_inst_uuids = [UUID(str(x)) for x in raw_target_insts]
+        raw_target_campuses = payload.get("targetCampusIds") or payload.get("target_campus_ids") or []
+        target_campus_ids = [str(x) for x in raw_target_campuses]
+        raw_target_branches = payload.get("targetBranchIds") or payload.get("target_branch_ids") or []
+        target_branch_uuids = [UUID(str(x)) for x in raw_target_branches]
+        portal_dist = payload.get("portalDistribution") or payload.get("portal_distribution") or {"spoc": True, "admin": True, "trainer": True, "participant": True}
+        portal_dist_json = json.dumps(portal_dist)
+        allowed_methods = [str(x).upper() for x in (payload.get("allowedEnrollmentMethods") or payload.get("allowed_enrollment_methods") or ["SELF", "ADMIN", "SPOC", "SUPER_ADMIN"])]
+
         creator_id = None
         try:
             creator_id = UUID(str(ctx.user_id)) if ctx.user_id else None
@@ -1531,16 +1625,22 @@ async def super_admin_create_course(payload: dict[str, Any], ctx: ScopeContext =
                 duration_hours, fee, published, order_index, created_by,
                 scheme_type, scheme_name, total_periods, period_label, periods_config,
                 payment_frequency, payment_config, scheme_version,
+                visibility_mode, target_institution_ids, target_campus_ids, target_branch_ids,
+                portal_distribution, allowed_enrollment_methods,
                 created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5, 'COLLEGE'::training_type_enum, $6::delivery_mode_enum,
                 $7, $8, $9, 0, $10,
                 $11, $12, $13, $14, $15::jsonb,
                 $16, $17::jsonb, 1,
+                $18, $19, $20, $21,
+                $22::jsonb, $23,
                 NOW(), NOW()
             ) RETURNING *;
         """, title, slug, code, description, category, delivery_mode, duration_hours, fee, published, creator_id,
-            scheme_type, scheme_name, total_periods, period_label, periods_config_json, payment_frequency, payment_config_json)
+            scheme_type, scheme_name, total_periods, period_label, periods_config_json, payment_frequency, payment_config_json,
+            visibility_mode, target_inst_uuids, target_campus_ids, target_branch_uuids,
+            portal_dist_json, allowed_methods)
 
         course_dict = dict(new_course)
         course_dict["id"] = str(course_dict["id"])
@@ -1550,6 +1650,10 @@ async def super_admin_create_course(payload: dict[str, Any], ctx: ScopeContext =
         course_dict["courseMode"] = "BOTH" if course_dict["delivery_mode"] == "HYBRID" else course_dict["delivery_mode"]
         course_dict["availableModes"] = ["ONLINE", "OFFLINE"] if course_dict["delivery_mode"] == "HYBRID" else [course_dict["delivery_mode"]]
         course_dict["createdAt"] = course_dict["created_at"].isoformat()
+        course_dict["visibilityMode"] = course_dict.get("visibility_mode") or "EVERYONE"
+        course_dict["targetInstitutionIds"] = [str(x) for x in (course_dict.get("target_institution_ids") or [])]
+        course_dict["targetCampusIds"] = [str(x) for x in (course_dict.get("target_campus_ids") or [])]
+        course_dict["targetBranchIds"] = [str(x) for x in (course_dict.get("target_branch_ids") or [])]
 
         await write_audit(ctx, action="create", entity_type="courses", entity_id=course_dict["id"], detail=f"Created course {title} ({delivery_mode})")
         return {"success": True, "data": course_dict}
@@ -1604,12 +1708,52 @@ async def super_admin_update_course(course_id: str, payload: dict[str, Any], ctx
                 params.append(delivery_mode)
                 updates.append(f"delivery_mode = ${len(params)}::delivery_mode_enum")
 
+            if "visibilityMode" in payload and payload["visibilityMode"]:
+                vis_mode = str(payload["visibilityMode"]).upper()
+                params.append(vis_mode)
+                updates.append(f"visibility_mode = ${len(params)}")
+
+            if "targetInstitutionIds" in payload and payload["targetInstitutionIds"] is not None:
+                inst_uuids = [UUID(str(x)) for x in payload["targetInstitutionIds"]]
+                params.append(inst_uuids)
+                updates.append(f"target_institution_ids = ${len(params)}")
+
+            if "targetCampusIds" in payload and payload["targetCampusIds"] is not None:
+                params.append([str(x) for x in payload["targetCampusIds"]])
+                updates.append(f"target_campus_ids = ${len(params)}")
+
+            if "targetBranchIds" in payload and payload["targetBranchIds"] is not None:
+                branch_uuids = [UUID(str(x)) for x in payload["targetBranchIds"]]
+                params.append(branch_uuids)
+                updates.append(f"target_branch_ids = ${len(params)}")
+
+            if "portalDistribution" in payload and payload["portalDistribution"] is not None:
+                params.append(json.dumps(payload["portalDistribution"]))
+                updates.append(f"portal_distribution = ${len(params)}::jsonb")
+
+            if "allowedEnrollmentMethods" in payload and payload["allowedEnrollmentMethods"] is not None:
+                params.append([str(x).upper() for x in payload["allowedEnrollmentMethods"]])
+                updates.append(f"allowed_enrollment_methods = ${len(params)}")
+
             if updates:
                 updates.append("updated_at = NOW()")
                 await conn.execute(f"UPDATE courses SET {', '.join(updates)} WHERE id = $1", *params)
 
         await write_audit(ctx, action="update", entity_type="courses", entity_id=str(cid), detail=f"Updated course {course_id}")
         return {"success": True, "message": "Course updated successfully."}
+
+
+@router.put("/courses/{course_id}/distribution")
+async def super_admin_update_course_distribution(
+    course_id: str,
+    payload: dict[str, Any],
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Updates course targeting, institution association, portal distribution, and enrollment eligibility."""
+    from app.repositories.control_center_repo import ControlCenterRepository
+    res = await ControlCenterRepository.update_course_distribution(course_id, payload)
+    await write_audit(ctx, action="update_distribution", entity_type="courses", entity_id=course_id, detail=f"Updated distribution targeting for course {course_id}")
+    return {"success": True, "data": res, "message": "Course targeting and institution distribution updated successfully."}
 
 
 @router.get("/courses/{course_id}/scheme")
@@ -1829,6 +1973,48 @@ async def super_admin_course_control_center(course_id: str, ctx: ScopeContext = 
 
         course_mode = "BOTH" if course["delivery_mode"] == "HYBRID" else str(course["delivery_mode"]).upper()
 
+        # Targeting & Distribution configuration
+        target_inst_ids = course.get("target_institution_ids") or []
+        associated_institutions = []
+        if target_inst_ids:
+            insts = await conn.fetch("""
+                SELECT id, name, code, COALESCE(institution_category, 'COLLEGE') as category, status
+                FROM institutions
+                WHERE id = ANY($1) AND deleted_at IS NULL
+            """, target_inst_ids)
+            associated_institutions = [{
+                "id": str(r["id"]),
+                "name": r["name"],
+                "code": r["code"],
+                "category": r["category"],
+                "status": r["status"]
+            } for r in insts]
+
+        # Available institutions for selection
+        all_insts = await conn.fetch("""
+            SELECT id, name, code, COALESCE(institution_category, 'COLLEGE') as category
+            FROM institutions
+            WHERE deleted_at IS NULL AND status = 'ACTIVE'
+            ORDER BY name ASC
+        """)
+        available_institutions = [{
+            "id": str(r["id"]),
+            "name": r["name"],
+            "code": r["code"],
+            "category": r["category"]
+        } for r in all_insts]
+
+        raw_portal_dist = course.get("portal_distribution")
+        if isinstance(raw_portal_dist, str):
+            try:
+                portal_dist = json.loads(raw_portal_dist)
+            except Exception:
+                portal_dist = {"spoc": True, "admin": True, "trainer": True, "participant": True}
+        elif isinstance(raw_portal_dist, dict):
+            portal_dist = raw_portal_dist
+        else:
+            portal_dist = {"spoc": True, "admin": True, "trainer": True, "participant": True}
+
         return {
             "success": True,
             "data": {
@@ -1842,12 +2028,21 @@ async def super_admin_course_control_center(course_id: str, ctx: ScopeContext = 
                     "price": float(course["fee"] or 0.0),
                     "currency": "INR",
                     "published": bool(course["published"]),
+                    "status": course.get("status") or ("PUBLISHED" if course["published"] else "DRAFT"),
                     "enrollmentOpen": True,
                     "durationHours": course["duration_hours"] or 40,
                     "trainerName": "Winners Creek Faculty",
                     "thumbnail": None,
                     "heroImage": None,
+                    "visibilityMode": course.get("visibility_mode") or "EVERYONE",
+                    "targetInstitutionIds": [str(x) for x in target_inst_ids],
+                    "targetCampusIds": [str(x) for x in (course.get("target_campus_ids") or [])],
+                    "targetBranchIds": [str(x) for x in (course.get("target_branch_ids") or [])],
+                    "portalDistribution": portal_dist,
+                    "allowedEnrollmentMethods": course.get("allowed_enrollment_methods") or ["SELF", "ADMIN", "SPOC", "SUPER_ADMIN"],
+                    "associatedInstitutions": associated_institutions,
                 },
+                "availableInstitutions": available_institutions,
                 "analytics": {
                     "totalEnrolled": total_enrolled,
                     "activeStudents": active_students,

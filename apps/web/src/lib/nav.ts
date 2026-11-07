@@ -6,6 +6,7 @@ import {
   BarChart3,
   Bell,
   BookOpen,
+  Briefcase,
   Building2,
   CalendarCheck,
   CalendarDays,
@@ -139,6 +140,7 @@ const SUPER_ADMIN: NavGroup[] = [
     items: [
       { label: 'Dashboard', href: '/super-admin', icon: LayoutGrid },
       { label: 'Colleges & Campuses', href: '/super-admin/colleges', icon: Building2 },
+      { label: 'Corporate Clients', href: '/super-admin/corporates', icon: Briefcase },
       { label: 'Users & Roles', href: '/super-admin/users', icon: Users },
       { label: 'Courses & Catalog', href: '/super-admin/courses', icon: BookOpen },
       { label: 'eBooks Publishing', href: '/super-admin/ebooks', icon: BookOpen },

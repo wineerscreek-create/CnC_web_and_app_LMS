@@ -3,6 +3,7 @@
 import {
   ArrowRight,
   BookOpen,
+  Building2,
   Calendar,
   CheckCircle2,
   Clock,
@@ -74,6 +75,13 @@ export default function SuperAdminCoursesPage() {
   const [trainerName, setTrainerName] = React.useState('Lead Master Trainer');
   const [schemeType, setSchemeType] = React.useState('SEMESTER');
   const [totalPeriods, setTotalPeriods] = React.useState(8);
+  const [visibilityMode, setVisibilityMode] = React.useState('EVERYONE');
+  const [selectedInstIds, setSelectedInstIds] = React.useState<string[]>([]);
+
+  const instQuery = useApi<any[]>('/super-admin/colleges', undefined, {
+    select: (res) => res.data ?? res,
+  });
+  const availableInstitutions = Array.isArray(instQuery.data) ? instQuery.data : [];
 
   const courses: SuperAdminCourse[] = Array.isArray(query.data) ? query.data : [];
 
@@ -109,6 +117,10 @@ export default function SuperAdminCoursesPage() {
         periodLabel,
         published: true,
         enrollmentOpen: true,
+        visibilityMode,
+        targetInstitutionIds: selectedInstIds,
+        portalDistribution: { spoc: true, admin: true, trainer: true, participant: true },
+        allowedEnrollmentMethods: ['SELF', 'ADMIN', 'SPOC', 'SUPER_ADMIN'],
       });
 
       toast.success('Course published and launched successfully!');
@@ -116,6 +128,8 @@ export default function SuperAdminCoursesPage() {
       setTitle('');
       setSlug('');
       setDesc('');
+      setVisibilityMode('EVERYONE');
+      setSelectedInstIds([]);
       query.refetch();
     } catch (err: any) {
       toast.error(err.message || 'Failed to create course.');
@@ -376,6 +390,67 @@ export default function SuperAdminCoursesPage() {
                   onChange={(e) => setDurationHours(Number(e.target.value))}
                 />
               </Field>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3">
+              <Field label="Target Audience & Visibility" htmlFor="cVis">
+                <select
+                  id="cVis"
+                  value={visibilityMode}
+                  onChange={(e) => setVisibilityMode(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground font-medium"
+                >
+                  <option value="EVERYONE">Universal Public Catalog (All Learners)</option>
+                  <option value="COLLEGE">All Colleges &amp; Campuses</option>
+                  <option value="CORPORATE">Corporate Clients &amp; Workforces</option>
+                  <option value="SCHOOL">School &amp; Secondary Programs</option>
+                  <option value="SELECTED_INSTITUTIONS">Specific Whitelisted Institutions</option>
+                  <option value="INVITE_ONLY">Private Direct Invitation Only</option>
+                </select>
+              </Field>
+
+              {visibilityMode === 'SELECTED_INSTITUTIONS' && (
+                <div className="space-y-1.5 p-3 rounded-xl border border-border bg-muted/40">
+                  <p className="text-[11px] font-semibold text-foreground">
+                    Select Target Colleges &amp; Corporate Clients ({selectedInstIds.length} selected):
+                  </p>
+                  <div className="max-h-36 overflow-y-auto divide-y divide-border/60 text-xs rounded-lg border border-border bg-card">
+                    {availableInstitutions.length === 0 ? (
+                      <p className="p-3 text-[11px] text-muted-foreground text-center">No active institutions found.</p>
+                    ) : (
+                      availableInstitutions.map((inst: any) => {
+                        const isChecked = selectedInstIds.includes(inst.id);
+                        return (
+                          <label
+                            key={inst.id}
+                            className="flex items-center justify-between p-2 hover:bg-muted/50 cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedInstIds((prev) => [...prev, inst.id]);
+                                  } else {
+                                    setSelectedInstIds((prev) => prev.filter((id) => id !== inst.id));
+                                  }
+                                }}
+                                className="size-3.5 rounded border-border text-primary"
+                              />
+                              <span className="font-medium text-foreground text-xs">{inst.name}</span>
+                              <span className="text-[10px] font-mono text-muted-foreground">({inst.code})</span>
+                            </div>
+                            <span className="text-[10px] text-muted-foreground uppercase font-mono">
+                              {inst.institutionType || 'COLLEGE'}
+                            </span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <Field label="Course Description" htmlFor="cDesc">
