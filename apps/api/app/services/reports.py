@@ -81,6 +81,9 @@ REPORT_FAMILIES: tuple[dict[str, Any], ...] = (
     {"code": ReportFamily.DEFAULTERS, "label": "Attendance Defaulters",
      "description": "Participants below the configured attendance threshold.",
      "signals": ["attendance"], "roles": ["HOD", "ADMIN", "TRAINER"]},
+    {"code": ReportFamily.CERTIFICATION, "label": "Certificates & Readiness",
+     "description": "Certificates issued, eligibility and employability readiness.",
+     "signals": ["certification", "completion"], "roles": ["ADMIN", "HOD"]},
     {"code": ReportFamily.FEEDBACK, "label": "Trainer Feedback",
      "description": "Feedback entries and ratings captured per session or module.",
      "signals": ["feedback"], "roles": ["HOD", "ADMIN"]},
@@ -93,6 +96,9 @@ REPORT_FAMILIES: tuple[dict[str, Any], ...] = (
     {"code": ReportFamily.PRACTICE, "label": "Practice & AI Activity",
      "description": "Practice sessions, AI scores and improvement deltas.",
      "signals": ["skill_trends"], "roles": ["ADMIN", "HOD"]},
+    {"code": ReportFamily.PLACEMENT, "label": "Placement & Corporate Hiring",
+     "description": "Recruiter engagement, interview readiness and placement status.",
+     "signals": ["placement"], "roles": ["ADMIN", "HOD"]},
     {"code": ReportFamily.AUDIT, "label": "Audit Trail",
      "description": "Create/update/delete history for scoped records.",
      "signals": ["audit"], "roles": ["HOD", "ADMIN"]},
@@ -108,7 +114,7 @@ REPORT_FAMILIES: tuple[dict[str, Any], ...] = (
 )
 
 TIME_GRAINS = ("daily", "weekly", "monthly", "semester", "yearly")
-ENTITY_GRAINS = ("department", "branch", "trainer", "student")
+ENTITY_GRAINS = ("department", "branch", "trainer", "student", "placement")
 
 
 def report_catalogue(role: str) -> dict[str, Any]:

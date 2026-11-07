@@ -24,11 +24,76 @@ async def list_notifications(
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
+    from app.core.config import settings
     page = max(1, page)
     pageSize = min(100, max(1, pageSize))
     offset = (page - 1) * pageSize
 
-    u_uuid = UUID(str(ctx.user_id))
+    if not settings.USE_POSTGRES:
+        try:
+            from app.db.mongo import get_db
+            from bson import ObjectId
+            db = get_db()
+            uid = ObjectId(str(ctx.user_id)) if ObjectId.is_valid(str(ctx.user_id)) else str(ctx.user_id)
+            query: dict[str, Any] = {"userId": uid}
+            if unreadOnly:
+                query["read"] = False
+            if kind and kind != "all":
+                query["kind"] = kind
+            total = await db.notifications.count_documents(query)
+            cursor = db.notifications.find(query).sort("at", -1).skip(offset).limit(pageSize)
+            docs = await cursor.to_list(pageSize)
+            items = []
+            for d in docs:
+                items.append({
+                    "id": str(d["_id"]),
+                    "_id": str(d["_id"]),
+                    "userId": str(ctx.user_id),
+                    "title": d.get("title"),
+                    "body": d.get("body") or d.get("message"),
+                    "message": d.get("message") or d.get("body"),
+                    "type": d.get("type", "SYSTEM"),
+                    "kind": d.get("kind", "GENERAL"),
+                    "icon": service.ICON_BY_KIND.get(d.get("kind"), "bell"),
+                    "read": bool(d.get("read", False)),
+                    "href": d.get("href"),
+                    "metadata": d.get("metadata") or {},
+                    "createdAt": d.get("createdAt").isoformat() if hasattr(d.get("createdAt"), "isoformat") else str(d.get("createdAt")),
+                })
+            total_pages = max(1, math.ceil(total / pageSize))
+            unread = await service.unread_count(ctx.user_id)
+            return {
+                "success": True,
+                "items": items,
+                "pagination": {
+                    "page": page,
+                    "pageSize": pageSize,
+                    "total": total,
+                    "totalPages": total_pages,
+                    "hasNext": page < total_pages,
+                    "hasPrev": page > 1,
+                },
+                "meta": {"unread": unread},
+            }
+        except Exception:
+            pass
+
+    from app.services.notifications import _to_uuid
+    u_uuid = _to_uuid(ctx.user_id)
+    if not u_uuid:
+        return {
+            "success": True,
+            "items": [],
+            "pagination": {
+                "page": page,
+                "pageSize": pageSize,
+                "total": 0,
+                "totalPages": 1,
+                "hasNext": False,
+                "hasPrev": False,
+            },
+            "meta": {"unread": 0},
+        }
 
     where_clauses = ["recipient_user_id = $1"]
     params: list[Any] = [u_uuid]
@@ -63,6 +128,7 @@ async def list_notifications(
         items.append({
             "id": str(r["id"]),
             "_id": str(r["id"]),
+            "userId": str(ctx.user_id),
             "title": r["title"],
             "body": r["body"],
             "message": r["body"],

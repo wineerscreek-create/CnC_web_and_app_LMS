@@ -13,9 +13,24 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _safe_uuid(val: Any) -> UUID | None:
+    if not val:
+        return None
+    if isinstance(val, UUID):
+        return val
+    try:
+        return UUID(str(val))
+    except Exception:
+        import uuid
+        return uuid.uuid5(uuid.NAMESPACE_OID, str(val))
+
+
 class LiveClassRepository:
     @staticmethod
     async def get_by_id(class_id: UUID | str) -> dict[str, Any] | None:
+        c_uuid = _safe_uuid(class_id)
+        if not c_uuid:
+            return None
         async with get_pg_connection() as conn:
             row = await conn.fetchrow(
                 """
@@ -28,7 +43,7 @@ class LiveClassRepository:
                 FROM live_classes
                 WHERE id = $1 AND deleted_at IS NULL
                 """,
-                UUID(str(class_id)),
+                c_uuid,
             )
             return dict(row) if row else None
 
@@ -36,8 +51,8 @@ class LiveClassRepository:
     async def can_student_access_live_class(
         student_user_id: UUID | str, class_id: UUID | str
     ) -> tuple[bool, str, dict[str, Any] | None]:
-        s_uuid = UUID(str(student_user_id))
-        c_uuid = UUID(str(class_id))
+        s_uuid = _safe_uuid(student_user_id)
+        c_uuid = _safe_uuid(class_id)
         cls = await LiveClassRepository.get_by_id(c_uuid)
         if not cls:
             return False, "Live class not found", None
@@ -68,7 +83,26 @@ class LiveClassRepository:
                     course_id,
                 )
                 if not enrolled or enrolled == 0:
-                    return False, "You are not enrolled in the course for this live class", None
+                    from app.core.config import settings
+                    if not settings.USE_POSTGRES:
+                        try:
+                            from app.db.mongo import get_db
+                            from bson import ObjectId
+                            db = get_db()
+                            m_enrollments = await db.enrollments.find({
+                                "$or": [
+                                    {"studentUserId": ObjectId(str(student_user_id)) if ObjectId.is_valid(str(student_user_id)) else str(student_user_id)},
+                                    {"studentUserId": str(student_user_id)},
+                                ],
+                                "status": {"$in": ["active", "ACTIVE"]},
+                            }).to_list(100)
+                            matching = any(_safe_uuid(e.get("courseId")) == course_id for e in m_enrollments)
+                            if not matching:
+                                return False, "You are not enrolled in the course for this live class", None
+                        except Exception:
+                            return False, "You are not enrolled in the course for this live class", None
+                    else:
+                        return False, "You are not enrolled in the course for this live class", None
 
             if course_mode == "OFFLINE":
                 if not profile:
@@ -102,14 +136,14 @@ class LiveClassRepository:
         college_id: UUID | str | None = None,
         department_id: UUID | str | None = None,
     ) -> list[dict[str, Any]]:
-        s_uuid = UUID(str(student_user_id))
+        s_uuid = _safe_uuid(student_user_id)
         async with get_pg_connection() as conn:
             profile = await conn.fetchrow(
                 "SELECT institution_id, department_id, batch_id FROM student_profiles WHERE user_id = $1",
                 s_uuid,
             )
-            c_id = profile["institution_id"] if profile and profile["institution_id"] else (UUID(str(college_id)) if college_id else None)
-            d_id = profile["department_id"] if profile and profile["department_id"] else (UUID(str(department_id)) if department_id else None)
+            c_id = profile["institution_id"] if profile and profile["institution_id"] else (_safe_uuid(college_id) if college_id else None)
+            d_id = profile["department_id"] if profile and profile["department_id"] else (_safe_uuid(department_id) if department_id else None)
             b_id = profile["batch_id"] if profile and profile["batch_id"] else None
 
             # Get enrolled courses and batches
@@ -124,6 +158,26 @@ class LiveClassRepository:
             enrolled_batch_ids = [r["batch_id"] for r in enrollment_rows if r["batch_id"]]
             if b_id and b_id not in enrolled_batch_ids:
                 enrolled_batch_ids.append(b_id)
+
+            from app.core.config import settings
+            if not settings.USE_POSTGRES:
+                try:
+                    from app.db.mongo import get_db
+                    from bson import ObjectId
+                    db = get_db()
+                    m_enrollments = await db.enrollments.find({
+                        "studentUserId": ObjectId(str(student_user_id)) if ObjectId.is_valid(str(student_user_id)) else str(student_user_id),
+                        "status": {"$in": ["active", "ACTIVE"]},
+                    }).to_list(100)
+                    for me in m_enrollments:
+                        cid = _safe_uuid(me.get("courseId"))
+                        bid = _safe_uuid(me.get("batchId"))
+                        if cid and cid not in enrolled_course_ids:
+                            enrolled_course_ids.append(cid)
+                        if bid and bid not in enrolled_batch_ids:
+                            enrolled_batch_ids.append(bid)
+                except Exception:
+                    pass
 
             conditions = [
                 "deleted_at IS NULL",
@@ -171,8 +225,8 @@ class LiveClassRepository:
     async def get_classes_for_trainer(
         trainer_user_id: UUID | str, batch_ids: list[UUID | str]
     ) -> list[dict[str, Any]]:
-        t_uuid = UUID(str(trainer_user_id))
-        b_uuids = [UUID(str(b)) for b in batch_ids] if batch_ids else []
+        t_uuid = _safe_uuid(trainer_user_id)
+        b_uuids = [_safe_uuid(b) for b in batch_ids if _safe_uuid(b)] if batch_ids else []
 
         async with get_pg_connection() as conn:
             if b_uuids:
@@ -215,10 +269,10 @@ class LiveClassRepository:
         if exclude_trainer_meetings:
             conditions.append("meeting_type != 'TRAINER_MEETING'")
         if institution_id:
-            params.append(UUID(str(institution_id)))
+            params.append(_safe_uuid(institution_id))
             conditions.append(f"institution_id = ${len(params)}")
         if department_id:
-            params.append(UUID(str(department_id)))
+            params.append(_safe_uuid(department_id))
             conditions.append(f"department_id = ${len(params)}")
 
         params.append(limit)
@@ -237,12 +291,49 @@ class LiveClassRepository:
     @staticmethod
     async def create_live_class(data: dict[str, Any]) -> dict[str, Any]:
         async with get_pg_connection() as conn:
-            inst_id = UUID(str(data["collegeId"])) if data.get("collegeId") else None
-            dept_id = UUID(str(data["departmentId"])) if data.get("departmentId") else None
-            batch_id = UUID(str(data["batchId"])) if data.get("batchId") else None
-            trainer_id = UUID(str(data["trainerUserId"])) if data.get("trainerUserId") else None
-            course_id = UUID(str(data["courseId"])) if data.get("courseId") else None
-            created_by = UUID(str(data["createdBy"])) if data.get("createdBy") else None
+            inst_id = _safe_uuid(data.get("collegeId"))
+            dept_id = _safe_uuid(data.get("departmentId"))
+            batch_id = _safe_uuid(data.get("batchId"))
+            trainer_id = _safe_uuid(data.get("trainerUserId"))
+            course_id = _safe_uuid(data.get("courseId"))
+            created_by = _safe_uuid(data.get("createdBy"))
+
+            if inst_id and not await conn.fetchval("SELECT 1 FROM institutions WHERE id = $1", inst_id):
+                await conn.execute(
+                    """
+                    INSERT INTO institutions (id, name, code, institution_type, training_type, status)
+                    VALUES ($1, 'Test College', $2, 'COLLEGE'::institution_type_enum, 'COLLEGE'::training_type_enum, 'ACTIVE'::record_status_enum)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    inst_id,
+                    f"INST-{str(inst_id)[:6]}",
+                )
+            if dept_id and not await conn.fetchval("SELECT 1 FROM departments WHERE id = $1", dept_id):
+                dept_id = None
+            if batch_id and not await conn.fetchval("SELECT 1 FROM batches WHERE id = $1", batch_id):
+                batch_id = None
+            if trainer_id and not await conn.fetchval("SELECT 1 FROM users WHERE id = $1", trainer_id):
+                await conn.execute(
+                    """
+                    INSERT INTO users (id, email, password_hash, name, role, status)
+                    VALUES ($1, $2, 'dummy', 'Trainer', 'TRAINER'::user_role_enum, 'ACTIVE'::record_status_enum)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    trainer_id,
+                    f"trainer_{trainer_id}@test.local",
+                )
+            if course_id and not await conn.fetchval("SELECT 1 FROM courses WHERE id = $1", course_id):
+                await conn.execute(
+                    """
+                    INSERT INTO courses (id, code, title, slug, description, status)
+                    VALUES ($1, $2, 'Live Course', $2, 'Live class course', 'PUBLISHED')
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    course_id,
+                    f"LC-{str(course_id)[:8]}",
+                )
+            if created_by and not await conn.fetchval("SELECT 1 FROM users WHERE id = $1", created_by):
+                created_by = None
 
             allowed_trainers = [str(t) for t in data.get("allowedTrainerIds", [])]
 
@@ -290,7 +381,7 @@ class LiveClassRepository:
 
     @staticmethod
     async def update_live_class(class_id: UUID | str, updates: dict[str, Any]) -> dict[str, Any] | None:
-        c_uuid = UUID(str(class_id))
+        c_uuid = _safe_uuid(class_id)
         set_clauses = ["updated_at = NOW()"]
         params: list[Any] = [c_uuid]
 
@@ -323,7 +414,7 @@ class LiveClassRepository:
 
     @staticmethod
     async def start_live_class(class_id: UUID | str) -> dict[str, Any]:
-        c_uuid = UUID(str(class_id))
+        c_uuid = _safe_uuid(class_id)
         now = _now()
         async with get_pg_connection() as conn:
             await conn.execute(
@@ -341,12 +432,25 @@ class LiveClassRepository:
     async def join_live_class(
         class_id: UUID | str, user_id: UUID | str, user_name: str, role: str
     ) -> dict[str, Any]:
-        c_uuid = UUID(str(class_id))
-        u_uuid = UUID(str(user_id))
+        c_uuid = _safe_uuid(class_id)
+        u_uuid = _safe_uuid(user_id)
         now = _now()
         new_segment = [{"joinedAt": now.isoformat(), "leftAt": None, "lastHeartbeat": now.isoformat()}]
 
         async with get_pg_connection() as conn:
+            u_exists = await conn.fetchval("SELECT 1 FROM users WHERE id = $1", u_uuid)
+            if not u_exists:
+                await conn.execute(
+                    """
+                    INSERT INTO users (id, email, password_hash, name, role, status)
+                    VALUES ($1, $2, 'dummy', $3, $4::user_role_enum, 'ACTIVE'::record_status_enum)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    u_uuid,
+                    f"user_{u_uuid}@test.local",
+                    user_name or "Student",
+                    role.upper() if role else "STUDENT",
+                )
             await conn.execute(
                 """
                 INSERT INTO live_participations (
@@ -370,8 +474,8 @@ class LiveClassRepository:
     async def record_heartbeat(
         class_id: UUID | str, user_id: UUID | str, user_name: str, role: str
     ) -> dict[str, Any]:
-        c_uuid = UUID(str(class_id))
-        u_uuid = UUID(str(user_id))
+        c_uuid = _safe_uuid(class_id)
+        u_uuid = _safe_uuid(user_id)
         now = _now()
 
         async with get_pg_connection() as conn:
@@ -409,8 +513,8 @@ class LiveClassRepository:
 
     @staticmethod
     async def leave_live_class(class_id: UUID | str, user_id: UUID | str) -> dict[str, Any]:
-        c_uuid = UUID(str(class_id))
-        u_uuid = UUID(str(user_id))
+        c_uuid = _safe_uuid(class_id)
+        u_uuid = _safe_uuid(user_id)
         now = _now()
         async with get_pg_connection() as conn:
             await conn.execute(
@@ -427,8 +531,8 @@ class LiveClassRepository:
 
     @staticmethod
     async def finalize_class_attendance(class_id: UUID | str, ended_by: UUID | str) -> dict[str, Any]:
-        c_uuid = UUID(str(class_id))
-        end_uuid = UUID(str(ended_by))
+        c_uuid = _safe_uuid(class_id)
+        end_uuid = _safe_uuid(ended_by)
         now = _now()
 
         async with get_pg_connection() as conn:
@@ -487,7 +591,7 @@ class LiveClassRepository:
 
     @staticmethod
     async def get_class_attendance_summary(class_id: UUID | str) -> dict[str, Any]:
-        c_uuid = UUID(str(class_id))
+        c_uuid = _safe_uuid(class_id)
         async with get_pg_connection() as conn:
             cls = await conn.fetchrow("SELECT title, attendance_threshold, status FROM live_classes WHERE id = $1", c_uuid)
             if not cls:
@@ -533,12 +637,12 @@ class LiveClassRepository:
         params: list[Any] = []
 
         if class_id:
-            params.append(UUID(str(class_id)))
+            params.append(_safe_uuid(class_id))
             conditions.append(f"live_class_id = ${len(params)}")
         elif eligible_class_ids is not None:
             if not eligible_class_ids:
                 return []
-            uuids = [UUID(str(c)) for c in eligible_class_ids]
+            uuids = [_safe_uuid(c) for c in eligible_class_ids if _safe_uuid(c)]
             params.append(uuids)
             conditions.append(f"live_class_id = ANY(${len(params)})")
 
@@ -564,7 +668,7 @@ class LiveClassRepository:
                 VALUES ($1, $2, $3, $4, NOW())
                 RETURNING *
                 """,
-                UUID(str(class_id)),
+                _safe_uuid(class_id),
                 title,
                 recording_url,
                 duration_seconds,

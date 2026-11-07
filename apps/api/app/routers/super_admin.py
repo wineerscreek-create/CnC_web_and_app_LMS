@@ -6,6 +6,7 @@ payments, free trials, and system analytics.
 """
 from __future__ import annotations
 
+import json
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -949,8 +950,8 @@ async def super_admin_provision_user(payload: dict[str, Any], ctx: ScopeContext 
         async with get_pg_connection() as conn:
             await conn.execute(
                 """
-                INSERT INTO users (id, email, password_hash, name, role, institution_id, department_id, phone, status)
-                VALUES ($1, LOWER($2), $3, $4, $5, $6, $7, $8, 'ACTIVE')
+                INSERT INTO users (id, email, password_hash, name, role, institution_id, department_id, phone, status, activation_token, activation_token_expires_at, must_change_password)
+                VALUES ($1, LOWER($2), $3, $4, $5::user_role_enum, $6, $7, $8, 'ACTIVE'::record_status_enum, $9, $10, TRUE)
                 """,
                 pg_user_id,
                 email,
@@ -960,6 +961,8 @@ async def super_admin_provision_user(payload: dict[str, Any], ctx: ScopeContext 
                 c_uuid,
                 d_uuid,
                 mobile,
+                activation_token,
+                activation_expires_at,
             )
             if role_str == "TRAINER":
                 await conn.execute(
@@ -1065,6 +1068,89 @@ async def super_admin_deactivate_user(user_id: str, ctx: ScopeContext = SuperAdm
 
 
 # --------------------------------------------------------------------------- Games Management
+@router.post("/games")
+async def super_admin_create_game(payload: dict[str, Any], ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    code = str(payload.get("code") or "").strip()
+    if not code:
+        raise ValidationError("Game code is required.")
+    title = str(payload.get("title") or "").strip()
+    if not title:
+        raise ValidationError("Game title is required.")
+
+    course_id = payload.get("courseId")
+    is_pub = bool(payload.get("published", True))
+    st = "ACTIVE" if is_pub else "DRAFT"
+
+    if settings.USE_POSTGRES:
+        async with get_pg_connection() as conn:
+            existing = await conn.fetchrow("SELECT id FROM games WHERE code = $1", code)
+            if existing:
+                g_id = str(existing["id"])
+            else:
+                import uuid
+                g_id = str(uuid.uuid4())
+                await conn.execute("""
+                    INSERT INTO games (id, code, title, description, category, xp_reward, duration_minutes, status, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+                    ON CONFLICT (code) DO UPDATE SET title = EXCLUDED.title, updated_at = NOW()
+                """, uuid.UUID(g_id), code, title, payload.get("description", ""), payload.get("category", "General"), int(payload.get("xpReward", 50)), int(payload.get("durationMinutes", 10)), st)
+        res_data = {
+            "id": g_id,
+            "code": code,
+            "title": title,
+            "description": payload.get("description", ""),
+            "category": payload.get("category"),
+            "difficulty": payload.get("difficulty", "Intermediate"),
+            "xpReward": payload.get("xpReward", 50),
+            "published": is_pub,
+            "status": st,
+            "gameUrl": payload.get("gameUrl") or payload.get("launchUrl"),
+            "launchUrl": payload.get("launchUrl") or payload.get("gameUrl"),
+            "courseId": str(course_id) if course_id else None,
+            "durationMinutes": payload.get("durationMinutes", 10),
+        }
+        await write_audit(ctx, action="create_game", entity_type="games", entity_id=g_id, detail=f"Created game {code}")
+        return {"success": True, "data": res_data}
+
+    db = get_db()
+    existing = await db.game_definitions.find_one({"code": code})
+    if existing:
+        raise Conflict(f"Game with code '{code}' already exists.")
+
+    cid_val = None
+    if course_id:
+        try:
+            cid_val = ObjectId(str(course_id)) if ObjectId.is_valid(str(course_id)) else str(course_id)
+        except Exception:
+            cid_val = str(course_id)
+
+    doc = {
+        "code": code,
+        "title": title,
+        "description": payload.get("description", ""),
+        "category": payload.get("category", "General"),
+        "difficulty": payload.get("difficulty", "Intermediate"),
+        "xpReward": int(payload.get("xpReward", 50)),
+        "published": is_pub,
+        "status": st,
+        "gameUrl": payload.get("gameUrl") or payload.get("launchUrl"),
+        "launchUrl": payload.get("launchUrl") or payload.get("gameUrl"),
+        "courseId": cid_val,
+        "durationMinutes": int(payload.get("durationMinutes", 10)),
+        "launches": 0,
+        "createdAt": _now(),
+        "updatedAt": _now(),
+    }
+    insert_res = await db.game_definitions.insert_one(doc)
+    doc["id"] = str(insert_res.inserted_id)
+    doc["_id"] = str(insert_res.inserted_id)
+    if doc.get("courseId") is not None:
+        doc["courseId"] = str(doc["courseId"])
+
+    await write_audit(ctx, action="create_game", entity_type="game_definitions", entity_id=str(insert_res.inserted_id), detail=f"Created game {code}")
+    return {"success": True, "data": doc}
+
+
 @router.get("/games")
 async def super_admin_list_games(ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
     if settings.USE_POSTGRES:
@@ -1477,46 +1563,50 @@ async def super_admin_update_course(course_id: str, payload: dict[str, Any], ctx
         raise NotFound("Course not found.")
 
     async with get_pg_connection() as conn:
-        existing = await conn.fetchrow("SELECT * FROM courses WHERE id = $1 AND deleted_at IS NULL", cid)
-        if not existing:
-            raise NotFound("Course not found.")
+        async with conn.transaction():
+            existing = await conn.fetchrow(
+                "SELECT * FROM courses WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+                cid,
+            )
+            if not existing:
+                raise NotFound("Course not found.")
 
-        updates = []
-        params = [cid]
+            updates = []
+            params = [cid]
 
-        if "title" in payload and payload["title"] is not None:
-            params.append(str(payload["title"]).strip())
-            updates.append(f"title = ${len(params)}")
-        if "description" in payload:
-            params.append(payload["description"])
-            updates.append(f"description = ${len(params)}")
-        if "category" in payload and payload["category"] is not None:
-            params.append(str(payload["category"]).strip())
-            updates.append(f"category = ${len(params)}")
-        if "published" in payload:
-            params.append(bool(payload["published"]))
-            updates.append(f"published = ${len(params)}")
-        if "price" in payload or "fee" in payload:
-            val = float(payload.get("price") or payload.get("fee") or 0.0)
-            params.append(val)
-            updates.append(f"fee = ${len(params)}")
-        if "durationHours" in payload:
-            params.append(int(payload["durationHours"]))
-            updates.append(f"duration_hours = ${len(params)}")
-        if "courseMode" in payload or "deliveryMode" in payload:
-            raw_mode = str(payload.get("courseMode") or payload.get("deliveryMode") or "").strip().upper()
-            if raw_mode in ("BOTH", "HYBRID"):
-                delivery_mode = "HYBRID"
-            elif raw_mode == "OFFLINE":
-                delivery_mode = "OFFLINE"
-            else:
-                delivery_mode = "ONLINE"
-            params.append(delivery_mode)
-            updates.append(f"delivery_mode = ${len(params)}::delivery_mode_enum")
+            if "title" in payload and payload["title"] is not None:
+                params.append(str(payload["title"]).strip())
+                updates.append(f"title = ${len(params)}")
+            if "description" in payload:
+                params.append(payload["description"])
+                updates.append(f"description = ${len(params)}")
+            if "category" in payload and payload["category"] is not None:
+                params.append(str(payload["category"]).strip())
+                updates.append(f"category = ${len(params)}")
+            if "published" in payload:
+                params.append(bool(payload["published"]))
+                updates.append(f"published = ${len(params)}")
+            if "price" in payload or "fee" in payload:
+                val = float(payload.get("price") or payload.get("fee") or 0.0)
+                params.append(val)
+                updates.append(f"fee = ${len(params)}")
+            if "durationHours" in payload:
+                params.append(int(payload["durationHours"]))
+                updates.append(f"duration_hours = ${len(params)}")
+            if "courseMode" in payload or "deliveryMode" in payload:
+                raw_mode = str(payload.get("courseMode") or payload.get("deliveryMode") or "").strip().upper()
+                if raw_mode in ("BOTH", "HYBRID"):
+                    delivery_mode = "HYBRID"
+                elif raw_mode == "OFFLINE":
+                    delivery_mode = "OFFLINE"
+                else:
+                    delivery_mode = "ONLINE"
+                params.append(delivery_mode)
+                updates.append(f"delivery_mode = ${len(params)}::delivery_mode_enum")
 
-        if updates:
-            updates.append("updated_at = NOW()")
-            await conn.execute(f"UPDATE courses SET {', '.join(updates)} WHERE id = $1", *params)
+            if updates:
+                updates.append("updated_at = NOW()")
+                await conn.execute(f"UPDATE courses SET {', '.join(updates)} WHERE id = $1", *params)
 
         await write_audit(ctx, action="update", entity_type="courses", entity_id=str(cid), detail=f"Updated course {course_id}")
         return {"success": True, "message": "Course updated successfully."}
@@ -1572,58 +1662,62 @@ async def super_admin_update_course_scheme(course_id: str, payload: dict[str, An
         raise NotFound("Course not found.")
 
     async with get_pg_connection() as conn:
-        existing = await conn.fetchrow("SELECT * FROM courses WHERE id = $1 AND deleted_at IS NULL", cid)
-        if not existing:
-            raise NotFound("Course not found.")
+        async with conn.transaction():
+            existing = await conn.fetchrow(
+                "SELECT * FROM courses WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+                cid,
+            )
+            if not existing:
+                raise NotFound("Course not found.")
 
-        scheme_type = (payload.get("schemeType") or payload.get("scheme_type") or existing.get("scheme_type") or "SEMESTER").strip().upper()
-        valid_schemes = ("SEMESTER", "YEAR", "MODULE", "MONTHLY", "QUARTERLY", "CUSTOM")
-        if scheme_type not in valid_schemes:
-            raise ValidationError(f"Invalid schemeType. Choose one of: {', '.join(valid_schemes)}")
+            scheme_type = (payload.get("schemeType") or payload.get("scheme_type") or existing.get("scheme_type") or "SEMESTER").strip().upper()
+            valid_schemes = ("SEMESTER", "YEAR", "MODULE", "MONTHLY", "QUARTERLY", "CUSTOM")
+            if scheme_type not in valid_schemes:
+                raise ValidationError(f"Invalid schemeType. Choose one of: {', '.join(valid_schemes)}")
 
-        scheme_name = (payload.get("schemeName") or payload.get("scheme_name") or f"{scheme_type.title()}-Based Scheme").strip()
-        total_periods = int(payload.get("totalPeriods") or payload.get("total_periods") or existing.get("total_periods") or 8)
-        period_label = (payload.get("periodLabel") or payload.get("period_label") or scheme_type.title()).strip()
+            scheme_name = (payload.get("schemeName") or payload.get("scheme_name") or f"{scheme_type.title()}-Based Scheme").strip()
+            total_periods = int(payload.get("totalPeriods") or payload.get("total_periods") or existing.get("total_periods") or 8)
+            period_label = (payload.get("periodLabel") or payload.get("period_label") or scheme_type.title()).strip()
 
-        periods_config = payload.get("periodsConfig") or payload.get("periods_config")
-        if periods_config is not None:
-            if isinstance(periods_config, (dict, list)):
-                periods_config_json = json.dumps(periods_config)
+            periods_config = payload.get("periodsConfig") or payload.get("periods_config")
+            if periods_config is not None:
+                if isinstance(periods_config, (dict, list)):
+                    periods_config_json = json.dumps(periods_config)
+                else:
+                    periods_config_json = str(periods_config)
             else:
-                periods_config_json = str(periods_config)
-        else:
-            default_p = [
-                {
-                    "periodNumber": i,
-                    "name": f"{period_label} {i}",
-                    "milestone": f"Core Competency Phase {i}",
-                    "minAttendance": 75,
-                    "durationWeeks": 16 if scheme_type == "SEMESTER" else 4,
-                }
-                for i in range(1, total_periods + 1)
-            ]
-            periods_config_json = json.dumps(default_p)
+                default_p = [
+                    {
+                        "periodNumber": i,
+                        "name": f"{period_label} {i}",
+                        "milestone": f"Core Competency Phase {i}",
+                        "minAttendance": 75,
+                        "durationWeeks": 16 if scheme_type == "SEMESTER" else 4,
+                    }
+                    for i in range(1, total_periods + 1)
+                ]
+                periods_config_json = json.dumps(default_p)
 
-        payment_frequency = (payload.get("paymentFrequency") or payload.get("payment_frequency") or existing.get("payment_frequency") or "ONE_TIME").strip().upper()
-        payment_config = payload.get("paymentConfig") or payload.get("payment_config")
-        payment_config_json = json.dumps(payment_config) if isinstance(payment_config, (dict, list)) else (payment_config or json.dumps({}))
+            payment_frequency = (payload.get("paymentFrequency") or payload.get("payment_frequency") or existing.get("payment_frequency") or "ONE_TIME").strip().upper()
+            payment_config = payload.get("paymentConfig") or payload.get("payment_config")
+            payment_config_json = json.dumps(payment_config) if isinstance(payment_config, (dict, list)) else (payment_config or json.dumps({}))
 
-        current_ver = existing.get("scheme_version") or 1
-        new_ver = current_ver + 1
+            current_ver = existing.get("scheme_version") or 1
+            new_ver = current_ver + 1
 
-        await conn.execute("""
-            UPDATE courses
-            SET scheme_type = $2,
-                scheme_name = $3,
-                total_periods = $4,
-                period_label = $5,
-                periods_config = $6::jsonb,
-                payment_frequency = $7,
-                payment_config = $8::jsonb,
-                scheme_version = $9,
-                updated_at = NOW()
-            WHERE id = $1;
-        """, cid, scheme_type, scheme_name, total_periods, period_label, periods_config_json, payment_frequency, payment_config_json, new_ver)
+            await conn.execute("""
+                UPDATE courses
+                SET scheme_type = $2,
+                    scheme_name = $3,
+                    total_periods = $4,
+                    period_label = $5,
+                    periods_config = $6::jsonb,
+                    payment_frequency = $7,
+                    payment_config = $8::jsonb,
+                    scheme_version = $9,
+                    updated_at = NOW()
+                WHERE id = $1;
+            """, cid, scheme_type, scheme_name, total_periods, period_label, periods_config_json, payment_frequency, payment_config_json, new_ver)
 
         await write_audit(ctx, action="update_scheme", entity_type="courses", entity_id=str(cid), detail=f"Updated scheme for course {cid} to version {new_ver} ({scheme_type})")
         return {"success": True, "message": f"Course scheme updated to version {new_ver}.", "schemeVersion": new_ver}
@@ -1931,14 +2025,22 @@ async def super_admin_delete_course(course_id: str, ctx: ScopeContext = SuperAdm
     """Soft-deletes course only if no financial transactions or student progress exist."""
     c_uuid = UUID(str(course_id))
     async with get_pg_connection() as conn:
-        pay_count = await conn.fetchval("SELECT count(*) FROM payments WHERE course_id = $1", c_uuid) or 0
-        enr_count = await conn.fetchval("SELECT count(*) FROM enrollments WHERE course_id = $1 AND enrollment_status = 'ACTIVE'", c_uuid) or 0
-        if pay_count > 0 or enr_count > 0:
-            raise ValidationError(
-                f"Course has {pay_count} payment record(s) and {enr_count} active enrollment(s). Permanent deletion is forbidden; please Archive the course instead."
+        async with conn.transaction():
+            c = await conn.fetchrow(
+                "SELECT id, title, status FROM courses WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+                c_uuid,
             )
+            if not c:
+                raise NotFound("Course not found or already deleted.")
 
-        await conn.execute("UPDATE courses SET deleted_at = NOW(), published = FALSE, status = 'ARCHIVED' WHERE id = $1", c_uuid)
+            pay_count = await conn.fetchval("SELECT count(*) FROM payments WHERE course_id = $1", c_uuid) or 0
+            enr_count = await conn.fetchval("SELECT count(*) FROM enrollments WHERE course_id = $1 AND enrollment_status = 'ACTIVE'", c_uuid) or 0
+            if pay_count > 0 or enr_count > 0:
+                raise ValidationError(
+                    f"Course has {pay_count} payment record(s) and {enr_count} active enrollment(s). Permanent deletion is forbidden; please Archive the course instead."
+                )
+
+            await conn.execute("UPDATE courses SET deleted_at = NOW(), published = FALSE, status = 'ARCHIVED' WHERE id = $1", c_uuid)
 
     await write_audit(ctx, action="delete", entity_type="courses", entity_id=str(c_uuid), detail=f"Soft-deleted course {course_id}")
     return {"success": True, "message": "Course safely soft-deleted."}
@@ -1959,23 +2061,28 @@ async def super_admin_permanent_delete_course(
     admin_uuid = UUID(str(ctx.user_id)) if ctx.user_id else None
 
     async with get_pg_connection() as conn:
-        admin_row = await conn.fetchrow(
-            "SELECT password_hash FROM users WHERE id = $1 AND role = 'SUPER_ADMIN'",
-            admin_uuid,
-        )
-        if not admin_row or not verify_password(password, admin_row["password_hash"]):
-            raise ScopeForbidden("Invalid Super Admin password. Permanent deletion aborted.")
+        async with conn.transaction():
+            c = await conn.fetchrow("SELECT id, title FROM courses WHERE id = $1 FOR UPDATE", c_uuid)
+            if not c:
+                raise NotFound("Course not found.")
 
-        pay_count = await conn.fetchval("SELECT count(*) FROM payments WHERE course_id = $1", c_uuid) or 0
-        if pay_count > 0:
-            raise ValidationError(
-                f"Course has {pay_count} financial payment transaction(s). Irrevocable permanent deletion is forbidden to protect financial audits; please Archive the course."
+            admin_row = await conn.fetchrow(
+                "SELECT password_hash FROM users WHERE id = $1 AND role = 'SUPER_ADMIN'",
+                admin_uuid,
             )
+            if not admin_row or not verify_password(password, admin_row["password_hash"]):
+                raise ScopeForbidden("Invalid Super Admin password. Permanent deletion aborted.")
 
-        # Purge cascade references
-        await conn.execute("DELETE FROM course_modules WHERE course_id = $1", c_uuid)
-        await conn.execute("DELETE FROM enrollments WHERE course_id = $1", c_uuid)
-        await conn.execute("DELETE FROM courses WHERE id = $1", c_uuid)
+            pay_count = await conn.fetchval("SELECT count(*) FROM payments WHERE course_id = $1", c_uuid) or 0
+            if pay_count > 0:
+                raise ValidationError(
+                    f"Course has {pay_count} financial payment transaction(s). Irrevocable permanent deletion is forbidden to protect financial audits; please Archive the course."
+                )
+
+            # Purge cascade references
+            await conn.execute("DELETE FROM course_modules WHERE course_id = $1", c_uuid)
+            await conn.execute("DELETE FROM enrollments WHERE course_id = $1", c_uuid)
+            await conn.execute("DELETE FROM courses WHERE id = $1", c_uuid)
 
     await write_audit(ctx, action="permanent_delete", entity_type="courses", entity_id=str(c_uuid), detail=f"Permanently purged course {course_id}")
     return {"success": True, "message": "Course permanently deleted from the platform."}

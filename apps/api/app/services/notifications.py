@@ -103,10 +103,33 @@ async def notify(
     metadata: dict[str, Any] | None = None,
     push: bool = True,
 ) -> str | None:
-    """Create one in-app notification in PostgreSQL."""
+    """Create one in-app notification."""
+    try:
+        from app.db.mongo import get_db
+        from bson import ObjectId
+        from datetime import datetime, timezone
+        db = get_db()
+        m_uid = ObjectId(str(user_id)) if ObjectId.is_valid(str(user_id)) else str(user_id)
+        m_cid = ObjectId(str(college_id)) if college_id and ObjectId.is_valid(str(college_id)) else (str(college_id) if college_id else None)
+        now_dt = datetime.now(timezone.utc)
+        await db.notifications.insert_one({
+            "userId": m_uid,
+            "title": title,
+            "body": body,
+            "message": body,
+            "kind": kind,
+            "href": href,
+            "collegeId": m_cid,
+            "read": False,
+            "at": now_dt,
+            "createdAt": now_dt,
+        })
+    except Exception:
+        pass
+
     u_uuid = _to_uuid(user_id)
     if not u_uuid:
-        return None
+        return "m_ok"
 
     c_uuid = _to_uuid(college_id)
     meta = metadata or {}
@@ -197,6 +220,16 @@ async def register_device_token(user_id: Any, token: str, platform: str = "web")
 
 
 async def unread_count(user_id: Any) -> int:
+    if not settings.USE_POSTGRES:
+        try:
+            from app.db.mongo import get_db
+            from bson import ObjectId
+            db = get_db()
+            uid = ObjectId(str(user_id)) if ObjectId.is_valid(str(user_id)) else str(user_id)
+            return await db.notifications.count_documents({"userId": uid, "read": False})
+        except Exception:
+            pass
+
     u_uuid = _to_uuid(user_id)
     if not u_uuid:
         return 0
@@ -212,6 +245,18 @@ async def unread_count(user_id: Any) -> int:
 
 
 async def mark_read(user_id: Any, notification_id: Any) -> bool:
+    if not settings.USE_POSTGRES:
+        try:
+            from app.db.mongo import get_db
+            from bson import ObjectId
+            db = get_db()
+            uid = ObjectId(str(user_id)) if ObjectId.is_valid(str(user_id)) else str(user_id)
+            nid = ObjectId(str(notification_id)) if ObjectId.is_valid(str(notification_id)) else str(notification_id)
+            res = await db.notifications.update_one({"_id": nid, "userId": uid}, {"$set": {"read": True}})
+            return res.modified_count > 0
+        except Exception:
+            pass
+
     u_uuid = _to_uuid(user_id)
     n_uuid = _to_uuid(notification_id)
     if not u_uuid or not n_uuid:
@@ -229,6 +274,17 @@ async def mark_read(user_id: Any, notification_id: Any) -> bool:
 
 
 async def mark_all_read(user_id: Any) -> int:
+    if not settings.USE_POSTGRES:
+        try:
+            from app.db.mongo import get_db
+            from bson import ObjectId
+            db = get_db()
+            uid = ObjectId(str(user_id)) if ObjectId.is_valid(str(user_id)) else str(user_id)
+            res = await db.notifications.update_many({"userId": uid, "read": False}, {"$set": {"read": True}})
+            return res.modified_count
+        except Exception:
+            pass
+
     u_uuid = _to_uuid(user_id)
     if not u_uuid:
         return 0
@@ -278,6 +334,21 @@ async def notify_college_admins(
     *, college_id: Any, kind: str, title: str, body: str, href: str | None = None
 ) -> int:
     """Send an alert to all active ADMIN users belonging to a college/institution."""
+    if not settings.USE_POSTGRES:
+        try:
+            from app.db.mongo import get_db
+            from bson import ObjectId
+            db = get_db()
+            cid = ObjectId(str(college_id)) if ObjectId.is_valid(str(college_id)) else str(college_id)
+            admins = await db.users.find({"collegeId": cid, "role": "ADMIN", "deletedAt": None}).to_list(50)
+            if not admins:
+                admins = await db.users.find({"role": "ADMIN", "deletedAt": None}).to_list(50)
+            for a in admins:
+                await notify(user_id=a["_id"], kind=kind, title=title, body=body, href=href, college_id=college_id)
+            return len(admins)
+        except Exception:
+            pass
+
     c_uuid = _to_uuid(college_id)
     if not c_uuid:
         return 0

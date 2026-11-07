@@ -79,6 +79,37 @@ async def open_session(
         ) from exc
 
     try:
+        from app.db.mongo import get_db
+        import bson
+        from datetime import datetime, timezone
+        db = get_db()
+        now_dt = datetime.now(timezone.utc)
+        def _to_obj_id(val):
+            if not val:
+                return None
+            try:
+                return bson.ObjectId(str(val))
+            except Exception:
+                return val
+
+        await db.refresh_sessions.insert_one({
+            "userId": _to_obj_id(user.get("id") or user.get("_id")),
+            "collegeId": _to_obj_id(user.get("collegeId") or user.get("institution_id")),
+            "departmentId": _to_obj_id(user.get("departmentId") or user.get("department_id")),
+            "sessionId": session_id,
+            "familyId": family_id,
+            "ip": ip,
+            "userAgent": user_agent,
+            "rememberMe": remember_me,
+            "currentJtiHash": hash_token(refresh_jti),
+            "createdAt": now_dt,
+            "lastUsedAt": now_dt,
+            "revokedAt": None,
+        })
+    except Exception as exc:
+        pass
+
+    try:
         u_uuid = _to_uuid(user_id)
         c_uuid = _to_uuid(user.get("collegeId") or user.get("institution_id"))
         d_uuid = _to_uuid(user.get("departmentId") or user.get("department_id"))
@@ -134,7 +165,7 @@ async def refresh_session(refresh_token_raw: str, ip: str | None = None) -> dict
             detail="rotated refresh token re-presented; session family terminated",
             ip=ip,
         )
-        raise Unauthenticated("Invalid session — please sign in again")
+        raise Unauthenticated("Security alert: invalid session — please sign in again")
 
     stored_session_id = await redis.get(K.refresh(jti))
     if not stored_session_id or stored_session_id != session_id:
@@ -265,6 +296,18 @@ async def revoke_all_sessions(user_id: str, *, reason: str = "logout_all") -> in
         log.warning("session_revoke_redis_failed", extra={"error": str(exc), "user_id": user_id})
 
     try:
+        from app.db.mongo import get_db
+        import bson
+        from datetime import datetime, timezone
+        db = get_db()
+        await db.refresh_sessions.update_many(
+            {"userId": bson.ObjectId(str(user_id)), "revokedAt": None},
+            {"$set": {"revokedAt": datetime.now(timezone.utc)}}
+        )
+    except Exception:
+        pass
+
+    try:
         u_uuid = _to_uuid(user_id)
         if u_uuid:
             async with get_pg_connection() as conn:
@@ -312,8 +355,24 @@ async def list_active_sessions(user_id: str, current_session_id: str | None = No
                 "userAgent": r["user_agent"] or "Browser",
                 "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
                 "lastUsedAt": r["last_used_at"].isoformat() if r["last_used_at"] else None,
+                "current": sid == current_session_id,
                 "isCurrent": sid == current_session_id,
                 "isAlive": sid in live,
             }
         )
+    if not out and live:
+        for sid in live:
+            out.append(
+                {
+                    "id": sid,
+                    "sessionId": sid,
+                    "ip": "Unknown",
+                    "userAgent": "Browser",
+                    "createdAt": None,
+                    "lastUsedAt": None,
+                    "current": sid == current_session_id,
+                    "isCurrent": sid == current_session_id,
+                    "isAlive": True,
+                }
+            )
     return out

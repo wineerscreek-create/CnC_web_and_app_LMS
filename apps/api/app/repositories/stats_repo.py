@@ -14,26 +14,25 @@ from app.db.postgres import get_pg_connection
 class StatsRepository:
     @staticmethod
     async def get_home_public_stats() -> dict[str, Any]:
-        """Live public metrics derived purely from PostgreSQL records."""
+        """Live public metrics derived purely from PostgreSQL records via consolidated aggregation."""
         async with get_pg_connection() as conn:
-            learners = await conn.fetchval(
-                "SELECT COUNT(*) FROM users WHERE role = 'STUDENT' AND deleted_at IS NULL"
-            ) or 0
-            trainers = await conn.fetchval(
-                "SELECT COUNT(*) FROM users WHERE role = 'TRAINER' AND deleted_at IS NULL"
-            ) or 0
-            institutions = await conn.fetchval(
-                "SELECT COUNT(*) FROM institutions WHERE deleted_at IS NULL"
-            ) or 0
-            courses = await conn.fetchval(
-                "SELECT COUNT(*) FROM courses WHERE published = TRUE AND deleted_at IS NULL"
-            ) or 0
-            evaluations = await conn.fetchval(
-                "SELECT COUNT(*) FROM eedi_evaluations WHERE status = 'COMPLETED'"
-            ) or 0
-            avg_readiness = await conn.fetchval(
-                "SELECT AVG(eedi_score) FROM eedi_evaluations WHERE status = 'COMPLETED' AND eedi_score IS NOT NULL"
+            row = await conn.fetchrow(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM users WHERE role = 'STUDENT' AND deleted_at IS NULL) as learners,
+                    (SELECT COUNT(*) FROM users WHERE role = 'TRAINER' AND deleted_at IS NULL) as trainers,
+                    (SELECT COUNT(*) FROM institutions WHERE deleted_at IS NULL) as institutions,
+                    (SELECT COUNT(*) FROM courses WHERE published = TRUE AND deleted_at IS NULL) as courses,
+                    (SELECT COUNT(*) FROM eedi_evaluations WHERE status = 'COMPLETED') as evaluations,
+                    (SELECT AVG(eedi_score) FROM eedi_evaluations WHERE status = 'COMPLETED' AND eedi_score IS NOT NULL) as avg_readiness
+                """
             )
+            learners = row["learners"] if row and row["learners"] is not None else 0
+            trainers = row["trainers"] if row and row["trainers"] is not None else 0
+            institutions = row["institutions"] if row and row["institutions"] is not None else 0
+            courses = row["courses"] if row and row["courses"] is not None else 0
+            evaluations = row["evaluations"] if row and row["evaluations"] is not None else 0
+            avg_readiness = row["avg_readiness"] if row else None
             average_score = round(float(avg_readiness), 1) if avg_readiness is not None else None
 
             return {
@@ -56,11 +55,21 @@ class StatsRepository:
         """Super Admin command metrics with institution and training type filtering."""
         inst_uuid = UUID(str(institution_id)) if institution_id else None
         async with get_pg_connection() as conn:
-            # 1. Institutions breakdown
-            total_institutions = await conn.fetchval("SELECT COUNT(*) FROM institutions WHERE deleted_at IS NULL") or 0
-            colleges = await conn.fetchval("SELECT COUNT(*) FROM institutions WHERE institution_type = 'COLLEGE' AND deleted_at IS NULL") or 0
-            companies = await conn.fetchval("SELECT COUNT(*) FROM institutions WHERE institution_type = 'COMPANY' AND deleted_at IS NULL") or 0
-            schools = await conn.fetchval("SELECT COUNT(*) FROM institutions WHERE institution_type = 'SCHOOL' AND deleted_at IS NULL") or 0
+            # 1. Institutions breakdown (consolidated single query)
+            inst_row = await conn.fetchrow(
+                """
+                SELECT
+                    COUNT(*) as total,
+                    COUNT(CASE WHEN institution_type = 'COLLEGE' THEN 1 END) as colleges,
+                    COUNT(CASE WHEN institution_type = 'COMPANY' THEN 1 END) as companies,
+                    COUNT(CASE WHEN institution_type = 'SCHOOL' THEN 1 END) as schools
+                FROM institutions WHERE deleted_at IS NULL
+                """
+            )
+            total_institutions = inst_row["total"] if inst_row else 0
+            colleges = inst_row["colleges"] if inst_row else 0
+            companies = inst_row["companies"] if inst_row else 0
+            schools = inst_row["schools"] if inst_row else 0
 
             # 2. Scope-filtered user & enrollment counts
             user_conds = ["u.deleted_at IS NULL"]
@@ -78,7 +87,7 @@ class StatsRepository:
                 *user_params,
             ) or 0
 
-            # 3. Enrollments & Access
+            # 3. Enrollments & Access (consolidated single query)
             enroll_conds = []
             enroll_params: list[Any] = []
             if inst_uuid:
@@ -86,14 +95,17 @@ class StatsRepository:
                 enroll_conds.append(f"institution_id = ${len(enroll_params)}")
             where_enroll = f"WHERE {' AND '.join(enroll_conds)}" if enroll_conds else ""
 
-            active_enrollments = await conn.fetchval(
-                f"SELECT COUNT(*) FROM enrollments {where_enroll} {'AND' if enroll_conds else 'WHERE'} access_status = 'ACTIVE'",
+            enroll_row = await conn.fetchrow(
+                f"""
+                SELECT
+                    COUNT(CASE WHEN access_status = 'ACTIVE' THEN 1 END) as active_count,
+                    COUNT(CASE WHEN access_status = 'EXPIRED' THEN 1 END) as expired_count
+                FROM enrollments {where_enroll}
+                """,
                 *enroll_params,
-            ) or 0
-            expired_enrollments = await conn.fetchval(
-                f"SELECT COUNT(*) FROM enrollments {where_enroll} {'AND' if enroll_conds else 'WHERE'} access_status = 'EXPIRED'",
-                *enroll_params,
-            ) or 0
+            )
+            active_enrollments = enroll_row["active_count"] if enroll_row else 0
+            expired_enrollments = enroll_row["expired_count"] if enroll_row else 0
 
             # 4. Payments & Revenue
             pay_conds = ["p.status = 'VERIFIED'"]
@@ -149,14 +161,18 @@ class StatsRepository:
                 "SELECT id, name, code, institution_type, training_type FROM institutions WHERE id = $1",
                 inst_uuid,
             )
-            total_students = await conn.fetchval(
-                "SELECT COUNT(*) FROM users WHERE institution_id = $1 AND role = 'STUDENT' AND deleted_at IS NULL",
+            users_row = await conn.fetchrow(
+                """
+                SELECT
+                    COUNT(CASE WHEN role = 'STUDENT' THEN 1 END) as total_students,
+                    COUNT(CASE WHEN role = 'TRAINER' THEN 1 END) as total_trainers
+                FROM users
+                WHERE institution_id = $1 AND deleted_at IS NULL
+                """,
                 inst_uuid,
-            ) or 0
-            total_trainers = await conn.fetchval(
-                "SELECT COUNT(*) FROM users WHERE institution_id = $1 AND role = 'TRAINER' AND deleted_at IS NULL",
-                inst_uuid,
-            ) or 0
+            )
+            total_students = users_row["total_students"] if users_row else 0
+            total_trainers = users_row["total_trainers"] if users_row else 0
             departments_count = await conn.fetchval(
                 "SELECT COUNT(*) FROM departments WHERE institution_id = $1 AND deleted_at IS NULL",
                 inst_uuid,
@@ -183,11 +199,22 @@ class StatsRepository:
                 inst_uuid,
             )
 
-            # Enrollment breakdown
+            # Enrollment breakdown (consolidated single query)
+            enroll_row = await conn.fetchrow(
+                """
+                SELECT
+                    COUNT(CASE WHEN access_status = 'ACTIVE' THEN 1 END) as active,
+                    COUNT(CASE WHEN access_status = 'INACTIVE' THEN 1 END) as inactive,
+                    COUNT(CASE WHEN access_status = 'EXPIRED' THEN 1 END) as expired
+                FROM enrollments
+                WHERE institution_id = $1
+                """,
+                inst_uuid,
+            )
             enrollments = {
-                "active": await conn.fetchval("SELECT COUNT(*) FROM enrollments WHERE institution_id = $1 AND access_status = 'ACTIVE'", inst_uuid) or 0,
-                "inactive": await conn.fetchval("SELECT COUNT(*) FROM enrollments WHERE institution_id = $1 AND access_status = 'INACTIVE'", inst_uuid) or 0,
-                "expired": await conn.fetchval("SELECT COUNT(*) FROM enrollments WHERE institution_id = $1 AND access_status = 'EXPIRED'", inst_uuid) or 0,
+                "active": enroll_row["active"] if enroll_row else 0,
+                "inactive": enroll_row["inactive"] if enroll_row else 0,
+                "expired": enroll_row["expired"] if enroll_row else 0,
             }
 
             return {
@@ -231,19 +258,43 @@ class StatsRepository:
         """Complete PostgreSQL Super Admin dashboard metrics."""
         async with get_pg_connection() as conn:
             inst_count = await conn.fetchval("SELECT COUNT(*) FROM institutions WHERE deleted_at IS NULL") or 0
-            stu_count = await conn.fetchval("SELECT COUNT(*) FROM users WHERE role = 'STUDENT' AND deleted_at IS NULL") or 0
-            trn_count = await conn.fetchval("SELECT COUNT(*) FROM users WHERE role = 'TRAINER' AND deleted_at IS NULL") or 0
-            hod_count = await conn.fetchval("SELECT COUNT(*) FROM users WHERE role = 'HOD' AND deleted_at IS NULL") or 0
-            adm_count = await conn.fetchval("SELECT COUNT(*) FROM users WHERE role = 'ADMIN' AND deleted_at IS NULL") or 0
+
+            # Users breakdown by role (consolidated single query)
+            users_row = await conn.fetchrow(
+                """
+                SELECT
+                    COUNT(CASE WHEN role = 'STUDENT' THEN 1 END) as students,
+                    COUNT(CASE WHEN role = 'TRAINER' THEN 1 END) as trainers,
+                    COUNT(CASE WHEN role = 'HOD' THEN 1 END) as hods,
+                    COUNT(CASE WHEN role = 'ADMIN' THEN 1 END) as admins
+                FROM users
+                WHERE deleted_at IS NULL
+                """
+            )
+            stu_count = users_row["students"] if users_row else 0
+            trn_count = users_row["trainers"] if users_row else 0
+            hod_count = users_row["hods"] if users_row else 0
+            adm_count = users_row["admins"] if users_row else 0
+
             courses_count = await conn.fetchval("SELECT COUNT(*) FROM courses WHERE published = TRUE AND deleted_at IS NULL") or 0
             ebooks_count = await conn.fetchval("SELECT COUNT(*) FROM ebooks WHERE deleted_at IS NULL") or 0
             games_count = await conn.fetchval("SELECT COUNT(*) FROM games") or 0
 
-            # Revenue & payments
-            tot_rev = await conn.fetchval("SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'VERIFIED'") or 0.0
-            pending_pay = await conn.fetchval("SELECT COUNT(*) FROM payments WHERE status = 'PENDING'") or 0
-            verified_pay = await conn.fetchval("SELECT COUNT(*) FROM payments WHERE status = 'VERIFIED'") or 0
-            tot_txns = await conn.fetchval("SELECT COUNT(*) FROM payments") or 0
+            # Revenue & payments (consolidated single query)
+            pay_row = await conn.fetchrow(
+                """
+                SELECT
+                    COALESCE(SUM(CASE WHEN status = 'VERIFIED' THEN amount ELSE 0 END), 0) as tot_rev,
+                    COUNT(CASE WHEN status = 'PENDING' THEN 1 END) as pending_pay,
+                    COUNT(CASE WHEN status = 'VERIFIED' THEN 1 END) as verified_pay,
+                    COUNT(*) as tot_txns
+                FROM payments
+                """
+            )
+            tot_rev = pay_row["tot_rev"] if pay_row else 0.0
+            pending_pay = pay_row["pending_pay"] if pay_row else 0
+            verified_pay = pay_row["verified_pay"] if pay_row else 0
+            tot_txns = pay_row["tot_txns"] if pay_row else 0
 
             # Online vs Offline revenue
             online_rev = await conn.fetchval("""
@@ -327,14 +378,20 @@ class StatsRepository:
             inst = await conn.fetchrow("SELECT name, code FROM institutions WHERE id = $1", inst_uuid)
             dept = await conn.fetchrow("SELECT name, code, status FROM departments WHERE id = $1 AND institution_id = $2", dept_uuid, inst_uuid)
 
-            stu_count = await conn.fetchval(
-                "SELECT COUNT(*) FROM users WHERE institution_id = $1 AND department_id = $2 AND role = 'STUDENT' AND deleted_at IS NULL",
-                inst_uuid, dept_uuid
-            ) or 0
-            trn_count = await conn.fetchval(
-                "SELECT COUNT(*) FROM users WHERE institution_id = $1 AND department_id = $2 AND role = 'TRAINER' AND deleted_at IS NULL",
-                inst_uuid, dept_uuid
-            ) or 0
+            # Department users breakdown (consolidated single query)
+            users_row = await conn.fetchrow(
+                """
+                SELECT
+                    COUNT(CASE WHEN role = 'STUDENT' THEN 1 END) as students,
+                    COUNT(CASE WHEN role = 'TRAINER' THEN 1 END) as trainers
+                FROM users
+                WHERE institution_id = $1 AND department_id = $2 AND deleted_at IS NULL
+                """,
+                inst_uuid,
+                dept_uuid,
+            )
+            stu_count = users_row["students"] if users_row else 0
+            trn_count = users_row["trainers"] if users_row else 0
 
             att_row = await conn.fetchrow("""
                 SELECT COUNT(*) as total, COUNT(CASE WHEN ar.status = 'PRESENT' THEN 1 END) as attended
@@ -513,19 +570,23 @@ class StatsRepository:
                 ORDER BY s.starts_at ASC
             """, trainer_uuid)
 
-            # Performance distribution bands
-            band_90 = await conn.fetchval("""
-                SELECT COUNT(*) FROM eedi_evaluations WHERE trainer_user_id = $1 AND status = 'COMPLETED' AND eedi_score >= 90
-            """, trainer_uuid) or 0
-            band_75 = await conn.fetchval("""
-                SELECT COUNT(*) FROM eedi_evaluations WHERE trainer_user_id = $1 AND status = 'COMPLETED' AND eedi_score >= 75 AND eedi_score < 90
-            """, trainer_uuid) or 0
-            band_60 = await conn.fetchval("""
-                SELECT COUNT(*) FROM eedi_evaluations WHERE trainer_user_id = $1 AND status = 'COMPLETED' AND eedi_score >= 60 AND eedi_score < 75
-            """, trainer_uuid) or 0
-            band_low = await conn.fetchval("""
-                SELECT COUNT(*) FROM eedi_evaluations WHERE trainer_user_id = $1 AND status = 'COMPLETED' AND eedi_score < 60
-            """, trainer_uuid) or 0
+            # Performance distribution bands (consolidated single query)
+            bands_row = await conn.fetchrow(
+                """
+                SELECT
+                    COUNT(CASE WHEN eedi_score >= 90 THEN 1 END) as band_90,
+                    COUNT(CASE WHEN eedi_score >= 75 AND eedi_score < 90 THEN 1 END) as band_75,
+                    COUNT(CASE WHEN eedi_score >= 60 AND eedi_score < 75 THEN 1 END) as band_60,
+                    COUNT(CASE WHEN eedi_score < 60 THEN 1 END) as band_low
+                FROM eedi_evaluations
+                WHERE trainer_user_id = $1 AND status = 'COMPLETED'
+                """,
+                trainer_uuid,
+            )
+            band_90 = bands_row["band_90"] if bands_row else 0
+            band_75 = bands_row["band_75"] if bands_row else 0
+            band_60 = bands_row["band_60"] if bands_row else 0
+            band_low = bands_row["band_low"] if bands_row else 0
 
             attendance_trend = []
             for i in range(8):

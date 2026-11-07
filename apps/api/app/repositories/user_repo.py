@@ -7,9 +7,52 @@ from uuid import UUID
 from app.db.postgres import get_pg_connection
 
 
+def _parse_uuid(val: Any) -> UUID | None:
+    if val is None:
+        return None
+    if isinstance(val, UUID):
+        return val
+    try:
+        return UUID(str(val))
+    except (ValueError, TypeError):
+        return None
+
+
 class UserRepository:
     @staticmethod
     async def get_by_id(user_id: UUID | str) -> dict[str, Any] | None:
+        parsed_id = _parse_uuid(user_id)
+        if not parsed_id:
+            from app.core.config import settings
+            if not settings.USE_POSTGRES:
+                try:
+                    from app.db.mongo import get_db
+                    from bson import ObjectId
+                    db = get_db()
+                    doc = await db.users.find_one({"_id": ObjectId(str(user_id))})
+                    if not doc:
+                        doc = await db.users.find_one({"_id": str(user_id)})
+                    if doc:
+                        return {
+                            "id": str(doc["_id"]),
+                            "email": doc["email"],
+                            "password_hash": doc.get("passwordHash"),
+                            "name": doc.get("name"),
+                            "role": doc.get("role"),
+                            "institution_id": str(doc.get("collegeId")) if doc.get("collegeId") else None,
+                            "department_id": str(doc.get("departmentId")) if doc.get("departmentId") else None,
+                            "status": str(doc.get("status", "active")),
+                            "email_verified": bool(doc.get("emailVerified", True)),
+                            "avatar_color": doc.get("avatarColor") or "#6366f1",
+                            "must_change_password": bool(doc.get("mustChangePassword", False)),
+                            "preferences": doc.get("preferences") or {},
+                            "college_name": doc.get("collegeName"),
+                            "department_name": doc.get("departmentName"),
+                        }
+                except Exception:
+                    pass
+            return None
+
         async with get_pg_connection() as conn:
             row = await conn.fetchrow(
                 """
@@ -24,7 +67,7 @@ class UserRepository:
                 LEFT JOIN departments d ON d.id = u.department_id
                 WHERE u.id = $1 AND u.deleted_at IS NULL
                 """,
-                UUID(str(user_id)),
+                parsed_id,
             )
             return dict(row) if row else None
 
@@ -90,7 +133,29 @@ class UserRepository:
                 """,
                 token.strip(),
             )
-            return dict(row) if row else None
+            if row:
+                return dict(row)
+
+        from app.core.config import settings
+        if not settings.USE_POSTGRES:
+            try:
+                from app.db.mongo import get_db
+                db = get_db()
+                u = await db.users.find_one({"activationToken": token.strip()})
+                if u:
+                    return {
+                        "id": str(u["_id"]),
+                        "email": u.get("email"),
+                        "name": u.get("name"),
+                        "role": u.get("role"),
+                        "institution_id": u.get("collegeId"),
+                        "department_id": u.get("departmentId"),
+                        "college_name": u.get("collegeName", "Platform"),
+                        "department_name": u.get("departmentName"),
+                    }
+            except Exception:
+                pass
+        return None
 
     @staticmethod
     async def activate_user(token: str, password_hash: str) -> dict[str, Any] | None:
@@ -115,10 +180,61 @@ class UserRepository:
                 password_hash,
                 token.strip(),
             )
-            return dict(row) if row else None
+            if row:
+                return dict(row)
+
+        from app.core.config import settings
+        if not settings.USE_POSTGRES:
+            try:
+                from app.db.mongo import get_db
+                db = get_db()
+                now = datetime.now(timezone.utc)
+                u = await db.users.find_one_and_update(
+                    {"activationToken": token.strip()},
+                    {
+                        "$set": {
+                            "passwordHash": password_hash,
+                            "status": "active",
+                            "accountStatus": "active",
+                            "emailVerified": True,
+                            "mustChangePassword": False,
+                            "activationToken": None,
+                            "activatedAt": now,
+                            "passwordChangedAt": now,
+                            "updatedAt": now,
+                        }
+                    },
+                    return_document=True,
+                )
+                if u:
+                    return {
+                        "id": str(u["_id"]),
+                        "email": u.get("email"),
+                        "role": u.get("role"),
+                        "institution_id": u.get("collegeId"),
+                        "department_id": u.get("departmentId"),
+                    }
+            except Exception:
+                pass
+        return None
 
     @staticmethod
     async def verify_email(user_id: UUID | str) -> None:
+        parsed_id = _parse_uuid(user_id)
+        if not parsed_id:
+            from app.core.config import settings
+            if not settings.USE_POSTGRES:
+                try:
+                    from app.db.mongo import get_db
+                    from bson import ObjectId
+                    db = get_db()
+                    await db.users.update_one(
+                        {"_id": ObjectId(str(user_id))},
+                        {"$set": {"emailVerified": True}}
+                    )
+                except Exception:
+                    pass
+            return
         async with get_pg_connection() as conn:
             await conn.execute(
                 """
@@ -126,11 +242,26 @@ class UserRepository:
                 SET email_verified = TRUE, email_verified_at = NOW(), updated_at = NOW()
                 WHERE id = $1
                 """,
-                UUID(str(user_id)),
+                parsed_id,
             )
 
     @staticmethod
     async def update_password(user_id: UUID | str, password_hash: str) -> None:
+        parsed_id = _parse_uuid(user_id)
+        if not parsed_id:
+            from app.core.config import settings
+            if not settings.USE_POSTGRES:
+                try:
+                    from app.db.mongo import get_db
+                    from bson import ObjectId
+                    db = get_db()
+                    await db.users.update_one(
+                        {"_id": ObjectId(str(user_id))},
+                        {"$set": {"passwordHash": password_hash, "mustChangePassword": False}}
+                    )
+                except Exception:
+                    pass
+            return
         async with get_pg_connection() as conn:
             await conn.execute(
                 """
@@ -139,13 +270,16 @@ class UserRepository:
                 WHERE id = $2
                 """,
                 password_hash,
-                UUID(str(user_id)),
+                parsed_id,
             )
 
     @staticmethod
     async def set_password_reset_token(
         user_id: UUID | str, token_hash: str, expires_at: datetime
     ) -> None:
+        parsed_id = _parse_uuid(user_id)
+        if not parsed_id:
+            return
         async with get_pg_connection() as conn:
             await conn.execute(
                 """
@@ -157,7 +291,7 @@ class UserRepository:
                 """,
                 token_hash,
                 expires_at,
-                UUID(str(user_id)),
+                parsed_id,
             )
 
     @staticmethod
@@ -177,6 +311,9 @@ class UserRepository:
 
     @staticmethod
     async def clear_password_reset_token(user_id: UUID | str) -> None:
+        parsed_id = _parse_uuid(user_id)
+        if not parsed_id:
+            return
         async with get_pg_connection() as conn:
             await conn.execute(
                 """
@@ -186,13 +323,38 @@ class UserRepository:
                     updated_at = NOW()
                 WHERE id = $1
                 """,
-                UUID(str(user_id)),
+                parsed_id,
             )
 
     @staticmethod
     async def update_login_activity(
         user_id: UUID | str, ip: str | None = None, rehash_password: str | None = None
     ) -> None:
+        try:
+            uid = UUID(str(user_id))
+        except Exception:
+            from app.core.config import settings
+            if not settings.USE_POSTGRES:
+                try:
+                    from app.db.mongo import get_db
+                    from bson import ObjectId
+                    db = get_db()
+                    update_fields = {
+                        "lastLoginAt": datetime.now(timezone.utc),
+                        "lastActiveAt": datetime.now(timezone.utc),
+                    }
+                    if ip:
+                        update_fields["lastLoginIp"] = ip
+                    if rehash_password:
+                        update_fields["passwordHash"] = rehash_password
+                    await db.users.update_one(
+                        {"_id": ObjectId(str(user_id))},
+                        {"$set": update_fields},
+                    )
+                except Exception:
+                    pass
+            return
+
         async with get_pg_connection() as conn:
             if rehash_password:
                 await conn.execute(
@@ -203,7 +365,7 @@ class UserRepository:
                     """,
                     ip,
                     rehash_password,
-                    UUID(str(user_id)),
+                    uid,
                 )
             else:
                 await conn.execute(
@@ -213,7 +375,7 @@ class UserRepository:
                     WHERE id = $2
                     """,
                     ip,
-                    UUID(str(user_id)),
+                    uid,
                 )
 
     @staticmethod
@@ -316,11 +478,14 @@ class UserRepository:
 
     @staticmethod
     async def update_last_login(user_id: UUID | str) -> None:
+        parsed_id = _parse_uuid(user_id)
+        if not parsed_id:
+            return
         async with get_pg_connection() as conn:
             await conn.execute(
                 "UPDATE users SET last_login_at = $1 WHERE id = $2",
                 datetime.now(timezone.utc),
-                UUID(str(user_id)),
+                parsed_id,
             )
 
     @staticmethod
@@ -339,17 +504,34 @@ class UserRepository:
                 VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING id, user_id, roll_number, institution_id, department_id, batch_id, avatar_url, created_at
                 """,
-                UUID(str(user_id)),
+                _parse_uuid(user_id),
                 roll_number.strip(),
-                UUID(str(institution_id)),
-                UUID(str(department_id)),
-                UUID(str(batch_id)) if batch_id else None,
+                _parse_uuid(institution_id),
+                _parse_uuid(department_id),
+                _parse_uuid(batch_id) if batch_id else None,
                 avatar_url,
             )
             return dict(row)
 
     @staticmethod
     async def get_student_profile(user_id: UUID | str) -> dict[str, Any] | None:
+        parsed_id = _parse_uuid(user_id)
+        if not parsed_id:
+            from app.core.config import settings
+            if not settings.USE_POSTGRES:
+                try:
+                    from app.db.mongo import get_db
+                    from bson import ObjectId
+                    db = get_db()
+                    doc = await db.student_profiles.find_one({"userId": ObjectId(str(user_id))})
+                    if not doc:
+                        doc = await db.student_profiles.find_one({"userId": str(user_id)})
+                    if doc:
+                        return dict(doc)
+                except Exception:
+                    pass
+            return None
+
         async with get_pg_connection() as conn:
             row = await conn.fetchrow(
                 """
@@ -363,7 +545,7 @@ class UserRepository:
                 LEFT JOIN batches b ON b.id = sp.batch_id
                 WHERE sp.user_id = $1
                 """,
-                UUID(str(user_id)),
+                parsed_id,
             )
             return dict(row) if row else None
 

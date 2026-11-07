@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import {
   Award,
@@ -219,10 +220,12 @@ export default function TrainerProfilePage() {
                 {/* Photo Upload Area */}
                 <div className="relative group size-20 sm:size-24 rounded-2xl overflow-hidden border-2 border-primary/30 bg-muted flex items-center justify-center shrink-0">
                   {profilePhotoUrl ? (
-                    <img
+                    <Image
                       src={profilePhotoUrl}
                       alt={displayName}
-                      className="size-full object-cover"
+                      fill
+                      sizes="(max-width: 640px) 80px, 96px"
+                      className="object-cover"
                     />
                   ) : (
                     <User className="size-10 text-muted-foreground" />

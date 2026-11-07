@@ -3774,12 +3774,13 @@ async def student_get_single_historical_report(snapshot_id: str, ctx: ScopeConte
         attendance = float(row["attendance_percentage"]) if row["attendance_percentage"] is not None else None
         avg_quiz = float(row["average_quiz_score"]) if row["average_quiz_score"] is not None else None
 
-        # ISSUE 1 REMEDIATION: Never fabricate missing historical data. Use verified values or None.
+        # ISSUE 1 & FINDING 4 REMEDIATION: Never fabricate missing historical data. Use verified values or None.
         hours_attended = float(snap_data["attendanceHours"]) if ("attendanceHours" in snap_data and snap_data["attendanceHours"] is not None) else None
-        avg_assessment = float(snap_data["averageAssessmentScore"]) if ("averageAssessmentScore" in snap_data and snap_data["averageAssessmentScore"] is not None) else avg_quiz
+        avg_assessment = float(snap_data["averageAssessmentScore"]) if ("averageAssessmentScore" in snap_data and snap_data["averageAssessmentScore"] is not None) else None
         overall_grade = str(snap_data["overallGrade"]).strip() if ("overallGrade" in snap_data and snap_data["overallGrade"]) else None
         sessions_attended = int(snap_data["totalSessionsAttended"]) if ("totalSessionsAttended" in snap_data and snap_data["totalSessionsAttended"] is not None) else None
         quizzes_taken = int(snap_data["totalQuizzesTaken"]) if ("totalQuizzesTaken" in snap_data and snap_data["totalQuizzesTaken"] is not None) else None
+        course_code = str(snap_data["courseCode"]).strip() if ("courseCode" in snap_data and snap_data["courseCode"]) else (str(snap_data["course_code"]).strip() if ("course_code" in snap_data and snap_data["course_code"]) else None)
 
         data = {
             "id": str(row["id"]),
@@ -3792,7 +3793,8 @@ async def student_get_single_historical_report(snapshot_id: str, ctx: ScopeConte
             "courseTitle": row["course_title"],
             "course_slug": row["course_slug"],
             "courseSlug": row["course_slug"],
-            "course_code": row["course_slug"] or "COURSE",
+            "course_code": course_code,
+            "courseCode": course_code,
             "enrollment_id": str(row["enrollment_id"]) if row["enrollment_id"] else None,
             "enrollment_status": row["enrollment_status"],
             "progress_percent": progress,

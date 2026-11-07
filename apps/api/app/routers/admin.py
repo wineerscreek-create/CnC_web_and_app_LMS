@@ -2177,6 +2177,9 @@ async def users(
             "roles": [
                 {"value": str(Role.TRAINER), "label": ROLE_LABEL[Role.TRAINER]},
                 {"value": str(Role.STUDENT), "label": "Participant"},
+                {"value": str(Role.HOD), "label": ROLE_LABEL[Role.HOD]},
+                {"value": str(Role.ADMIN), "label": ROLE_LABEL[Role.ADMIN]},
+                {"value": str(Role.PARENT), "label": ROLE_LABEL[Role.PARENT]},
             ],
             "statuses": ["active", "deactivated", "pending"],
         },
@@ -2186,8 +2189,8 @@ async def users(
 @router.post("/users", status_code=status.HTTP_201_CREATED)
 async def create_user(payload: UserRequest, ctx: ScopeContext = AdminCtx) -> dict[str, Any]:
     role = parse_role(payload.role)
-    if role not in (Role.TRAINER, Role.STUDENT):
-        raise BusinessRuleViolation("College Admins can only create Trainer or Participant accounts")
+    if role not in (Role.TRAINER, Role.STUDENT, Role.HOD, Role.PARENT):
+        raise BusinessRuleViolation("College Admins cannot create Super Admin accounts")
 
     db = get_db()
     email = payload.email.lower()
@@ -2381,8 +2384,8 @@ async def change_role(
 ) -> dict[str, Any]:
     """A role change takes effect immediately — existing sessions are invalidated (§31)."""
     role = parse_role(payload.role)
-    if role not in (Role.TRAINER, Role.STUDENT):
-        raise BusinessRuleViolation("College Admins can only assign Trainer or Participant roles")
+    if role not in (Role.TRAINER, Role.STUDENT, Role.HOD, Role.PARENT):
+        raise BusinessRuleViolation("College Admins cannot assign Super Admin roles")
     repo = UserRepo(ctx)
     user = await repo.get(user_id)
     if user["_id"] == ctx.user_id:
@@ -2675,6 +2678,15 @@ async def ai_usage(hours: int = Query(24, ge=1, le=720), ctx: ScopeContext = Adm
     active_sessions = await get_db().refresh_sessions.count_documents(
         {**session_scope, "revokedAt": None}
     )
+    if active_sessions == 0:
+        try:
+            from app.core.redis_client import get_redis
+            r = get_redis()
+            sess_keys = await r.keys("sess:*")
+            if sess_keys:
+                active_sessions = len(sess_keys)
+        except Exception:
+            pass
     return {
         "success": True,
         "data": {

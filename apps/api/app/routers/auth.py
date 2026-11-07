@@ -125,6 +125,41 @@ def _public_user(user: dict[str, Any]) -> dict[str, Any]:
 
 async def _find_user_by_identifier(identifier: str) -> dict[str, Any] | None:
     value = identifier.strip()
+    if not settings.USE_POSTGRES:
+        try:
+            from app.db.mongo import get_db
+            db = get_db()
+            doc = await db.users.find_one({"email": value.lower()})
+            if not doc:
+                doc = await db.users.find_one({"phone": value})
+            if not doc:
+                sp = await db.student_profiles.find_one({"rollNumber": value})
+                if sp and sp.get("userId"):
+                    doc = await db.users.find_one({"_id": sp["userId"]})
+            if doc:
+                return {
+                    "_id": str(doc["_id"]),
+                    "id": str(doc["_id"]),
+                    "email": doc["email"],
+                    "passwordHash": doc.get("passwordHash"),
+                    "name": doc.get("name"),
+                    "role": doc.get("role"),
+                    "availableRoles": doc.get("availableRoles") or [str(doc.get("role"))],
+                    "trainerCollegeId": str(doc.get("collegeId")) if doc.get("collegeId") else None,
+                    "collegeId": str(doc.get("collegeId")) if doc.get("collegeId") else None,
+                    "collegeName": doc.get("collegeName"),
+                    "departmentId": str(doc.get("departmentId")) if doc.get("departmentId") else None,
+                    "departmentName": doc.get("departmentName"),
+                    "institutionId": doc.get("institutionId") or (str(doc.get("collegeId")) if doc.get("collegeId") else None),
+                    "status": str(doc.get("status", "active")).lower(),
+                    "emailVerified": bool(doc.get("emailVerified", True)),
+                    "avatarColor": doc.get("avatarColor") or "#6366f1",
+                    "mustChangePassword": bool(doc.get("mustChangePassword", False)),
+                    "preferences": doc.get("preferences") or {},
+                }
+        except Exception:
+            pass
+
     pg_user = await UserRepository.get_by_identifier(value)
     if not pg_user:
         return None
@@ -163,7 +198,7 @@ async def _find_user_by_identifier(identifier: str) -> dict[str, Any] | None:
         "collegeName": pg_user.get("college_name"),
         "departmentId": str(pg_user["department_id"]) if pg_user.get("department_id") else None,
         "departmentName": pg_user.get("department_name"),
-        "institutionId": str(pg_user["institution_id"]) if pg_user.get("institution_id") else None,
+        "institutionId": pg_user.get("roll_number") or (str(pg_user["institution_id"]) if pg_user.get("institution_id") else None),
         "status": str(pg_user["status"]).lower(),
         "emailVerified": bool(pg_user.get("email_verified", True)),
         "avatarColor": pg_user.get("avatar_color") or "#6366f1",
@@ -229,12 +264,52 @@ async def signup(payload: SignupRequest, request: Request) -> dict[str, Any]:
     except Exception as exc:
         raise Conflict("An account with these details already exists") from exc
 
+    try:
+        from app.db.mongo import get_db
+        db = get_db()
+        m_user = {
+            "name": payload.name,
+            "email": email,
+            "passwordHash": pwd_hash,
+            "role": str(role),
+            "collegeId": college["id"] if college else None,
+            "collegeName": college.get("name") if college else "Winners Creek Online Platform",
+            "departmentId": department["id"] if department else None,
+            "departmentName": department.get("name") if department else None,
+            "phone": payload.phone,
+            "emailVerified": False,
+            "status": "active",
+            "createdAt": datetime.now(timezone.utc),
+            "updatedAt": datetime.now(timezone.utc),
+        }
+        res_m = await db.users.insert_one(m_user)
+        if role is Role.STUDENT:
+            await db.student_profiles.insert_one({
+                "userId": res_m.inserted_id,
+                "name": payload.name,
+                "email": email,
+                "collegeId": college["id"] if college else None,
+                "collegeName": college.get("name") if college else "Winners Creek Online Platform",
+                "departmentId": department["id"] if department else None,
+                "departmentName": department.get("name") if department else None,
+                "isOnlineDirect": college is None,
+                "createdAt": datetime.now(timezone.utc),
+                "updatedAt": datetime.now(timezone.utc),
+            })
+    except Exception:
+        pass
+
+    user_id_str = str(user_record["id"])
     user_id_str = str(user_record["id"])
     otp = await rate_limit.issue_otp(VERIFY, email)
     link_token = create_purpose_token(
         user_id=user_id_str, purpose="verify", ttl_minutes=60 * 24
     )
-    await send_verification_email(to=email, name=payload.name, otp=otp, link_token=link_token)
+    try:
+        await send_verification_email(to=email, name=payload.name, otp=otp, link_token=link_token)
+    except Exception as exc:
+        log.warning("signup_email_send_failed", extra={"error": str(exc), "email": email})
+
     await write_audit(
         None,
         action="create",
@@ -250,11 +325,15 @@ async def signup(payload: SignupRequest, request: Request) -> dict[str, Any]:
 
     return {
         "success": True,
-        "message": "Account created. Check your email for the verification code.",
+        "message": (
+            "Account created. Check your email for the verification code."
+            if settings.EMAIL_VERIFICATION_ENABLED
+            else "Account created successfully! You can sign in immediately."
+        ),
         "data": {
             "userId": user_id_str,
             "email": email,
-            "verificationRequired": True,
+            "verificationRequired": bool(settings.EMAIL_VERIFICATION_ENABLED),
             "otpExpiresInMinutes": settings.OTP_TTL_MINUTES,
             "passwordStrength": password_strength(payload.password),
         },
@@ -615,11 +694,13 @@ async def forgot_password(payload: ForgotPasswordRequest, request: Request) -> d
             token_hash = hash_token(raw_token)
             expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
             await UserRepository.set_password_reset_token(user["id"], token_hash, expires_at)
-            reset_link = f"{settings.PUBLIC_WEB_URL}/reset-password?token={raw_token}"
+            otp = await rate_limit.issue_otp(RESET, email)
+            reset_link = f"{settings.PUBLIC_WEB_URL}/reset-password?token={raw_token}&otp={otp}"
             await send_password_reset_email(
                 to=email,
                 name=user.get("name", ""),
                 reset_link=reset_link,
+                otp=otp,
             )
     return {
         "success": True,
@@ -780,22 +861,30 @@ async def sessions(ctx: CurrentUser) -> dict[str, Any]:
 
 @router.delete("/sessions/{session_id}")
 async def revoke_session(session_id: str, ctx: CurrentUser) -> dict[str, Any]:
-    async with get_pg_connection() as conn:
-        record = await conn.fetchrow(
-            "SELECT id FROM refresh_sessions WHERE session_id = $1 AND user_id = $2::uuid",
-            session_id,
-            str(ctx.user_id),
-        )
-    if not record:
+    from app.services.session_service import _to_uuid
+    record = None
+    u_uuid = _to_uuid(str(ctx.user_id))
+    if u_uuid:
+        try:
+            async with get_pg_connection() as conn:
+                record = await conn.fetchrow(
+                    "SELECT id FROM refresh_sessions WHERE session_id = $1 AND user_id = $2",
+                    session_id,
+                    u_uuid,
+                )
+        except Exception:
+            pass
+    if not record and settings.USE_POSTGRES:
         raise NotFound("Session not found")
     await session_service.close_session(str(ctx.user_id), session_id)
-    await write_audit(
-        ctx,
-        action="logout",
-        entity_type="refresh_sessions",
-        entity_id=record["id"],
-        detail="device signed out remotely",
-    )
+    if record:
+        await write_audit(
+            ctx,
+            action="logout",
+            entity_type="refresh_sessions",
+            entity_id=record["id"],
+            detail="device signed out remotely",
+        )
     return {"success": True, "message": "That device has been signed out"}
 
 

@@ -214,9 +214,25 @@ async def run_migrations() -> list[str]:
     )
 
     applied_migrations: list[str] = []
-    pool = await get_or_create_pg_pool()
+    if settings.is_production:
+        if not settings.MIGRATION_DATABASE_URL:
+            raise RuntimeError("MIGRATION_DATABASE_URL must be configured in production to run migrations as the schema owner.")
+        if settings.MIGRATION_DATABASE_URL == settings.DATABASE_URL:
+            raise RuntimeError("MIGRATION_DATABASE_URL must not be identical to DATABASE_URL in production. Runtime services must use least-privilege role cnc_lms_app.")
 
-    async with pool.acquire() as conn:
+    use_dedicated = bool(settings.MIGRATION_DATABASE_URL and settings.MIGRATION_DATABASE_URL != settings.DATABASE_URL)
+    if use_dedicated:
+        migration_conn = await asyncpg.connect(
+            dsn=settings.MIGRATION_DATABASE_URL,
+            timeout=15.0,
+            command_timeout=60.0,
+        )
+        conn = migration_conn
+    else:
+        pool = await get_or_create_pg_pool()
+        conn = await pool.acquire()
+
+    try:
         # Acquire advisory lock to prevent race conditions during multi-instance boot
         await conn.execute("SELECT pg_advisory_lock($1)", ADVISORY_LOCK_ID)
         try:
@@ -263,7 +279,17 @@ async def run_migrations() -> list[str]:
             )
         finally:
             await conn.execute("SELECT pg_advisory_unlock($1)", ADVISORY_LOCK_ID)
+    finally:
+        if use_dedicated:
+            await conn.close()
+        else:
+            await pool.release(conn)
 
     global _migrations_ready
     _migrations_ready = True
     return applied_migrations
+
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(run_migrations())

@@ -48,7 +48,7 @@ async def run_once(timeout: int = 5) -> bool:
         log.error("no_handler_registered", extra={"job": job.name, "job_id": job.id})
         await fail(job, f"no handler registered for '{job.name}'")
         return True
-    log.info("job_started", extra={"job": job.name, "job_id": job.id, "attempt": job.attempt})
+    log.info("job_started", extra={"job": job.name, "job_id": job.id, "attempt": job.attempts})
     t0 = time.perf_counter()
     try:
         await handler(job.payload)

@@ -955,6 +955,61 @@ async def prediction_report(ctx: ScopeContext, filters: dict[str, Any]):
     return columns, rows, "Risk & Prediction"
 
 
+# --------------------------------------------------------------------------- Placement Readiness
+@dataset("placement")
+async def placement_report(ctx: ScopeContext, filters: dict[str, Any]):
+    from app.services import mongo_report_datasets
+    return await mongo_report_datasets.placement_report(ctx, filters)
+
+
+# --------------------------------------------------------------------------- Certification
+@dataset("certification")
+async def certification_report(ctx: ScopeContext, filters: dict[str, Any]):
+    if not settings.USE_POSTGRES:
+        from app.services import mongo_report_datasets
+        return await mongo_report_datasets.certification_report(ctx, filters)
+
+    headers = [
+        "Participant ID", "Student Name", "Course Title", "Certificate Number",
+        "Issue Date", "Status"
+    ]
+    c_uuid = _to_uuid(ctx.college_id)
+    d_uuid = _to_uuid(ctx.department_id)
+
+    async with get_pg_connection() as conn:
+        query = """
+            SELECT c.certificate_number, c.issue_date, c.status,
+                   u.name as student_name, cr.title as course_title,
+                   sp.roll_number
+            FROM certificates c
+            JOIN users u ON u.id = c.participant_user_id
+            JOIN courses cr ON cr.id = c.course_id
+            LEFT JOIN student_profiles sp ON sp.user_id = u.id
+            WHERE u.deleted_at IS NULL
+        """
+        params = []
+        if c_uuid:
+            params.append(c_uuid)
+            query += f" AND u.institution_id = ${len(params)}"
+        if d_uuid:
+            params.append(d_uuid)
+            query += f" AND u.department_id = ${len(params)}"
+        query += " ORDER BY c.issue_date DESC LIMIT 5000"
+        rows_db = await conn.fetch(query, *params)
+        rows = [
+            [
+                r.get("roll_number") or "",
+                r.get("student_name") or "",
+                r.get("course_title") or "",
+                r.get("certificate_number") or "",
+                r.get("issue_date").isoformat() if r.get("issue_date") else "",
+                r.get("status") or "",
+            ]
+            for r in rows_db
+        ]
+    return headers, rows, "Certification Report"
+
+
 # --------------------------------------------------------------------------- Student Progress
 @dataset("student_progress")
 async def student_progress_report(ctx: ScopeContext, filters: dict[str, Any]):

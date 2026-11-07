@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import {
@@ -187,10 +188,12 @@ export default function TrainerSlugPage() {
               <div className="flex flex-col items-center text-center">
                 <div className="relative size-36 sm:size-40 rounded-3xl overflow-hidden border-2 border-primary/20 bg-muted shadow-md">
                   {trainer.profilePhotoUrl ? (
-                    <img
+                    <Image
                       src={trainer.profilePhotoUrl}
                       alt={trainer.displayName}
-                      className="size-full object-cover"
+                      fill
+                      sizes="(max-width: 640px) 144px, 160px"
+                      className="object-cover"
                     />
                   ) : (
                     <div className="size-full flex items-center justify-center bg-primary/10 text-primary text-4xl font-extrabold">

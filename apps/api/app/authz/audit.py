@@ -58,6 +58,34 @@ async def write_audit(
     actor_label: str | None = None,
 ) -> None:
     try:
+        from app.db.mongo import get_db
+        from bson import ObjectId
+        from datetime import datetime, timezone
+        db = get_db()
+        now_dt = datetime.now(timezone.utc)
+        cid = college_id or (ctx.college_id if ctx else None)
+        did = department_id or (ctx.department_id if ctx else None)
+        m_cid = ObjectId(str(cid)) if cid and ObjectId.is_valid(str(cid)) else (str(cid) if cid else None)
+        m_did = ObjectId(str(did)) if did and ObjectId.is_valid(str(did)) else (str(did) if did else None)
+        await db.audit_logs.insert_one({
+            "action": action,
+            "entityType": entity_type,
+            "entityId": str(entity_id) if entity_id is not None else None,
+            "actorId": str(ctx.user_id) if ctx and ctx.user_id else None,
+            "actorLabel": actor_label or (ctx.actor_label if ctx else "system"),
+            "actorRole": str(ctx.role) if ctx and ctx.role else "SYSTEM",
+            "collegeId": m_cid,
+            "departmentId": m_did,
+            "before": _clean(before),
+            "after": _clean(after),
+            "detail": detail,
+            "at": now_dt,
+            "createdAt": now_dt,
+        })
+    except Exception as e:
+        print("MONGO AUDIT ERROR:", type(e), e)
+
+    try:
         actor_id = _to_uuid(ctx.user_id if ctx else None)
         inst_id = _to_uuid(college_id or (ctx.college_id if ctx else None))
         dept_id = _to_uuid(department_id or (ctx.department_id if ctx else None))
@@ -98,7 +126,50 @@ async def write_security_event(
     college_id: Any = None,
     department_id: Any = None,
 ) -> None:
-    """Security events recorded in PostgreSQL `security_events` table."""
+    """Security events recorded in PostgreSQL and MongoDB `security_events` table/collection."""
+    try:
+        from app.db.mongo import get_db
+        import bson
+        from datetime import datetime, timezone
+        db = get_db()
+        now_dt = datetime.now(timezone.utc)
+        def _to_obj_id(val):
+            if not val:
+                return None
+            try:
+                return bson.ObjectId(str(val))
+            except Exception:
+                return val
+
+        u_obj = _to_obj_id(user_id)
+        c_obj = _to_obj_id(college_id)
+        d_obj = _to_obj_id(department_id)
+
+        if c_obj is None and u_obj is not None:
+            try:
+                user_doc = await db.users.find_one({"_id": u_obj})
+                if user_doc:
+                    c_obj = user_doc.get("collegeId")
+                    d_obj = d_obj or user_doc.get("departmentId")
+            except Exception:
+                pass
+
+        await db.security_events.insert_one({
+            "kind": kind,
+            "userId": u_obj,
+            "collegeId": c_obj,
+            "departmentId": d_obj,
+            "detail": detail,
+            "ip": ip,
+            "requestId": request_id,
+            "path": path,
+            "metadata": _clean(metadata or {}),
+            "at": now_dt,
+            "createdAt": now_dt,
+        })
+    except Exception as e:
+        pass
+
     try:
         u_uuid = _to_uuid(user_id)
         c_uuid = _to_uuid(college_id)

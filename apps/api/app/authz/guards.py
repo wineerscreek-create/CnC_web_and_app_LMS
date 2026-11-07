@@ -94,18 +94,36 @@ async def get_scope_context(request: Request) -> ScopeContext:
                 }
         except Exception:
             pass
+    else:
+        try:
+            db = get_db()
+            user = await db.users.find_one(
+                {"_id": user_id},
+                {
+                    "name": 1, "email": 1, "role": 1, "collegeId": 1, "departmentId": 1,
+                    "status": 1, "emailVerified": 1,
+                },
+            )
+        except Exception:
+            pass
+        if not user:
+            try:
+                from app.repositories.user_repo import UserRepository
+                pg_user = await UserRepository.get_by_id(str(user_id))
+                if pg_user:
+                    user = {
+                        "_id": str(pg_user["id"]),
+                        "name": pg_user["name"],
+                        "email": pg_user["email"],
+                        "role": pg_user["role"],
+                        "collegeId": str(pg_user["institution_id"]) if pg_user.get("institution_id") else None,
+                        "departmentId": str(pg_user["department_id"]) if pg_user.get("department_id") else None,
+                        "status": str(pg_user["status"]).lower(),
+                        "emailVerified": bool(pg_user.get("email_verified", True)),
+                    }
+            except Exception:
+                pass
 
-    if not user:
-        if settings.USE_POSTGRES:
-            raise Unauthenticated("Account not found")
-        db = get_db()
-        user = await db.users.find_one(
-            {"_id": user_id},
-            {
-                "name": 1, "email": 1, "role": 1, "collegeId": 1, "departmentId": 1,
-                "status": 1, "emailVerified": 1,
-            },
-        )
     if not user:
         raise Unauthenticated("Account not found")
     if user.get("status") != "active":

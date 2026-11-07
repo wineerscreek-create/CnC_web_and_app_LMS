@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -933,10 +934,12 @@ export default function HomePage() {
                         <div className="flex items-start justify-between">
                           <div className="relative size-16 sm:size-18 rounded-2xl overflow-hidden border-2 border-primary/20 bg-muted flex items-center justify-center shrink-0 shadow-xs">
                             {trainer.profilePhotoUrl ? (
-                              <img
+                              <Image
                                 src={trainer.profilePhotoUrl}
                                 alt={trainerName}
-                                className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                fill
+                                sizes="(max-width: 640px) 64px, 72px"
+                                className="object-cover transition-transform duration-300 group-hover:scale-105"
                               />
                             ) : (
                               <div className="size-full flex items-center justify-center bg-primary/10 text-primary text-xl font-bold">

@@ -282,7 +282,9 @@ export default function ProgressPage() {
                         <div className="flex items-start justify-between">
                           <div>
                             <p className="font-bold text-foreground text-sm">{hr.course_title}</p>
-                            <p className="text-[11px] font-mono text-muted-foreground">{hr.course_code}</p>
+                            <p className="text-[11px] font-mono text-muted-foreground">
+                              {hr.course_code ? hr.course_code : (hr.course_slug ? `ID: ${hr.course_slug}` : 'N/A')}
+                            </p>
                           </div>
                           <Badge tone={hr.overall_grade ? 'success' : 'neutral'}>
                             Grade: {hr.overall_grade || 'N/A'}
@@ -308,11 +310,19 @@ export default function ProgressPage() {
                             </p>
                           </div>
                           <div className="p-1.5 rounded-lg bg-muted/40">
-                            <p className="text-[10px] text-muted-foreground">Assessment</p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {hr.average_assessment_score !== null && hr.average_assessment_score !== undefined
+                                ? 'Assessment'
+                                : (hr.average_quiz_score !== null && hr.average_quiz_score !== undefined
+                                    ? 'Quiz Score'
+                                    : 'Assessment')}
+                            </p>
                             <p className="font-bold text-foreground">
                               {hr.average_assessment_score !== null && hr.average_assessment_score !== undefined
                                 ? `${hr.average_assessment_score}%`
-                                : 'N/A'}
+                                : (hr.average_quiz_score !== null && hr.average_quiz_score !== undefined
+                                    ? `${hr.average_quiz_score}%`
+                                    : 'N/A')}
                             </p>
                           </div>
                         </div>

@@ -281,39 +281,44 @@ class CourseRepository:
     @staticmethod
     async def update_payment_config(course_id: UUID | str, config: dict[str, Any]) -> dict[str, Any] | None:
         async with get_pg_connection() as conn:
-            cid = UUID(str(course_id))
-            set_clauses = []
-            params: list[Any] = [cid]
+            async with conn.transaction():
+                cid = UUID(str(course_id))
+                c = await conn.fetchrow("SELECT id FROM courses WHERE id = $1 AND deleted_at IS NULL FOR UPDATE", cid)
+                if not c:
+                    return None
 
-            fields = [
-                ("fee", "fee"),
-                ("trialDurationDays", "trial_duration_days"),
-                ("trialEnabled", "trial_enabled"),
-                ("paymentMethods", "payment_methods"),
-                ("upiId", "upi_id"),
-                ("merchantName", "merchant_name"),
-                ("qrCodeUrl", "qr_code_url"),
-                ("paymentInstructions", "payment_instructions"),
-                ("refundPolicy", "refund_policy"),
-                ("enrollmentOpen", "enrollment_open"),
-                ("status", "status"),
-            ]
-            for in_key, col in fields:
-                if in_key in config:
-                    params.append(config[in_key])
-                    set_clauses.append(f"{col} = ${len(params)}")
+                set_clauses = []
+                params: list[Any] = [cid]
 
-            if not set_clauses:
+                fields = [
+                    ("fee", "fee"),
+                    ("trialDurationDays", "trial_duration_days"),
+                    ("trialEnabled", "trial_enabled"),
+                    ("paymentMethods", "payment_methods"),
+                    ("upiId", "upi_id"),
+                    ("merchantName", "merchant_name"),
+                    ("qrCodeUrl", "qr_code_url"),
+                    ("paymentInstructions", "payment_instructions"),
+                    ("refundPolicy", "refund_policy"),
+                    ("enrollmentOpen", "enrollment_open"),
+                    ("status", "status"),
+                ]
+                for in_key, col in fields:
+                    if in_key in config:
+                        params.append(config[in_key])
+                        set_clauses.append(f"{col} = ${len(params)}")
+
+                if not set_clauses:
+                    return await CourseRepository.get_by_id(cid)
+
+                query = f"""
+                    UPDATE courses
+                    SET {', '.join(set_clauses)}, updated_at = NOW()
+                    WHERE id = $1 AND deleted_at IS NULL
+                    RETURNING id
+                """
+                await conn.execute(query, *params)
                 return await CourseRepository.get_by_id(cid)
-
-            query = f"""
-                UPDATE courses
-                SET {', '.join(set_clauses)}, updated_at = NOW()
-                WHERE id = $1 AND deleted_at IS NULL
-                RETURNING id
-            """
-            await conn.execute(query, *params)
-            return await CourseRepository.get_by_id(cid)
 
     # =========================================================================
     # COURSE TRAINER ASSIGNMENT REPOSITORY METHODS (FINDING 2 REMEDIATION)
@@ -408,7 +413,10 @@ class CourseRepository:
         department_id: UUID | str | None = None,
         assigned_by: UUID | str | None = None,
     ) -> dict[str, Any]:
-        """Assigns a trainer to a course with institutional, course eligibility, and role validation."""
+        """Assigns a trainer to a course with institutional, course eligibility, and role validation.
+        Concurrency safety: ON CONFLICT (course_id, trainer_user_id) conflict handling is enforced
+        through row-level locking (FOR UPDATE) and unique constraints (uq_course_trainer_dept / idx_course_trainer_null_dept).
+        """
         cid = _safe_uuid(course_id)
         if not cid:
             raise NotFound("Invalid course ID.")
@@ -424,15 +432,20 @@ class CourseRepository:
                 # 1. Course validation with row-level lock for concurrency safety
                 course = await conn.fetchrow(
                     """
-                    SELECT id, title, visibility_mode, target_institution_ids, target_branch_ids, deleted_at 
-                    FROM courses 
-                    WHERE id = $1 AND deleted_at IS NULL 
+                    SELECT id, title, status, visibility_mode, target_institution_ids, target_branch_ids, deleted_at
+                    FROM courses
+                    WHERE id = $1 AND deleted_at IS NULL
                     FOR UPDATE
                     """,
                     cid,
                 )
                 if not course:
                     raise NotFound("Course not found or has been deleted.")
+                if str(course.get("status") or "").upper() in ("DELETION_REQUESTED", "DELETED", "ARCHIVED", "SUSPENDED"):
+                    raise Conflict(
+                        f"Course '{course['title']}' is currently in status '{course['status']}'. "
+                        "Trainers cannot be assigned to suspended, archived, or deletion-pending courses."
+                    )
 
                 # 2. Trainer validation (must exist, not deleted, role == TRAINER)
                 trainer = await conn.fetchrow(
@@ -546,14 +559,20 @@ class CourseRepository:
 
         async with get_pg_connection() as conn:
             async with conn.transaction():
-                # 1. Check course exists
+                # 1. Lock course row first to maintain strict lock hierarchy and serialize against concurrent operations
                 course = await conn.fetchrow(
-                    "SELECT id, title FROM courses WHERE id = $1 AND deleted_at IS NULL", cid
+                    """
+                    SELECT id, title, status, deleted_at
+                    FROM courses
+                    WHERE id = $1 AND deleted_at IS NULL
+                    FOR UPDATE
+                    """,
+                    cid,
                 )
                 if not course:
                     raise NotFound("Course not found or has been deleted.")
 
-                # 2. Lock and retrieve all assignments for this course and trainer
+                # 2. Lock and retrieve all assignments for this course and trainer second
                 assignments = await conn.fetch("""
                     SELECT id, course_id, trainer_user_id, institution_id, department_id
                     FROM course_trainer_assignments

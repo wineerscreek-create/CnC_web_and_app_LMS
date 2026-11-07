@@ -222,11 +222,17 @@ async def send_password_reset_email(
 ) -> None:
     link = reset_link or f"{settings.PUBLIC_WEB_URL}/reset-password?token={link_token}"
     subject = f"Reset your {BRAND} password"
+    if otp:
+        subject += f" — {otp}"
 
     # Plain-text fallback
     body = (
         f"Hi {name},\n\n"
         f"We received a request to reset your {BRAND} password.\n\n"
+    )
+    if otp:
+        body += f"Your password reset code is: {otp}\n\n"
+    body += (
         f"Reset your password:\n{link}\n\n"
         f"This link expires in 15 minutes. All active sessions will be signed out after reset.\n\n"
         f"If you did not request a password reset, you can safely ignore this email.\n"

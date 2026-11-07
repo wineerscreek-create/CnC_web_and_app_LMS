@@ -578,11 +578,15 @@ class ControlCenterRepository:
             updates.append(f"allowed_enrollment_methods = ${len(params)}")
 
         async with get_pg_connection() as conn:
-            c = await conn.fetchrow("SELECT id, title FROM courses WHERE id = $1 AND deleted_at IS NULL", c_uuid)
-            if not c:
-                raise NotFound("Course not found.")
+            async with conn.transaction():
+                c = await conn.fetchrow(
+                    "SELECT id, title FROM courses WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+                    c_uuid,
+                )
+                if not c:
+                    raise NotFound("Course not found.")
 
-            await conn.execute(f"UPDATE courses SET {', '.join(updates)} WHERE id = $3", *params)
+                await conn.execute(f"UPDATE courses SET {', '.join(updates)} WHERE id = $3", *params)
 
             return {
                 "success": True,
@@ -618,7 +622,10 @@ class ControlCenterRepository:
                     admin_uuid = await conn.fetchval("SELECT id FROM users WHERE role = 'SUPER_ADMIN' LIMIT 1")
                 if not admin_uuid:
                     admin_uuid = c_uuid
-                c = await conn.fetchrow("SELECT id, title, slug, description FROM courses WHERE id = $1 AND deleted_at IS NULL", c_uuid)
+                c = await conn.fetchrow(
+                    "SELECT id, title, slug, code, description FROM courses WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+                    c_uuid,
+                )
                 if not c:
                     raise NotFound("Course not found or already deleted.")
 
@@ -679,6 +686,7 @@ class ControlCenterRepository:
                     snapshot_payload = {
                         "courseTitle": c["title"],
                         "courseSlug": c["slug"],
+                        "courseCode": c.get("code") or None,
                         "participantId": str(p_id),
                         "participantName": en["participant_name"],
                         "participantEmail": en["participant_email"],
@@ -914,10 +922,11 @@ class ControlCenterRepository:
                 attendance = float(r["attendance_percentage"]) if r["attendance_percentage"] is not None else None
                 avg_quiz = float(r["average_quiz_score"]) if r.get("average_quiz_score") is not None else None
 
-                # ISSUE 1 REMEDIATION: Never fabricate missing historical data. Use verified values or None.
+                # ISSUE 1 & FINDING 4 REMEDIATION: Never fabricate missing historical data. Use verified values or None.
                 hours_attended = float(snap_data["attendanceHours"]) if ("attendanceHours" in snap_data and snap_data["attendanceHours"] is not None) else None
-                avg_assessment = float(snap_data["averageAssessmentScore"]) if ("averageAssessmentScore" in snap_data and snap_data["averageAssessmentScore"] is not None) else avg_quiz
+                avg_assessment = float(snap_data["averageAssessmentScore"]) if ("averageAssessmentScore" in snap_data and snap_data["averageAssessmentScore"] is not None) else None
                 overall_grade = str(snap_data["overallGrade"]).strip() if ("overallGrade" in snap_data and snap_data["overallGrade"]) else None
+                course_code = str(snap_data["courseCode"]).strip() if ("courseCode" in snap_data and snap_data["courseCode"]) else (str(snap_data["course_code"]).strip() if ("course_code" in snap_data and snap_data["course_code"]) else None)
 
                 items.append({
                     "id": str(r["id"]),
@@ -928,7 +937,8 @@ class ControlCenterRepository:
                     "course_title": r["course_title"],
                     "courseSlug": r["course_slug"],
                     "course_slug": r["course_slug"],
-                    "course_code": r["course_slug"] or "COURSE",
+                    "course_code": course_code,
+                    "courseCode": course_code,
                     "enrollmentStatus": r["enrollment_status"],
                     "enrollment_status": r["enrollment_status"],
                     "progressPercent": progress,
