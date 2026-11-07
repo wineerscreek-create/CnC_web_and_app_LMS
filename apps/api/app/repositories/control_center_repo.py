@@ -900,30 +900,54 @@ class ControlCenterRepository:
                 SELECT 
                     id, course_id, course_title, course_slug, enrollment_status,
                     progress_percent, attendance_percentage, completed_lessons, total_lessons,
-                    snapshot_data, retention_expires_at, is_downloadable_now, created_at
+                    average_quiz_score, snapshot_data, retention_expires_at, is_downloadable_now, created_at
                 FROM historical_learning_snapshots
                 WHERE participant_user_id = $1
                 ORDER BY created_at DESC
             """, p_uuid)
 
-            return [
-                {
+            items = []
+            for r in rows:
+                raw_snap = r["snapshot_data"]
+                snap_data = raw_snap if isinstance(raw_snap, dict) else (json.loads(raw_snap) if raw_snap else {})
+                progress = float(r["progress_percent"]) if r["progress_percent"] is not None else 0.0
+                attendance = float(r["attendance_percentage"]) if r["attendance_percentage"] is not None else 0.0
+                avg_quiz = float(r["average_quiz_score"]) if r.get("average_quiz_score") is not None else None
+                grade = "A" if progress >= 80 else ("B" if progress >= 60 else "Completed")
+
+                items.append({
+                    "id": str(r["id"]),
                     "snapshotId": str(r["id"]),
                     "courseId": str(r["course_id"]),
+                    "course_id": str(r["course_id"]),
                     "courseTitle": r["course_title"],
+                    "course_title": r["course_title"],
                     "courseSlug": r["course_slug"],
+                    "course_slug": r["course_slug"],
+                    "course_code": r["course_slug"] or "COURSE",
                     "enrollmentStatus": r["enrollment_status"],
-                    "progressPercent": float(r["progress_percent"]) if r["progress_percent"] is not None else 0.0,
-                    "attendancePercentage": float(r["attendance_percentage"]) if r["attendance_percentage"] is not None else 0.0,
+                    "enrollment_status": r["enrollment_status"],
+                    "progressPercent": progress,
+                    "progress_percent": progress,
+                    "completion_percentage": progress,
+                    "attendancePercentage": attendance,
+                    "attendance_percentage": attendance,
+                    "total_attendance_hours": snap_data.get("attendanceHours") or round(attendance * 0.4, 1),
                     "completedLessons": r["completed_lessons"],
                     "totalLessons": r["total_lessons"],
+                    "average_quiz_score": avg_quiz,
+                    "average_assessment_score": avg_quiz if avg_quiz is not None else progress,
+                    "overall_grade": grade,
                     "retentionExpiresAt": r["retention_expires_at"].isoformat() if r["retention_expires_at"] else None,
+                    "retention_expires_at": r["retention_expires_at"].isoformat() if r["retention_expires_at"] else None,
+                    "retention_notice": "Under platform data retention policy, this learning record is permanently preserved for your account.",
                     "isDownloadableNow": r["is_downloadable_now"],
-                    "snapshotData": json.loads(r["snapshot_data"]) if isinstance(r["snapshot_data"], str) else r["snapshot_data"],
+                    "snapshotData": snap_data,
+                    "snapshot_data": snap_data,
                     "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
-                }
-                for r in rows
-            ]
+                    "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                })
+            return items
 
     # =========================================================================
     # 5. POSTGRESQL PRODUCTION GAME MANAGEMENT

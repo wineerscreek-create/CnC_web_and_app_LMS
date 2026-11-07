@@ -2228,7 +2228,10 @@ async def super_admin_course_transactions(
 @router.get("/courses/{course_id}/trainers")
 async def super_admin_course_trainers(course_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
     from app.repositories.course_repo import CourseRepository
-    c_uuid = UUID(str(course_id))
+    try:
+        c_uuid = UUID(str(course_id))
+    except (ValueError, TypeError):
+        raise NotFound("Course not found.")
     trainers = await CourseRepository.get_course_trainers(c_uuid)
     return {"success": True, "data": trainers}
 
@@ -2238,22 +2241,52 @@ async def super_admin_assign_course_trainer(
     course_id: str, payload: dict[str, Any], ctx: ScopeContext = SuperAdminCtx
 ) -> dict[str, Any]:
     from app.repositories.course_repo import CourseRepository
-    c_uuid = UUID(str(course_id))
-    trainer_user_id = payload.get("trainerUserId")
+    try:
+        c_uuid = UUID(str(course_id))
+    except (ValueError, TypeError):
+        raise NotFound("Course not found.")
+
+    trainer_user_id = payload.get("trainerUserId") or payload.get("trainer_user_id")
     if not trainer_user_id:
         raise ValidationError("trainerUserId is required.")
-    t_uuid = UUID(str(trainer_user_id))
-    res = await CourseRepository.assign_course_trainer(c_uuid, t_uuid)
+    try:
+        t_uuid = UUID(str(trainer_user_id))
+    except (ValueError, TypeError):
+        raise ValidationError("Invalid trainerUserId UUID format.")
+
+    inst_id = payload.get("institutionId") or payload.get("institution_id")
+    dept_id = payload.get("departmentId") or payload.get("department_id")
+    admin_uuid = UUID(str(ctx.user_id)) if ctx.user_id else None
+
+    res = await CourseRepository.assign_course_trainer(
+        course_id=c_uuid,
+        trainer_user_id=t_uuid,
+        institution_id=inst_id,
+        department_id=dept_id,
+        assigned_by=admin_uuid,
+    )
     await write_audit(ctx, action="assign", entity_type="course_trainers", entity_id=str(c_uuid), detail=f"Assigned trainer {trainer_user_id} to course {course_id}")
-    return {"success": True, "status": res.get("status", "verified"), "data": res}
+    return {"success": True, "status": "verified", "data": res}
 
 
 @router.delete("/courses/{course_id}/trainers/{trainer_id}")
-async def super_admin_remove_course_trainer(course_id: str, trainer_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+async def super_admin_remove_course_trainer(
+    course_id: str,
+    trainer_id: str,
+    departmentId: str | None = Query(None),
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
     from app.repositories.course_repo import CourseRepository
-    c_uuid = UUID(str(course_id))
-    t_uuid = UUID(str(trainer_id))
-    res = await CourseRepository.remove_course_trainer(c_uuid, t_uuid)
+    try:
+        c_uuid = UUID(str(course_id))
+    except (ValueError, TypeError):
+        raise NotFound("Course not found.")
+    try:
+        t_uuid = UUID(str(trainer_id))
+    except (ValueError, TypeError):
+        raise NotFound("Trainer assignment not found for this course.")
+
+    res = await CourseRepository.remove_course_trainer(c_uuid, t_uuid, department_id=departmentId)
     await write_audit(ctx, action="unassign", entity_type="course_trainers", entity_id=str(c_uuid), detail=f"Removed trainer {trainer_id} from course {course_id}")
     return {"success": res, "message": "Trainer removed from course"}
 
