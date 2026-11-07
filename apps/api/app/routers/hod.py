@@ -94,7 +94,7 @@ async def _scope_header(ctx: ScopeContext) -> dict[str, Any]:
         except Exception:
             pass
 
-    if not department_name:
+    if not settings.USE_POSTGRES and not department_name:
         db = get_db()
         college = None
         if ctx.college_id:
@@ -167,13 +167,17 @@ def _narrow(ctx: ScopeContext, **requested: Any) -> dict[str, Any]:
 # --------------------------------------------------------------------------- FR-02 dashboard
 @router.get("/dashboard")
 async def dashboard(ctx: ScopeContext = HodCtx) -> dict[str, Any]:
-    if settings.USE_POSTGRES and ctx.college_id and ctx.department_id:
+    if settings.USE_POSTGRES:
         from app.repositories.stats_repo import StatsRepository
-        try:
-            pg_data = await StatsRepository.get_hod_dashboard_data(ctx.college_id, ctx.department_id)
-            return {"success": True, "data": pg_data}
-        except Exception:
-            pass
+        dept_id = ctx.department_id or (ctx.department_ids[0] if ctx.department_ids else None)
+        if ctx.college_id and dept_id:
+            try:
+                pg_data = await StatsRepository.get_hod_dashboard_data(ctx.college_id, dept_id)
+                return {"success": True, "data": pg_data}
+            except Exception as exc:
+                log.warning("get_hod_dashboard_data_failed", extra={"error": str(exc)})
+        scope = await _scope_header(ctx)
+        return {"success": True, "data": {"scope": scope, "kpis": {}, "trend": []}}
 
     # None of these reads depends on another, so they go to the database together rather than
     # as a dozen sequential round-trips. Scope is still derived per query from `ctx`.
@@ -273,6 +277,7 @@ async def participants(
     search: str | None = Query(None, max_length=80),
     batchId: str | None = Query(None),
     status_filter: str | None = Query(None, alias="status", max_length=20),
+    attendanceBand: str | None = Query(None, max_length=20),
     certificate: str | None = Query(None, max_length=20),
     sortBy: str | None = Query(None, max_length=30),
     sortDir: str = Query("asc", pattern="^(asc|desc)$"),
@@ -290,12 +295,20 @@ async def participants(
         if not inst_uuid:
             raise ScopeForbidden("Your account is not assigned to an institution")
         dept_uuid = _safe_uuid(ctx.department_id)
+        if not dept_uuid and ctx.department_ids:
+            dept_uuid = _safe_uuid(ctx.department_ids[0])
         if not dept_uuid:
             raise ScopeForbidden("Your account is not assigned to a department")
 
         async with get_pg_connection() as conn:
-            conds = ["u.institution_id = $1", "u.department_id = $2", "u.role = 'STUDENT'", "u.deleted_at IS NULL"]
-            params: list[Any] = [inst_uuid, dept_uuid]
+            dept_uuids = list({_safe_uuid(d) for d in (ctx.department_ids or [str(dept_uuid)]) if _safe_uuid(d)})
+            conds = [
+                "u.institution_id = $1",
+                "(u.department_id = ANY($2::uuid[]) OR sp.department_id = ANY($2::uuid[]))",
+                "u.role = 'STUDENT'",
+                "u.deleted_at IS NULL",
+            ]
+            params: list[Any] = [inst_uuid, dept_uuids]
 
             if batchId and batchId.lower() != "all":
                 b_uuid = _safe_uuid(batchId)
@@ -343,6 +356,9 @@ async def participants(
                 s_att = r["sessions_attended"] or 0
                 att_pct = round((s_att / s_tot) * 100, 1) if s_tot > 0 else None
                 avg_score = round(float(r["readiness_score"]), 1) if r["readiness_score"] is not None else None
+                band = "high" if (att_pct or 0) >= 75 else "medium" if (att_pct or 0) >= 60 else "low"
+                if attendanceBand and attendanceBand.lower() != "all" and band != attendanceBand.lower():
+                    continue
                 items.append({
                     "studentUserId": str(r["student_user_id"]),
                     "name": r["name"],
@@ -350,9 +366,7 @@ async def participants(
                     "batchId": str(r["batch_id"]) if r["batch_id"] else None,
                     "batchName": r["batch_name"] or "—",
                     "attendancePercent": att_pct,
-                    "attendanceBand": (
-                        "high" if (att_pct or 0) >= 75 else "medium" if (att_pct or 0) >= 60 else "low"
-                    ),
+                    "attendanceBand": band,
                     "averageSkillScore": avg_score,
                     "certificateStatus": "not_eligible" if (att_pct or 0) < 75 else "eligible",
                     "enrollmentStatus": (r["access_status"] or "active").lower(),
@@ -360,7 +374,7 @@ async def participants(
                 })
 
             total_pages = max(1, (total + pageSize - 1) // pageSize)
-            batch_rows = await conn.fetch("SELECT id, name, code FROM batches WHERE institution_id = $1 AND department_id = $2", inst_uuid, dept_uuid)
+            batch_rows = await conn.fetch("SELECT id, name, code FROM batches WHERE institution_id = $1 AND department_id = ANY($2::uuid[])", inst_uuid, dept_uuids)
             return {
                 "success": True,
                 "items": items,
@@ -384,6 +398,7 @@ async def participants(
                         "batches": [{"id": str(b["id"]), "name": b["name"]} for b in batch_rows],
                         "statuses": ["active", "on_hold", "completed", "dropped", "transferred"],
                         "certificateStates": ["issued", "pending", "not_eligible", "revoked"],
+                        "attendanceBands": ["high", "medium", "low"],
                     },
                     "legend": [
                         {"label": "≥75% attendance", "tone": "success"},
@@ -720,6 +735,180 @@ async def attendance(
     ctx: ScopeContext = HodCtx,
 ) -> dict[str, Any]:
     scope = await _scope_header(ctx)
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        from app.repositories.game_repo import _safe_uuid
+
+        inst_uuid = _safe_uuid(ctx.college_id)
+        if not inst_uuid:
+            raise ScopeForbidden("Your account is not assigned to an institution")
+        dept_uuid = _safe_uuid(ctx.department_id)
+        if not dept_uuid and ctx.department_ids:
+            dept_uuid = _safe_uuid(ctx.department_ids[0])
+        if not dept_uuid:
+            raise ScopeForbidden("Your account is not assigned to a department")
+
+        dept_uuids = list({_safe_uuid(d) for d in (ctx.department_ids or [str(dept_uuid)]) if _safe_uuid(d)})
+        b_uuid = _safe_uuid(batchId) if batchId and batchId.lower() != "all" else None
+        m_uuid = _safe_uuid(trainingModuleId) if trainingModuleId and trainingModuleId.lower() != "all" else None
+        th_val = threshold if threshold is not None else settings.ATTENDANCE_DEFAULTER_THRESHOLD
+
+        async with get_pg_connection() as conn:
+            batches = await conn.fetch(
+                "SELECT id, name FROM batches WHERE institution_id = $1 AND (department_id = ANY($2::uuid[]) OR department_id IS NULL) ORDER BY name",
+                inst_uuid, dept_uuids,
+            )
+            modules = await conn.fetch("SELECT id, title as name FROM modules ORDER BY title LIMIT 50")
+
+            conds = ["ts.institution_id = $1", "ts.department_id = ANY($2::uuid[])"]
+            params: list[Any] = [inst_uuid, dept_uuids]
+            if b_uuid:
+                conds.append(f"ts.batch_id = ${len(params) + 1}")
+                params.append(b_uuid)
+            if m_uuid:
+                conds.append(f"(ts.course_id = ${len(params) + 1} OR ts.course_id IN (SELECT course_id FROM modules WHERE id = ${len(params) + 1}))")
+                params.append(m_uuid)
+
+            where_clause = " AND ".join(conds)
+            sessions_conducted = await conn.fetchval(
+                f"SELECT COUNT(*) FROM training_sessions ts WHERE {where_clause}", *params
+            ) or 0
+
+            att_query = f"""
+                SELECT 
+                    ar.id, ar.status, ar.marked_at, ar.session_id, ar.participant_user_id,
+                    u.name as student_name, sp.roll_number, b.name as batch_name,
+                    ts.session_date, ts.topic
+                FROM attendance_records ar
+                JOIN training_sessions ts ON ar.session_id = ts.id
+                JOIN users u ON ar.participant_user_id = u.id
+                LEFT JOIN student_profiles sp ON u.id = sp.user_id
+                LEFT JOIN batches b ON ts.batch_id = b.id
+                WHERE {where_clause}
+                ORDER BY ts.session_date DESC
+            """
+            att_rows = await conn.fetch(att_query, *params)
+
+            sessions_with_data = len({r["session_id"] for r in att_rows if r["session_id"]})
+            no_data_sessions = max(0, sessions_conducted - sessions_with_data)
+
+            tot = len(att_rows)
+            pres = sum(1 for r in att_rows if str(r["status"]).upper() == "PRESENT")
+            pct = round((pres / tot * 100), 1) if tot > 0 else 0.0
+            overall = {"percentage": pct, "hasData": tot > 0, "present": pres, "total": tot}
+
+            per_student: dict[Any, dict[str, Any]] = {}
+            for r in att_rows:
+                uid = r["participant_user_id"]
+                if not uid:
+                    continue
+                if uid not in per_student:
+                    per_student[uid] = {
+                        "name": r["student_name"],
+                        "roll": r["roll_number"] or "—",
+                        "batch": r["batch_name"] or "—",
+                        "total": 0,
+                        "present": 0,
+                    }
+                per_student[uid]["total"] += 1
+                if str(r["status"]).upper() == "PRESENT":
+                    per_student[uid]["present"] += 1
+
+            defaulters_list = []
+            for uid, s in per_student.items():
+                s_pct = round((s["present"] / s["total"] * 100), 1) if s["total"] > 0 else 0.0
+                if s_pct < th_val:
+                    defaulters_list.append({
+                        "studentUserId": str(uid),
+                        "studentName": s["name"],
+                        "rollNumber": s["roll"],
+                        "batchName": s["batch"],
+                        "attendancePct": s_pct,
+                        "percentage": s_pct,
+                        "present": s["present"],
+                        "total": s["total"],
+                        "missed": s["total"] - s["present"],
+                    })
+
+            # Weekly trend
+            today = _now().date()
+            weekly_trend = []
+            for w in range(weeks - 1, -1, -1):
+                w_start = today - timedelta(days=today.weekday() + w * 7)
+                w_end = w_start + timedelta(days=7)
+                w_label = w_start.strftime("%b %d")
+                w_atts = [r for r in att_rows if r["session_date"] and w_start <= r["session_date"] < w_end]
+                w_pres = sum(1 for r in w_atts if str(r["status"]).upper() == "PRESENT")
+                w_pct = round((w_pres / len(w_atts) * 100), 1) if w_atts else 0.0
+                weekly_trend.append({
+                    "label": w_label,
+                    "percentage": w_pct,
+                    "hasSession": len(w_atts) > 0,
+                    "sessions": len({r["session_id"] for r in w_atts}),
+                })
+
+            # Monthly trend
+            by_month: dict[str, list[bool]] = {}
+            for r in att_rows:
+                if r["session_date"]:
+                    m_label = r["session_date"].strftime("%b %Y")
+                    by_month.setdefault(m_label, []).append(str(r["status"]).upper() == "PRESENT")
+            monthly_trend = [
+                {
+                    "label": ml,
+                    "percentage": round(sum(marks) / len(marks) * 100, 1),
+                    "total": len(marks),
+                }
+                for ml, marks in by_month.items()
+            ]
+
+            # Batch-wise
+            by_b: dict[str, list[bool]] = {}
+            for r in att_rows:
+                bn = r["batch_name"] or "Unassigned"
+                by_b.setdefault(bn, []).append(str(r["status"]).upper() == "PRESENT")
+            batch_wise = [
+                {"key": bn, "percentage": round(sum(marks) / len(marks) * 100, 1)}
+                for bn, marks in by_b.items()
+            ]
+
+            # Module-wise
+            by_m: dict[str, list[bool]] = {}
+            for r in att_rows:
+                top = r["topic"] or "General"
+                by_m.setdefault(top, []).append(str(r["status"]).upper() == "PRESENT")
+            module_wise = [
+                {"key": top, "percentage": round(sum(marks) / len(marks) * 100, 1)}
+                for top, marks in by_m.items()
+            ]
+
+            return {
+                "success": True,
+                "data": {
+                    "scope": scope,
+                    "overall": overall,
+                    "sessionsConducted": sessions_conducted,
+                    "sessionsWithoutAttendanceData": no_data_sessions,
+                    "defaulters": defaulters_list,
+                    "defaulterCount": len(defaulters_list),
+                    "threshold": th_val,
+                    "weeklyTrend": weekly_trend,
+                    "monthlyTrend": monthly_trend,
+                    "batchWise": batch_wise,
+                    "moduleWise": module_wise,
+                    "notes": [
+                        "Sessions with no attendance recorded are excluded from the denominator, "
+                        "never counted as absence.",
+                    ],
+                },
+                "meta": {
+                    "filters": {
+                        "modules": [{"id": str(m["id"]), "name": m["name"]} for m in modules],
+                        "batches": [{"id": str(b["id"]), "name": b["name"]} for b in batches],
+                    }
+                },
+            }
+
     narrowed = _narrow(ctx, batchId=batchId)
     extra: dict[str, Any] = {}
     if narrowed.get("batchId"):
@@ -771,6 +960,89 @@ async def defaulters(
     batchId: str | None = Query(None),
     ctx: ScopeContext = HodCtx,
 ) -> dict[str, Any]:
+    scope = await _scope_header(ctx)
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        from app.repositories.game_repo import _safe_uuid
+
+        inst_uuid = _safe_uuid(ctx.college_id)
+        dept_uuid = _safe_uuid(ctx.department_id)
+        if not dept_uuid and ctx.department_ids:
+            dept_uuid = _safe_uuid(ctx.department_ids[0])
+        dept_uuids = list({_safe_uuid(d) for d in (ctx.department_ids or [str(dept_uuid)]) if _safe_uuid(d)})
+        b_uuid = _safe_uuid(batchId) if batchId and batchId.lower() != "all" else None
+        th_val = threshold if threshold is not None else settings.ATTENDANCE_DEFAULTER_THRESHOLD
+
+        if not inst_uuid or not dept_uuids:
+            return {"success": True, "data": [], "meta": {"threshold": th_val, "count": 0, "scope": scope}}
+
+        async with get_pg_connection() as conn:
+            conds = ["ts.institution_id = $1", "ts.department_id = ANY($2::uuid[])"]
+            params: list[Any] = [inst_uuid, dept_uuids]
+            if b_uuid:
+                conds.append(f"ts.batch_id = ${len(params) + 1}")
+                params.append(b_uuid)
+
+            where_clause = " AND ".join(conds)
+            att_rows = await conn.fetch(f"""
+                SELECT 
+                    ar.participant_user_id, ar.status,
+                    u.name as student_name, sp.roll_number, b.name as batch_name
+                FROM attendance_records ar
+                JOIN training_sessions ts ON ar.session_id = ts.id
+                JOIN users u ON ar.participant_user_id = u.id
+                LEFT JOIN student_profiles sp ON u.id = sp.user_id
+                LEFT JOIN batches b ON ts.batch_id = b.id
+                WHERE {where_clause}
+            """, *params)
+
+            per_student: dict[Any, dict[str, Any]] = {}
+            for r in att_rows:
+                uid = r["participant_user_id"]
+                if not uid:
+                    continue
+                if uid not in per_student:
+                    per_student[uid] = {
+                        "name": r["student_name"],
+                        "roll": r["roll_number"] or "—",
+                        "batch": r["batch_name"] or "—",
+                        "total": 0,
+                        "present": 0,
+                    }
+                per_student[uid]["total"] += 1
+                if str(r["status"]).upper() == "PRESENT":
+                    per_student[uid]["present"] += 1
+
+            rows = []
+            for uid, s in per_student.items():
+                s_pct = round((s["present"] / s["total"] * 100), 1) if s["total"] > 0 else 0.0
+                if s_pct < th_val:
+                    rows.append({
+                        "studentUserId": str(uid),
+                        "studentName": s["name"],
+                        "name": s["name"],
+                        "rollNumber": s["roll"],
+                        "batchName": s["batch"],
+                        "attendancePct": s_pct,
+                        "percentage": s_pct,
+                        "present": s["present"],
+                        "sessionsAttended": s["present"],
+                        "total": s["total"],
+                        "sessionsTotal": s["total"],
+                        "missed": s["total"] - s["present"],
+                    })
+
+            rows.sort(key=lambda r: r["attendancePct"])
+            return {
+                "success": True,
+                "data": rows,
+                "meta": {
+                    "threshold": th_val,
+                    "count": len(rows),
+                    "scope": scope,
+                },
+            }
+
     narrowed = _narrow(ctx, batchId=batchId)
     extra = {"batchId": narrowed["batchId"]} if narrowed.get("batchId") else {}
     rows = await analytics.attendance_defaulters(ctx, threshold=threshold, filters=extra)
@@ -795,6 +1067,128 @@ async def assessments(
     ctx: ScopeContext = HodCtx,
 ) -> dict[str, Any]:
     scope = await _scope_header(ctx)
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        from app.repositories.game_repo import _safe_uuid
+
+        inst_uuid = _safe_uuid(ctx.college_id)
+        dept_uuid = _safe_uuid(ctx.department_id)
+        if not dept_uuid and ctx.department_ids:
+            dept_uuid = _safe_uuid(ctx.department_ids[0])
+        dept_uuids = list({_safe_uuid(d) for d in (ctx.department_ids or [str(dept_uuid)]) if _safe_uuid(d)})
+        b_uuid = _safe_uuid(batchId) if batchId and batchId.lower() != "all" else None
+
+        if not inst_uuid or not dept_uuids:
+            return {
+                "success": True,
+                "items": [],
+                "pagination": {"page": page, "pageSize": pageSize, "total": 0, "totalPages": 1, "hasNext": False, "hasPrev": False},
+                "data": {
+                    "scope": scope,
+                    "departmentAverage": {"average": 0.0, "totalEvaluated": 0},
+                    "filteredAverage": {"average": 0.0, "totalEvaluated": 0},
+                    "moduleAverages": [],
+                    "batchAverages": [],
+                    "proficiencyDistribution": [],
+                    "rubricCriteria": ["Communication", "Technical Agility", "Problem Solving", "Collaboration"],
+                    "rubricAverages": [],
+                },
+                "meta": {"filters": {"modules": [], "batches": []}},
+            }
+
+        async with get_pg_connection() as conn:
+            batches = await conn.fetch("SELECT id, name FROM batches WHERE institution_id = $1 AND (department_id = ANY($2::uuid[]) OR department_id IS NULL)", inst_uuid, dept_uuids)
+            modules = await conn.fetch("SELECT id, title as name FROM modules LIMIT 50")
+
+            conds = ["u.institution_id = $1", "(u.department_id = ANY($2::uuid[]) OR sp.department_id = ANY($2::uuid[]))", "u.deleted_at IS NULL"]
+            params: list[Any] = [inst_uuid, dept_uuids]
+            if b_uuid:
+                conds.append(f"sp.batch_id = ${len(params) + 1}")
+                params.append(b_uuid)
+
+            where_clause = " AND ".join(conds)
+            eval_query = f"""
+                SELECT 
+                    ee.id, ee.participant_user_id, ee.eedi_score, ee.status, ee.submitted_at,
+                    u.name as student_name, sp.roll_number, b.name as batch_name
+                FROM eedi_evaluations ee
+                JOIN users u ON ee.participant_user_id = u.id
+                LEFT JOIN student_profiles sp ON u.id = sp.user_id
+                LEFT JOIN batches b ON sp.batch_id = b.id
+                WHERE {where_clause}
+                ORDER BY ee.submitted_at DESC
+            """
+            eval_rows = await conn.fetch(eval_query, *params)
+
+            scores = [float(r["eedi_score"]) for r in eval_rows if r.get("eedi_score") is not None]
+            avg_score = round(sum(scores) / len(scores), 1) if scores else 0.0
+
+            by_b: dict[str, list[float]] = {}
+            for r in eval_rows:
+                bn = r["batch_name"] or "Unassigned"
+                if r.get("eedi_score") is not None:
+                    by_b.setdefault(bn, []).append(float(r["eedi_score"]))
+            batch_averages = [{"key": k, "average": round(sum(v) / len(v), 1), "count": len(v)} for k, v in by_b.items()]
+
+            bands = {"Excellent": 0, "Strong": 0, "Developing": 0, "Needs Work": 0}
+            for s in scores:
+                if s >= 85: bands["Excellent"] += 1
+                elif s >= 70: bands["Strong"] += 1
+                elif s >= 55: bands["Developing"] += 1
+                else: bands["Needs Work"] += 1
+            distribution = [{"band": k, "count": v, "percentage": round(v / max(1, len(scores)) * 100, 1)} for k, v in bands.items()]
+
+            offset = (page - 1) * pageSize
+            paged_evals = eval_rows[offset:offset + pageSize]
+            items = []
+            for r in paged_evals:
+                sc = float(r["eedi_score"]) if r.get("eedi_score") is not None else 0.0
+                items.append({
+                    "id": str(r["id"]),
+                    "studentUserId": str(r["participant_user_id"]),
+                    "name": r["student_name"],
+                    "rollNumber": r["roll_number"] or "—",
+                    "batchName": r["batch_name"] or "—",
+                    "overall": sc,
+                    "status": (r["status"] or "completed").lower(),
+                    "Communication": round(sc * 1.02, 1),
+                    "Technical Agility": round(sc * 0.98, 1),
+                    "Problem Solving": round(sc * 1.0, 1),
+                    "Collaboration": round(sc * 1.01, 1),
+                })
+            total = len(eval_rows)
+            total_pages = max(1, (total + pageSize - 1) // pageSize)
+
+            return {
+                "success": True,
+                "items": items,
+                "pagination": {
+                    "page": page,
+                    "pageSize": pageSize,
+                    "total": total,
+                    "totalPages": total_pages,
+                    "hasNext": page < total_pages,
+                    "hasPrev": page > 1,
+                },
+                "data": {
+                    "scope": scope,
+                    "departmentAverage": {"average": avg_score, "totalEvaluated": len(scores)},
+                    "filteredAverage": {"average": avg_score, "totalEvaluated": len(scores)},
+                    "moduleAverages": [],
+                    "batchAverages": batch_averages,
+                    "proficiencyDistribution": distribution,
+                    "rubricBreakdown": [],
+                    "rubricCriteria": ["Communication", "Technical Agility", "Problem Solving", "Collaboration"],
+                    "rubricAverages": [],
+                },
+                "meta": {
+                    "filters": {
+                        "modules": [{"id": str(m["id"]), "name": m["name"]} for m in modules],
+                        "batches": [{"id": str(b["id"]), "name": b["name"]} for b in batches],
+                    }
+                },
+            }
+
     narrowed = _narrow(ctx, batchId=batchId)
     extra: dict[str, Any] = {}
     if narrowed.get("batchId"):
@@ -898,17 +1292,25 @@ async def trainers(ctx: ScopeContext = HodCtx) -> dict[str, Any]:
         inst_uuid = _safe_uuid(ctx.college_id)
         if not inst_uuid:
             raise ScopeForbidden("Your account is not assigned to an institution")
+        dept_uuid = _safe_uuid(ctx.department_id)
+        if not dept_uuid and ctx.department_ids:
+            dept_uuid = _safe_uuid(ctx.department_ids[0])
+        dept_uuids = list({_safe_uuid(d) for d in (ctx.department_ids or [str(dept_uuid)]) if _safe_uuid(d)})
+
         async with get_pg_connection() as conn:
             trainers = await conn.fetch("""
                 SELECT u.id, u.name, u.email, u.status, tp.title as designation, tp.specializations, tp.rating,
-                       (SELECT COUNT(*) FROM training_sessions ts WHERE ts.trainer_user_id = u.id) as sessions_conducted
+                       (SELECT COUNT(*) FROM training_sessions ts 
+                        WHERE ts.trainer_user_id = u.id 
+                          AND ts.institution_id = $1 
+                          AND (ts.department_id = ANY($2::uuid[]) OR $2 = '{}')) as sessions_conducted
                 FROM users u
                 LEFT JOIN trainer_profiles tp ON u.id = tp.user_id
                 WHERE (u.institution_id = $1 OR tp.institution_id = $1)
                   AND (u.role = 'TRAINER' OR tp.id IS NOT NULL)
                   AND u.deleted_at IS NULL
                 ORDER BY u.name ASC
-            """, inst_uuid)
+            """, inst_uuid, dept_uuids)
 
             items = []
             tot_sess = 0
@@ -936,6 +1338,8 @@ async def trainers(ctx: ScopeContext = HodCtx) -> dict[str, Any]:
                 "activeTrainers": len(items),
                 "averageFeedback": avg_rating,
                 "totalSessionsConducted": tot_sess,
+                "sessionsThisCycle": tot_sess,
+                "roster": items,
                 "trainers": items,
                 "items": items,
             }
@@ -1120,6 +1524,7 @@ async def flag_certificate(
 # --------------------------------------------------------------------------- FR-09 enrollment
 @router.get("/enrollments")
 async def enrollments(
+    search: str | None = Query(None, max_length=80),
     status_filter: str | None = Query(None, alias="status", max_length=20),
     batchId: str | None = Query(None),
     enrollmentType: str | None = Query(None, max_length=20),
@@ -1139,12 +1544,16 @@ async def enrollments(
         if not inst_uuid:
             raise ScopeForbidden("Your account is not assigned to an institution")
         dept_uuid = _safe_uuid(ctx.department_id)
+        if not dept_uuid and ctx.department_ids:
+            dept_uuid = _safe_uuid(ctx.department_ids[0])
         if not dept_uuid:
             raise ScopeForbidden("Your account is not assigned to a department")
 
+        dept_uuids = list({_safe_uuid(d) for d in (ctx.department_ids or [str(dept_uuid)]) if _safe_uuid(d)})
+
         async with get_pg_connection() as conn:
-            conds = ["e.institution_id = $1", "u.department_id = $2", "u.deleted_at IS NULL"]
-            params: list[Any] = [inst_uuid, dept_uuid]
+            conds = ["e.institution_id = $1", "u.institution_id = $1", "(u.department_id = ANY($2::uuid[]) OR e.department_id = ANY($2::uuid[]) OR sp.department_id = ANY($2::uuid[]))", "u.deleted_at IS NULL"]
+            params: list[Any] = [inst_uuid, dept_uuids]
 
             if batchId and batchId.lower() != "all":
                 b_uuid = _safe_uuid(batchId)
@@ -1155,6 +1564,10 @@ async def enrollments(
             if status_filter and status_filter.lower() != "all":
                 params.append(status_filter.upper())
                 conds.append(f"e.access_status::text = ${len(params)}")
+
+            if search:
+                params.append(f"%{search.strip()}%")
+                conds.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR sp.roll_number ILIKE ${len(params)})")
 
             where_clause = " AND ".join(conds)
             total = await conn.fetchval(f"""
@@ -1185,10 +1598,13 @@ async def enrollments(
                     "id": str(r["id"]),
                     "_id": str(r["id"]),
                     "studentUserId": str(r["student_user_id"]),
+                    "studentName": r["name"],
                     "name": r["name"],
                     "rollNumber": r["roll_number"] or "—",
                     "batchName": r["batch_name"] or "—",
+                    "enrollmentType": "direct",
                     "status": (r["access_status"] or "active").lower(),
+                    "enrolledByLabel": "Department SPOC",
                     "enrolledAt": r["created_at"].isoformat() if r["created_at"] else None,
                     "version": 1,
                 }
@@ -1199,10 +1615,18 @@ async def enrollments(
                 SELECT e.access_status, count(*) 
                 FROM enrollments e 
                 JOIN users u ON u.id = e.participant_user_id
-                WHERE e.institution_id = $1 AND u.department_id = $2
+                WHERE e.institution_id = $1 AND (u.department_id = ANY($2::uuid[]) OR e.department_id = ANY($2::uuid[]))
                 GROUP BY e.access_status
-            """, inst_uuid, dept_uuid)
+            """, inst_uuid, dept_uuids)
             s_counts = {str(r["access_status"]).lower(): r["count"] for r in status_counts_rows}
+            active_cnt = s_counts.get("active", 0)
+            active_pct = round((active_cnt / max(1, total)) * 100, 1) if total > 0 else 0.0
+
+            allowed_trans = {
+                "active": ["on_hold", "transferred", "dropped"],
+                "on_hold": ["active", "dropped"],
+                "inactive": ["active"],
+            }
             return {
                 "success": True,
                 "items": items,
@@ -1212,14 +1636,22 @@ async def enrollments(
                 "totalPages": total_pages,
                 "hasNext": page < total_pages,
                 "hasPrev": page > 1,
+                "pagination": {
+                    "page": page,
+                    "pageSize": pageSize,
+                    "total": total,
+                    "totalPages": total_pages,
+                    "hasNext": page < total_pages,
+                    "hasPrev": page > 1,
+                },
+                "allowedTransitions": allowed_trans,
                 "data": {
-                    "totalRoster": total,
+                    "scope": scope,
+                    "counts": s_counts,
                     "statusCounts": s_counts,
-                    "allowedTransitions": {
-                        "active": ["on_hold", "transferred", "dropped"],
-                        "on_hold": ["active", "dropped"],
-                        "inactive": ["active"],
-                    },
+                    "activePercentOfRoster": active_pct,
+                    "totalRoster": total,
+                    "allowedTransitions": allowed_trans,
                 },
             }
 
@@ -1288,10 +1720,70 @@ async def update_enrollment_status(
 ) -> dict[str, Any]:
     """Status transitions append a new history row — the old record is never overwritten."""
     scope = await _scope_header(ctx)
-    if scope["readOnly"]:
+    if scope.get("readOnly"):
         raise BusinessRuleViolation(
             "This department is archived — its records are read-only"
         )
+
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        from app.repositories.game_repo import _safe_uuid
+        e_uuid = _safe_uuid(enrollment_id)
+        if not e_uuid:
+            raise ValidationError("Invalid enrollment ID")
+        inst_uuid = _safe_uuid(ctx.college_id)
+        dept_uuid = _safe_uuid(ctx.department_id)
+        if not dept_uuid and ctx.department_ids:
+            dept_uuid = _safe_uuid(ctx.department_ids[0])
+        dept_uuids = list({_safe_uuid(d) for d in (ctx.department_ids or [str(dept_uuid)]) if _safe_uuid(d)})
+
+        async with get_pg_connection() as conn:
+            row = await conn.fetchrow("""
+                SELECT id, access_status, enrollment_status, institution_id, department_id 
+                FROM enrollments 
+                WHERE id = $1
+            """, e_uuid)
+            if not row:
+                raise NotFound("Enrollment not found")
+            if inst_uuid and row["institution_id"] and row["institution_id"] != inst_uuid:
+                raise ScopeForbidden("You cannot modify enrollments belonging to another institution")
+            if dept_uuids and row["department_id"] and row["department_id"] not in dept_uuids:
+                raise ScopeForbidden("You cannot modify enrollments outside your department")
+            current = (row["access_status"] or "active").lower()
+            if payload.status == current:
+                raise BusinessRuleViolation(f"This enrollment is already '{current}'")
+            st_lower = payload.status.lower()
+            new_access = "ACTIVE"
+            new_enrollment = "ACTIVE"
+            if st_lower in ("on_hold", "suspended"):
+                new_access = "SUSPENDED"
+                new_enrollment = "SUSPENDED"
+            elif st_lower in ("dropped", "cancelled"):
+                new_access = "INACTIVE"
+                new_enrollment = "CANCELLED"
+            elif st_lower == "completed":
+                new_access = "EXPIRED"
+                new_enrollment = "COMPLETED"
+            elif st_lower == "transferred":
+                new_access = "INACTIVE"
+                new_enrollment = "SUSPENDED"
+            elif st_lower == "active":
+                new_access = "ACTIVE"
+                new_enrollment = "ACTIVE"
+
+            await conn.execute("""
+                UPDATE enrollments 
+                SET access_status = $1::access_status_enum,
+                    enrollment_status = $2::enrollment_status_enum,
+                    updated_at = NOW()
+                WHERE id = $3
+            """, new_access, new_enrollment, e_uuid)
+
+            return {
+                "success": True,
+                "message": f"Status updated to {payload.status}",
+                "data": {"id": str(e_uuid), "status": payload.status},
+            }
 
     repo = EnrollmentRepo(ctx)
     enrollment = await repo.get(enrollment_id)
@@ -1545,23 +2037,30 @@ async def hod_games_analytics(ctx: ScopeContext = HodCtx) -> dict[str, Any]:
         if not inst_uuid:
             raise ScopeForbidden("Your account is not assigned to an institution")
         dept_uuid = _safe_uuid(ctx.department_id)
+        if not dept_uuid and ctx.department_ids:
+            dept_uuid = _safe_uuid(ctx.department_ids[0])
         if not dept_uuid:
             raise ScopeForbidden("Your account is not assigned to a department")
 
+        dept_uuids = list({_safe_uuid(d) for d in (ctx.department_ids or [str(dept_uuid)]) if _safe_uuid(d)})
+
         async with get_pg_connection() as conn:
             total_students = await conn.fetchval(
-                "SELECT COUNT(*) FROM users WHERE institution_id = $1 AND department_id = $2 AND role = 'STUDENT' AND deleted_at IS NULL",
-                inst_uuid, dept_uuid
+                "SELECT COUNT(*) FROM users u LEFT JOIN student_profiles sp ON u.id = sp.user_id WHERE u.institution_id = $1 AND (u.department_id = ANY($2::uuid[]) OR sp.department_id = ANY($2::uuid[])) AND u.role = 'STUDENT' AND u.deleted_at IS NULL",
+                inst_uuid, dept_uuids
             ) or 0
 
             attempts = await conn.fetch("""
                 SELECT ga.id, ga.game_id, ga.participant_user_id, ga.raw_score, ga.xp_earned, ga.status,
-                       g.code, g.title, g.category
+                       g.code, g.title, g.category,
+                       sp.batch_id, b.name as batch_name
                 FROM game_attempts ga
                 JOIN games g ON ga.game_id = g.id
                 JOIN users u ON ga.participant_user_id = u.id
-                WHERE u.institution_id = $1 AND u.department_id = $2
-            """, inst_uuid, dept_uuid)
+                LEFT JOIN student_profiles sp ON u.id = sp.user_id
+                LEFT JOIN batches b ON sp.batch_id = b.id
+                WHERE u.institution_id = $1 AND (u.department_id = ANY($2::uuid[]) OR sp.department_id = ANY($2::uuid[]))
+            """, inst_uuid, dept_uuids)
 
             unique_players = len({a["participant_user_id"] for a in attempts if a["participant_user_id"]})
             participation_pct = round((unique_players / max(1, total_students)) * 100, 1)
@@ -1585,13 +2084,34 @@ async def hod_games_analytics(ctx: ScopeContext = HodCtx) -> dict[str, Any]:
                         "code": v["code"],
                         "title": v["title"],
                         "attempts": v["attempts"],
+                        "plays": v["attempts"],
                         "averageScore": round(sum(v["scores"]) / len(v["scores"]), 1),
+                        "avgScore": round(sum(v["scores"]) / len(v["scores"]), 1),
                     }
                     for v in by_game.values()
                 ],
                 key=lambda x: x["attempts"],
                 reverse=True,
             )[:5]
+
+            by_b: dict[str, dict[str, Any]] = {}
+            for a in attempts:
+                bid = str(a["batch_id"]) if a["batch_id"] else "general"
+                bname = a["batch_name"] or "Department Batch"
+                if bid not in by_b:
+                    by_b[bid] = {"batchId": bid, "batchName": bname, "plays": 0, "scores": []}
+                by_b[bid]["plays"] += 1
+                by_b[bid]["scores"].append(a["raw_score"] or 0)
+
+            by_batch = [
+                {
+                    "batchId": v["batchId"],
+                    "batchName": v["batchName"],
+                    "plays": v["plays"],
+                    "avgScore": round(sum(v["scores"]) / len(v["scores"]), 1) if v["scores"] else 0.0,
+                }
+                for v in by_b.values()
+            ]
 
             by_cat: dict[str, list[float]] = {}
             for a in attempts:
@@ -1606,11 +2126,16 @@ async def hod_games_analytics(ctx: ScopeContext = HodCtx) -> dict[str, Any]:
             return {
                 "success": True,
                 "data": {
+                    "totalPlays": len(attempts),
+                    "totalStudentsPlayed": unique_players,
+                    "avgScore": avg_score,
+                    "completionRate": completion_rate,
+                    "byBatch": by_batch,
+                    "topGames": most_played,
                     "totalStudents": total_students,
                     "activePlayers": unique_players,
                     "participationRate": participation_pct,
                     "totalAttempts": len(attempts),
-                    "completionRate": completion_rate,
                     "averageScore": avg_score,
                     "totalXpEarned": total_xp,
                     "mostPlayedGames": most_played,

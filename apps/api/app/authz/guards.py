@@ -92,6 +92,36 @@ async def get_scope_context(request: Request) -> ScopeContext:
                     "status": str(pg_user["status"]).lower(),
                     "emailVerified": bool(pg_user.get("email_verified", True)),
                 }
+                # Hydrate missing department / institution from profile or assignment tables
+                if not user.get("departmentId") and str(user.get("role")).upper() in ("HOD", "SPOC"):
+                    from app.db.postgres import get_pg_connection
+                    import uuid as _uuid
+                    try:
+                        async with get_pg_connection() as conn:
+                            s_dept = await conn.fetchval(
+                                "SELECT department_id FROM spoc_branch_assignments WHERE spoc_user_id = $1::uuid LIMIT 1",
+                                _uuid.UUID(str(user_id)),
+                            )
+                            if s_dept:
+                                user["departmentId"] = str(s_dept)
+                    except Exception:
+                        pass
+                elif str(user.get("role")).upper() == "STUDENT" and (not user.get("departmentId") or not user.get("collegeId")):
+                    from app.db.postgres import get_pg_connection
+                    import uuid as _uuid
+                    try:
+                        async with get_pg_connection() as conn:
+                            sp_row = await conn.fetchrow(
+                                "SELECT institution_id, department_id FROM student_profiles WHERE user_id = $1::uuid LIMIT 1",
+                                _uuid.UUID(str(user_id)),
+                            )
+                            if sp_row:
+                                if not user.get("collegeId") and sp_row.get("institution_id"):
+                                    user["collegeId"] = str(sp_row["institution_id"])
+                                if not user.get("departmentId") and sp_row.get("department_id"):
+                                    user["departmentId"] = str(sp_row["department_id"])
+                    except Exception:
+                        pass
         except Exception:
             pass
     else:
