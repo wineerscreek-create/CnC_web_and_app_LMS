@@ -694,6 +694,47 @@ async def dashboard(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
 @router.get("/learning-path")
 async def learning_path(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
     stages = ("Foundation", "Communication", "Technical", "Interview Ready")
+    if settings.USE_POSTGRES and ctx.user_id:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        try:
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+            async with get_pg_connection() as conn:
+                rows = await conn.fetch("""
+                    SELECT c.category, e.current_period, c.total_periods
+                    FROM enrollments e
+                    JOIN courses c ON e.course_id = c.id
+                    WHERE e.participant_user_id = $1 AND e.enrollment_status = 'ACTIVE'
+                """, u_uuid)
+                by_stage: dict[str, list[float]] = {s: [] for s in stages}
+                for r in rows:
+                    cat = r["category"] or "Foundation"
+                    matched_stage = "Foundation"
+                    for s in stages:
+                        if s.lower() in cat.lower():
+                            matched_stage = s
+                            break
+                    cur_p = r["current_period"] or 1
+                    tot_p = max(1, r["total_periods"] or 8)
+                    pct = round(min(100.0, max(0.0, ((cur_p - 1) / tot_p) * 100)), 1)
+                    by_stage[matched_stage].append(pct)
+
+                out = []
+                for index, stage in enumerate(stages):
+                    values = by_stage[stage]
+                    average = round(sum(values) / len(values), 1) if values else 0.0
+                    state = "completed" if average >= 99 else ("in_progress" if average > 0 else "upcoming")
+                    if state == "upcoming" and index > 0 and out[index - 1]["state"] == "completed":
+                        state = "in_progress" if average > 0 else "upcoming"
+                    out.append({"stage": stage, "percent": average, "state": state, "courses": len(values)})
+
+                overall = round(sum(s["percent"] for s in out) / len(out), 1) if out else 0.0
+                return {"success": True, "data": {"stages": out, "overallPercent": overall}}
+        except Exception as e:
+            log.warning("learning_path_failed", extra={"error": str(e), "user_id": str(ctx.user_id)})
+            out = [{"stage": s, "percent": 0.0, "state": "upcoming", "courses": 0} for s in stages]
+            return {"success": True, "data": {"stages": out, "overallPercent": 0.0}}
+
     try:
         progress = await CourseProgressRepo(ctx).find_all(
             {"studentUserId": ctx.user_id}, limit=200
@@ -724,7 +765,7 @@ async def learning_path(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
         )
         return {"success": True, "data": {"stages": out, "overallPercent": overall}}
     except Exception as e:
-        logger.warning(f"Error computing learning path for student {ctx.user_id}: {e}")
+        log.warning("learning_path_failed", extra={"error": str(e), "user_id": str(ctx.user_id)})
         out = [{"stage": s, "percent": 0.0, "state": "upcoming", "courses": 0} for s in stages]
         return {"success": True, "data": {"stages": out, "overallPercent": 0.0}}
 
@@ -2993,7 +3034,13 @@ async def get_profile(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
                 score = {"finalScore": 78.5, "delta": 3.0}
 
             cert_rows = await conn.fetch(
-                "SELECT id, certificate_number, title, issued_at, status FROM certificates WHERE participant_user_id = $1::uuid LIMIT 20",
+                """
+                SELECT c.id, c.certificate_number, COALESCE(co.title, 'Course Certificate') as title, c.issued_at, c.file_url, c.status
+                FROM certificates c
+                LEFT JOIN courses co ON c.course_id = co.id
+                WHERE c.participant_user_id = $1::uuid
+                ORDER BY c.issued_at DESC LIMIT 20
+                """,
                 u_uuid,
             )
             certificates = [
@@ -3003,6 +3050,7 @@ async def get_profile(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
                     "certificateNo": r["certificate_number"],
                     "status": str(r["status"]).lower(),
                     "issuedAt": r["issued_at"].isoformat() if r["issued_at"] else None,
+                    "downloadUrl": r.get("file_url"),
                 }
                 for r in cert_rows
             ]
@@ -3467,10 +3515,11 @@ async def student_certificates(ctx: ScopeContext = StudentCtx) -> dict[str, Any]
         import uuid as _uuid
         async with get_pg_connection() as conn:
             rows = await conn.fetch("""
-                SELECT id, certificate_number, title, issued_at, storage_key, status
-                FROM certificates
-                WHERE participant_user_id = $1::uuid
-                ORDER BY issued_at DESC LIMIT 50
+                SELECT c.id, c.certificate_number, COALESCE(co.title, 'Course Certificate') as title, c.issued_at, c.file_url, c.status
+                FROM certificates c
+                LEFT JOIN courses co ON c.course_id = co.id
+                WHERE c.participant_user_id = $1::uuid
+                ORDER BY c.issued_at DESC LIMIT 50
             """, _uuid.UUID(str(ctx.user_id)))
             out = []
             for r in rows:
@@ -3480,12 +3529,8 @@ async def student_certificates(ctx: ScopeContext = StudentCtx) -> dict[str, Any]
                     "title": r["title"],
                     "issuedAt": r["issued_at"].isoformat() if r["issued_at"] else None,
                     "status": (r["status"] or "issued").lower(),
+                    "downloadUrl": r.get("file_url"),
                 }
-                if r.get("storage_key") and (r.get("status") or "").upper() == "ISSUED":
-                    try:
-                        item["downloadUrl"] = await signed_url(r["storage_key"], filename=f"{r['certificate_number']}.pdf")
-                    except Exception:
-                        pass
                 out.append(item)
             return {"success": True, "data": out}
 
@@ -3601,6 +3646,72 @@ async def list_ebooks(
     search: str | None = None,
     course_id: str | None = None,
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES and ctx.user_id:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        try:
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+            async with get_pg_connection() as conn:
+                conds = ["e.published = TRUE", "e.deleted_at IS NULL"]
+                params: list[Any] = [u_uuid]
+                if category and category.lower() != "all":
+                    params.append(category)
+                    conds.append(f"e.category = ${len(params)}")
+                if course_id:
+                    try:
+                        c_uuid = _uuid.UUID(str(course_id))
+                        params.append(c_uuid)
+                        conds.append(f"e.course_id = ${len(params)}")
+                    except Exception:
+                        pass
+                if search:
+                    params.append(f"%{search.strip()}%")
+                    conds.append(f"(e.title ILIKE ${len(params)} OR e.author ILIKE ${len(params)})")
+
+                where_sql = " AND ".join(conds)
+                rows = await conn.fetch(f"""
+                    SELECT e.id, e.title, e.author, e.description, e.category, e.cover_key, e.cover_image, e.file_url,
+                           e.page_count, e.file_size_bytes, e.course_id, co.title as course_title, e.tags,
+                           ep.current_page, ep.total_pages, ep.progress_percent, ep.completed, ep.last_read_at,
+                           (SELECT COUNT(*) FROM ebook_bookmarks eb WHERE eb.ebook_id = e.id AND eb.student_user_id = $1) > 0 as is_bookmarked
+                    FROM ebooks e
+                    LEFT JOIN courses co ON e.course_id = co.id
+                    LEFT JOIN ebook_progress ep ON ep.ebook_id = e.id AND ep.student_user_id = $1
+                    WHERE {where_sql}
+                    ORDER BY e.created_at DESC LIMIT 100
+                """, *params)
+
+                items = []
+                for r in rows:
+                    cover_url = r["cover_image"]
+                    if not cover_url and r.get("cover_key"):
+                        try:
+                            cover_url = await signed_url(r["cover_key"], ttl=3600)
+                        except Exception:
+                            cover_url = None
+                    items.append({
+                        "id": str(r["id"]),
+                        "title": r["title"],
+                        "author": r["author"],
+                        "description": r["description"],
+                        "category": r["category"] or "General",
+                        "coverUrl": cover_url,
+                        "pageCount": r["page_count"] or 120,
+                        "fileSizeBytes": r["file_size_bytes"] or 0,
+                        "courseId": str(r["course_id"]) if r["course_id"] else None,
+                        "courseTitle": r["course_title"],
+                        "tags": r["tags"] or [],
+                        "currentPage": r["current_page"] or 0,
+                        "progressPercent": float(r["progress_percent"]) if r["progress_percent"] is not None else 0,
+                        "completed": bool(r["completed"]),
+                        "isBookmarked": bool(r["is_bookmarked"]),
+                        "lastReadAt": r["last_read_at"].isoformat() if r["last_read_at"] else None,
+                    })
+                return {"success": True, "data": items}
+        except Exception as e:
+            log.warning("list_ebooks_pg_failed", extra={"error": str(e)})
+            return {"success": True, "data": []}
+
     query: dict[str, Any] = {"published": True}
     if category and category != "all":
         query["category"] = category
@@ -3651,6 +3762,45 @@ async def list_ebooks(
 @router.get("/ebooks/my-uploads")
 async def student_my_uploads(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
     """Returns all eBooks uploaded by the current student with publication request statuses."""
+    if settings.USE_POSTGRES and ctx.user_id:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        try:
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+            async with get_pg_connection() as conn:
+                rows = await conn.fetch("""
+                    SELECT e.id, e.slug, e.title, e.category, e.page_count, e.file_size_bytes,
+                           e.status, e.published, e.cover_key, e.cover_image, e.created_at,
+                           (SELECT epr.status FROM ebook_publish_requests epr WHERE epr.ebook_id = e.id ORDER BY epr.created_at DESC LIMIT 1) as req_status,
+                           (SELECT epr.rejection_reason FROM ebook_publish_requests epr WHERE epr.ebook_id = e.id ORDER BY epr.created_at DESC LIMIT 1) as rejection_reason
+                    FROM ebooks e
+                    WHERE e.uploaded_by = $1 AND e.deleted_at IS NULL
+                    ORDER BY e.created_at DESC LIMIT 100
+                """, u_uuid)
+                items = []
+                for b in rows:
+                    cover_url = b["cover_image"]
+                    if not cover_url and b.get("cover_key"):
+                        cover_url = f"/api/v1/ebooks/{str(b['id'])}/cover"
+                    items.append({
+                        "id": str(b["id"]),
+                        "slug": b["slug"],
+                        "title": b["title"],
+                        "category": b["category"],
+                        "pageCount": b["page_count"] or 1,
+                        "fileSizeBytes": b["file_size_bytes"] or 0,
+                        "status": b["status"] or "DRAFT",
+                        "published": bool(b["published"]),
+                        "coverUrl": cover_url,
+                        "rejectionReason": b["rejection_reason"],
+                        "createdAt": b["created_at"].isoformat() if b["created_at"] else None,
+                        "hasPendingRequest": b["req_status"] == "PENDING",
+                    })
+                return {"success": True, "data": items}
+        except Exception as e:
+            log.warning("student_my_uploads_pg_failed", extra={"error": str(e)})
+            return {"success": True, "data": []}
+
     db = get_db()
     books = await db.ebooks.find({"uploadedBy": ctx.user_id, "deletedAt": None}).sort("createdAt", -1).to_list(100)
     items = []
@@ -3718,6 +3868,27 @@ async def student_upload_ebook(
 
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
 
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        pg_ebook_id = _uuid.uuid4()
+        u_uuid = _uuid.UUID(str(ctx.user_id)) if ctx.user_id else None
+        c_uuid = _uuid.UUID(str(ctx.college_id)) if ctx.college_id else None
+        async with get_pg_connection() as conn:
+            await conn.execute("""
+                INSERT INTO ebooks (
+                    id, slug, title, description, short_description, category, author,
+                    uploaded_by, institution_id, file_key, cover_key, page_count, file_size_bytes,
+                    tags, status, published, visibility, is_featured, is_pinned, display_order,
+                    allow_download, reads_count, created_at, updated_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'DRAFT', FALSE, 'PUBLIC', FALSE, FALSE, 0, FALSE, 0, NOW(), NOW())
+            """, pg_ebook_id, f"{slugify(title)}-{str(pg_ebook_id)[:6]}", title.strip(), description.strip(),
+                description.strip()[:140] + ("..." if len(description.strip()) > 140 else ""),
+                category.strip() or "General", author.strip() or ctx.name or "Student Author",
+                u_uuid, c_uuid, pdf_key, cover_key, page_count, file_size, tag_list)
+        return {"success": True, "data": {"id": str(pg_ebook_id), "title": title.strip()}, "message": "eBook uploaded successfully as Draft."}
+
     doc = {
         "_id": ebook_id,
         "slug": f"{slugify(title)}-{str_id[-6:]}",
@@ -3753,6 +3924,62 @@ async def student_upload_ebook(
 
 @router.get("/ebooks/{ebook_id}")
 async def get_ebook_details(ebook_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES and ctx.user_id:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        try:
+            e_uuid = _uuid.UUID(str(ebook_id))
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+            async with get_pg_connection() as conn:
+                book = await conn.fetchrow("""
+                    SELECT e.id, e.title, e.author, e.description, e.category, e.cover_key, e.cover_image,
+                           e.file_key, e.file_url, e.page_count, co.title as course_title, e.tags
+                    FROM ebooks e
+                    LEFT JOIN courses co ON e.course_id = co.id
+                    WHERE e.id = $1 AND e.published = TRUE AND e.deleted_at IS NULL
+                """, e_uuid)
+                if not book:
+                    raise NotFound("E-Book not found or not published.")
+                await conn.execute("UPDATE ebooks SET reads_count = reads_count + 1 WHERE id = $1", e_uuid)
+                prog = await conn.fetchrow("SELECT current_page, progress_percent, completed FROM ebook_progress WHERE ebook_id = $1 AND student_user_id = $2", e_uuid, u_uuid)
+                is_bm = await conn.fetchval("SELECT count(*) FROM ebook_bookmarks WHERE ebook_id = $1 AND student_user_id = $2", e_uuid, u_uuid)
+                file_url = book["file_url"]
+                if not file_url and book.get("file_key"):
+                    try:
+                        file_url = await signed_url(book["file_key"], ttl=7200, filename=f"{book.get('title', 'book')}.pdf")
+                    except Exception:
+                        pass
+                cover_url = book["cover_image"]
+                if not cover_url and book.get("cover_key"):
+                    try:
+                        cover_url = await signed_url(book["cover_key"], ttl=7200)
+                    except Exception:
+                        pass
+                return {
+                    "success": True,
+                    "data": {
+                        "id": str(book["id"]),
+                        "title": book["title"],
+                        "author": book["author"],
+                        "description": book["description"],
+                        "category": book["category"],
+                        "coverUrl": cover_url,
+                        "fileUrl": file_url,
+                        "pageCount": book["page_count"] or 120,
+                        "courseTitle": book["course_title"],
+                        "tags": book["tags"] or [],
+                        "currentPage": prog["current_page"] if prog else 0,
+                        "progressPercent": float(prog["progress_percent"]) if prog and prog["progress_percent"] is not None else 0,
+                        "completed": bool(prog["completed"]) if prog else False,
+                        "isBookmarked": bool(is_bm and is_bm > 0),
+                    }
+                }
+        except NotFound:
+            raise
+        except Exception as e:
+            log.warning("get_ebook_details_pg_failed", extra={"error": str(e)})
+            raise NotFound("E-Book not found.")
+
     if not ObjectId.is_valid(ebook_id):
         raise NotFound("E-Book not found.")
     oid = ObjectId(ebook_id)
@@ -3797,6 +4024,29 @@ async def get_ebook_details(ebook_id: str, ctx: ScopeContext = StudentCtx) -> di
 
 @router.post("/ebooks/{ebook_id}/progress")
 async def update_ebook_progress(ebook_id: str, payload: dict[str, Any], ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES and ctx.user_id:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        try:
+            e_uuid = _uuid.UUID(str(ebook_id))
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+            current_page = int(payload.get("currentPage", 1))
+            total_pages = int(payload.get("totalPages", 100))
+            completed = bool(payload.get("completed", False)) or (current_page >= total_pages)
+            pct = min(100.0, round((current_page / max(1, total_pages)) * 100, 1))
+            async with get_pg_connection() as conn:
+                await conn.execute("""
+                    INSERT INTO ebook_progress (id, ebook_id, student_user_id, current_page, total_pages, progress_percent, completed, last_read_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                    ON CONFLICT (ebook_id, student_user_id) DO UPDATE
+                    SET current_page = EXCLUDED.current_page, total_pages = EXCLUDED.total_pages,
+                        progress_percent = EXCLUDED.progress_percent, completed = EXCLUDED.completed, last_read_at = NOW()
+                """, _uuid.uuid4(), e_uuid, u_uuid, current_page, total_pages, pct, completed)
+            return {"success": True, "progressPercent": pct, "completed": completed}
+        except Exception as e:
+            log.warning("update_ebook_progress_pg_failed", extra={"error": str(e)})
+            return {"success": True, "progressPercent": 0, "completed": False}
+
     if not ObjectId.is_valid(ebook_id):
         raise NotFound("E-Book not found.")
     oid = ObjectId(ebook_id)
@@ -3834,6 +4084,27 @@ async def update_ebook_progress(ebook_id: str, payload: dict[str, Any], ctx: Sco
 
 @router.post("/ebooks/{ebook_id}/bookmark")
 async def toggle_ebook_bookmark(ebook_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES and ctx.user_id:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        try:
+            e_uuid = _uuid.UUID(str(ebook_id))
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+            async with get_pg_connection() as conn:
+                existing = await conn.fetchrow("SELECT id FROM ebook_bookmarks WHERE ebook_id = $1 AND student_user_id = $2", e_uuid, u_uuid)
+                if existing:
+                    await conn.execute("DELETE FROM ebook_bookmarks WHERE id = $1", existing["id"])
+                    return {"success": True, "bookmarked": False}
+                else:
+                    await conn.execute("""
+                        INSERT INTO ebook_bookmarks (id, ebook_id, student_user_id, page_number, title, created_at)
+                        VALUES ($1, $2, $3, 1, '', NOW())
+                    """, _uuid.uuid4(), e_uuid, u_uuid)
+                    return {"success": True, "bookmarked": True}
+        except Exception as e:
+            log.warning("toggle_ebook_bookmark_pg_failed", extra={"error": str(e)})
+            return {"success": True, "bookmarked": False}
+
     if not ObjectId.is_valid(ebook_id):
         raise NotFound("E-Book not found.")
     oid = ObjectId(ebook_id)
@@ -3859,6 +4130,31 @@ async def student_request_publish(
     ctx: ScopeContext = StudentCtx,
 ) -> dict[str, Any]:
     """Student requests their uploaded eBook to be reviewed and published publicly by Super Admin."""
+    if settings.USE_POSTGRES and ctx.user_id:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        try:
+            e_uuid = _uuid.UUID(str(ebook_id))
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+            message = str(payload.get("message", "")).strip()
+            async with get_pg_connection() as conn:
+                book = await conn.fetchrow("SELECT id, title, published FROM ebooks WHERE id = $1 AND uploaded_by = $2 AND deleted_at IS NULL", e_uuid, u_uuid)
+                if not book:
+                    raise NotFound("eBook not found.")
+                if book["published"]:
+                    return {"success": True, "message": "eBook is already published."}
+                await conn.execute("UPDATE ebooks SET status = 'PENDING_REVIEW', updated_at = NOW() WHERE id = $1", e_uuid)
+                await conn.execute("""
+                    INSERT INTO ebook_publish_requests (id, ebook_id, requested_by, request_message, status, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, 'PENDING', NOW(), NOW())
+                """, _uuid.uuid4(), e_uuid, u_uuid, message)
+                return {"success": True, "message": "Publishing request submitted for Super Admin review."}
+        except NotFound:
+            raise
+        except Exception as e:
+            log.warning("student_request_publish_pg_failed", extra={"error": str(e)})
+            return {"success": True, "message": "Publishing request submitted."}
+
     db = get_db()
     oid = ObjectId(ebook_id)
     book = await db.ebooks.find_one({"_id": oid, "uploadedBy": ctx.user_id, "deletedAt": None})
@@ -3904,19 +4200,95 @@ async def list_chat_mentors(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
 
 @router.get("/chat/conversations")
 async def list_student_conversations(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES and ctx.user_id:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        try:
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+            async with get_pg_connection() as conn:
+                rows = await conn.fetch("""
+                    SELECT c.id, c.institution_id, c.student_user_id, c.trainer_user_id,
+                           c.last_message_at, c.last_message_text, c.student_unread_count, c.trainer_unread_count,
+                           u.name as trainer_name, u.avatar_color as trainer_avatar_color
+                    FROM conversations c
+                    JOIN users u ON c.trainer_user_id = u.id
+                    WHERE c.student_user_id = $1
+                    ORDER BY c.last_message_at DESC NULLS LAST
+                """, u_uuid)
+                items = []
+                for r in rows:
+                    items.append({
+                        "id": str(r["id"]),
+                        "_id": str(r["id"]),
+                        "studentUserId": str(r["student_user_id"]),
+                        "trainerUserId": str(r["trainer_user_id"]),
+                        "trainerName": r["trainer_name"],
+                        "trainerAvatarColor": r["trainer_avatar_color"] or "#6366f1",
+                        "lastMessageAt": r["last_message_at"].isoformat() if r["last_message_at"] else None,
+                        "lastMessageText": r["last_message_text"] or "",
+                        "unreadCount": r["student_unread_count"] or 0,
+                    })
+                return {"success": True, "data": items}
+        except Exception as e:
+            log.warning("list_student_conversations_pg_failed", extra={"error": str(e)})
+            return {"success": True, "data": []}
+
     convs = await get_db().conversations.find({"studentUserId": ctx.user_id, "collegeId": ctx.college_id}).sort("lastMessageAt", -1).to_list(100)
     return {"success": True, "data": serialize(convs)}
 
 
 @router.post("/chat/conversations/start")
 async def start_student_conversation(payload: dict[str, Any], ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
-    trainer_id = ObjectId(payload["trainerUserId"])
+    trainer_id = payload["trainerUserId"]
     conv = await chat_service.get_or_create_conversation(ctx.user_id, trainer_id, ctx.college_id)
     return {"success": True, "data": serialize(conv)}
 
 
 @router.get("/chat/conversations/{conv_id}/messages")
 async def get_student_chat_messages(conv_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES and ctx.user_id:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        try:
+            c_uuid = _uuid.UUID(str(conv_id))
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+            async with get_pg_connection() as conn:
+                conv = await conn.fetchrow("SELECT * FROM conversations WHERE id = $1 AND student_user_id = $2", c_uuid, u_uuid)
+                if not conv:
+                    raise NotFound("Conversation not found.")
+                msgs = await conn.fetch("""
+                    SELECT id, conversation_id, sender_user_id, receiver_user_id, sender_role,
+                           message_type, message_text, is_read, read_at, created_at
+                    FROM messages
+                    WHERE conversation_id = $1
+                    ORDER BY created_at ASC LIMIT 200
+                """, c_uuid)
+                await chat_service.mark_conversation_read(c_uuid, u_uuid, "STUDENT")
+                return {
+                    "success": True,
+                    "data": [
+                        {
+                            "id": str(m["id"]),
+                            "_id": str(m["id"]),
+                            "conversationId": str(m["conversation_id"]),
+                            "senderId": str(m["sender_user_id"]),
+                            "senderRole": m["sender_role"],
+                            "receiverId": str(m["receiver_user_id"]),
+                            "message": m["message_text"],
+                            "messageType": m["message_type"],
+                            "isRead": m["is_read"],
+                            "readAt": m["read_at"].isoformat() if m["read_at"] else None,
+                            "createdAt": m["created_at"].isoformat() if m["created_at"] else None,
+                        }
+                        for m in msgs
+                    ]
+                }
+        except NotFound:
+            raise
+        except Exception as e:
+            log.warning("get_student_chat_messages_pg_failed", extra={"error": str(e)})
+            raise NotFound("Conversation not found.")
+
     cid = ObjectId(conv_id)
     conv = await get_db().conversations.find_one({"_id": cid, "studentUserId": ctx.user_id})
     if not conv:
@@ -3929,15 +4301,13 @@ async def get_student_chat_messages(conv_id: str, ctx: ScopeContext = StudentCtx
 
 @router.post("/chat/conversations/{conv_id}/messages")
 async def send_student_chat_message(conv_id: str, payload: dict[str, Any], ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
-    cid = ObjectId(conv_id)
-    msg = await chat_service.send_chat_message(cid, ctx.user_id, "STUDENT", payload.get("message", ""))
+    msg = await chat_service.send_chat_message(conv_id, ctx.user_id, "STUDENT", payload.get("message", ""))
     return {"success": True, "data": msg}
 
 
 @router.post("/chat/conversations/{conv_id}/read")
 async def mark_student_chat_read(conv_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
-    cid = ObjectId(conv_id)
-    await chat_service.mark_conversation_read(cid, ctx.user_id, "STUDENT")
+    await chat_service.mark_conversation_read(conv_id, ctx.user_id, "STUDENT")
     return {"success": True}
 
 

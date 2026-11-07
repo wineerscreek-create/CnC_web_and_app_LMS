@@ -196,8 +196,29 @@ async def get_scope_context(request: Request) -> ScopeContext:
         raise Unauthenticated("Your institution assignment changed — please sign in again")
     token_dept = payload.get("department_id")
     actual_dept = str(effective_dept_id) if effective_dept_id else None
-    if (token_dept or None) != actual_dept:
-        raise Unauthenticated("Your department assignment changed — please sign in again")
+    if active_role is Role.HOD:
+        hod_allowed_depts = {actual_dept} if actual_dept else set()
+        if settings.USE_POSTGRES:
+            from app.db.postgres import get_pg_connection
+            import uuid as _uuid
+            try:
+                async with get_pg_connection() as conn:
+                    rows = await conn.fetch(
+                        "SELECT department_id FROM spoc_branch_assignments WHERE spoc_user_id = $1::uuid",
+                        _uuid.UUID(str(user_id)),
+                    )
+                    for r in rows:
+                        if r.get("department_id"):
+                            hod_allowed_depts.add(str(r["department_id"]))
+            except Exception:
+                pass
+        if token_dept and token_dept not in hod_allowed_depts:
+            raise Unauthenticated("Your department assignment changed — please sign in again")
+        if not effective_dept_id and hod_allowed_depts:
+            effective_dept_id = next(iter(hod_allowed_depts))
+    else:
+        if (token_dept or None) != actual_dept:
+            raise Unauthenticated("Your department assignment changed — please sign in again")
 
     if active_role in DEPARTMENT_BOUND and not effective_dept_id:
         raise ScopeForbidden("Your account is not assigned to a department")
@@ -345,16 +366,29 @@ async def _reject_client_scope_claims(request: Request, ctx: ScopeContext) -> No
                                     ctx, f"request named batch {raw} in another institution",
                                     path=str(request.url.path),
                                 )
-                            if (
-                                ctx.role in (Role.HOD, Role.STUDENT)
-                                and ctx_dept_str is not None
-                                and batch_row.get("department_id")
-                                and str(batch_row["department_id"]) != ctx_dept_str
-                            ):
-                                await _deny_scope(
-                                    ctx, f"request named batch {raw} in another department",
-                                    path=str(request.url.path),
-                                )
+                            if ctx.role is Role.HOD:
+                                allowed_depts = list(ctx.department_ids or ())
+                                if ctx_dept_str and ctx_dept_str not in allowed_depts:
+                                    allowed_depts.append(ctx_dept_str)
+                                if (
+                                    allowed_depts
+                                    and batch_row.get("department_id")
+                                    and str(batch_row["department_id"]) not in allowed_depts
+                                ):
+                                    await _deny_scope(
+                                        ctx, f"request named batch {raw} in another department",
+                                        path=str(request.url.path),
+                                    )
+                            elif ctx.role is Role.STUDENT:
+                                if (
+                                    ctx_dept_str is not None
+                                    and batch_row.get("department_id")
+                                    and str(batch_row["department_id"]) != ctx_dept_str
+                                ):
+                                    await _deny_scope(
+                                        ctx, f"request named batch {raw} in another department",
+                                        path=str(request.url.path),
+                                    )
                     except ScopeForbidden:
                         raise
                     except Exception:
@@ -716,8 +750,12 @@ async def require_trainer_session_scope(ctx: ScopeContext, session_id: Any) -> d
                     return session
                 if session.get("collegeId") and ctx.college_id and str(session.get("collegeId")) != str(ctx.college_id):
                     await _deny_scope(ctx, "out-of-college session")
-                if ctx.role is Role.HOD and session.get("departmentId") and ctx.department_id and str(session.get("departmentId")) != str(ctx.department_id):
-                    await _deny_scope(ctx, "out-of-department session")
+                if ctx.role is Role.HOD and session.get("departmentId"):
+                    allowed_depts = list(ctx.department_ids or ())
+                    if ctx.department_id and str(ctx.department_id) not in allowed_depts:
+                        allowed_depts.append(str(ctx.department_id))
+                    if allowed_depts and str(session.get("departmentId")) not in allowed_depts:
+                        await _deny_scope(ctx, "out-of-department session")
                 return session
 
     try:

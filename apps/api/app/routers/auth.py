@@ -184,6 +184,21 @@ async def _find_user_by_identifier(identifier: str) -> dict[str, Any] | None:
     if has_tp and "TRAINER" not in roles:
         roles.append("TRAINER")
 
+    spoc_inst = None
+    spoc_dept = None
+    if str(pg_user["role"]).upper() in ("HOD", "SPOC") and (not pg_user.get("department_id") or not pg_user.get("institution_id")):
+        try:
+            async with get_pg_connection() as conn:
+                sba = await conn.fetchrow(
+                    "SELECT institution_id, department_id FROM spoc_branch_assignments WHERE spoc_user_id = $1::uuid LIMIT 1",
+                    pg_user["id"],
+                )
+                if sba:
+                    spoc_inst = str(sba["institution_id"]) if sba.get("institution_id") else None
+                    spoc_dept = str(sba["department_id"]) if sba.get("department_id") else None
+        except Exception:
+            pass
+
     return {
         "_id": str(pg_user["id"]),
         "id": str(pg_user["id"]),
@@ -194,9 +209,9 @@ async def _find_user_by_identifier(identifier: str) -> dict[str, Any] | None:
         "availableRoles": roles,
         "trainerCollegeId": tp_college,
         "trainerDeptId": tp_dept,
-        "collegeId": str(pg_user["institution_id"]) if pg_user.get("institution_id") else None,
+        "collegeId": str(pg_user["institution_id"]) if pg_user.get("institution_id") else spoc_inst,
         "collegeName": pg_user.get("college_name"),
-        "departmentId": str(pg_user["department_id"]) if pg_user.get("department_id") else None,
+        "departmentId": str(pg_user["department_id"]) if pg_user.get("department_id") else spoc_dept,
         "departmentName": pg_user.get("department_name"),
         "institutionId": pg_user.get("roll_number") or (str(pg_user["institution_id"]) if pg_user.get("institution_id") else None),
         "status": str(pg_user["status"]).lower(),

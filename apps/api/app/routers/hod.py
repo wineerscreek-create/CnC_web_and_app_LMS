@@ -1332,8 +1332,7 @@ async def trainers(ctx: ScopeContext = HodCtx) -> dict[str, Any]:
                     "workloadHoursPerWeek": round(s_cnt * 1.5, 1) if s_cnt else 6.0,
                 })
             avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 4.9
-            return {
-                "success": True,
+            payload = {
                 "scope": scope,
                 "activeTrainers": len(items),
                 "averageFeedback": avg_rating,
@@ -1342,6 +1341,11 @@ async def trainers(ctx: ScopeContext = HodCtx) -> dict[str, Any]:
                 "roster": items,
                 "trainers": items,
                 "items": items,
+            }
+            return {
+                "success": True,
+                "data": payload,
+                **payload,
             }
 
     roster = await UserRepo(ctx).find_all(

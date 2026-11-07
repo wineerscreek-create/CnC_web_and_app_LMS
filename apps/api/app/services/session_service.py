@@ -186,6 +186,17 @@ async def refresh_session(refresh_token_raw: str, ip: str | None = None) -> dict
                 "departmentId": str(pg_user["department_id"]) if pg_user.get("department_id") else None,
                 "status": str(pg_user["status"]).lower(),
             }
+            if not user.get("departmentId") and user.get("role") in ("HOD", "SPOC"):
+                try:
+                    async with get_pg_connection() as conn:
+                        s_dept = await conn.fetchval(
+                            "SELECT department_id FROM spoc_branch_assignments WHERE spoc_user_id = $1::uuid LIMIT 1",
+                            _to_uuid(user_id),
+                        )
+                        if s_dept:
+                            user["departmentId"] = str(s_dept)
+                except Exception:
+                    pass
     except Exception:
         user = None
 

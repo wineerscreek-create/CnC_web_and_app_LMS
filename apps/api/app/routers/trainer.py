@@ -2099,6 +2099,52 @@ async def post_trainer_photo(
 # --------------------------------------------------------------------------- E-Books
 @router.get("/ebooks")
 async def trainer_list_ebooks(ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES and ctx.user_id:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        try:
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+            async with get_pg_connection() as conn:
+                rows = await conn.fetch("""
+                    SELECT e.id, e.title, e.author, e.description, e.category, e.cover_image, e.cover_key,
+                           e.page_count, e.file_size_bytes, e.status, e.uploaded_by, e.created_at,
+                           co.title as course_title
+                    FROM ebooks e
+                    LEFT JOIN courses co ON e.course_id = co.id
+                    WHERE e.deleted_at IS NULL AND (e.uploaded_by = $1 OR e.status = 'PUBLISHED')
+                    ORDER BY e.created_at DESC LIMIT 100
+                """, u_uuid)
+                items = []
+                for r in rows:
+                    cover_url = r["cover_image"]
+                    if not cover_url and r.get("cover_key"):
+                        try:
+                            cover_url = await signed_url(r["cover_key"], ttl=3600)
+                        except Exception:
+                            cover_url = None
+                    is_owner = str(r["uploaded_by"]) == str(u_uuid) if r.get("uploaded_by") else False
+                    items.append({
+                        "id": str(r["id"]),
+                        "title": r["title"],
+                        "author": r["author"],
+                        "description": r["description"],
+                        "category": r["category"] or "General",
+                        "coverUrl": cover_url,
+                        "pageCount": r["page_count"] or 120,
+                        "courseTitle": r["course_title"],
+                        "published": r["status"] == "PUBLISHED",
+                        "status": r["status"] or "PUBLISHED",
+                        "rejectionReason": None,
+                        "readsCount": 0,
+                        "completionsCount": 0,
+                        "isOwner": is_owner,
+                        "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
+                    })
+                return {"success": True, "data": items}
+        except Exception as e:
+            log.warning("trainer_list_ebooks_pg_failed", extra={"error": str(e)})
+            return {"success": True, "data": []}
+
     # Return ebooks authored by this trainer or published
     query = {"$or": [{"uploadedBy": ctx.user_id}, {"collegeId": ctx.college_id, "published": True}]}
     books = await get_db().ebooks.find(query).sort("createdAt", -1).to_list(100)
@@ -2331,19 +2377,94 @@ async def trainer_list_chat_students(ctx: ScopeContext = TrainerCtx) -> dict[str
 
 @router.get("/chat/conversations")
 async def trainer_list_conversations(ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES and ctx.user_id:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        try:
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+            async with get_pg_connection() as conn:
+                rows = await conn.fetch("""
+                    SELECT c.id, c.student_user_id, c.trainer_user_id, c.last_message_at, c.last_message_text,
+                           c.trainer_unread_count, u.name as student_name, u.avatar_color as student_avatar_color
+                    FROM conversations c
+                    JOIN users u ON c.student_user_id = u.id
+                    WHERE c.trainer_user_id = $1
+                    ORDER BY c.last_message_at DESC NULLS LAST LIMIT 100
+                """, u_uuid)
+                items = []
+                for r in rows:
+                    items.append({
+                        "id": str(r["id"]),
+                        "_id": str(r["id"]),
+                        "studentUserId": str(r["student_user_id"]),
+                        "trainerUserId": str(r["trainer_user_id"]),
+                        "studentName": r["student_name"],
+                        "studentAvatarColor": r["student_avatar_color"] or "#6366f1",
+                        "lastMessageAt": r["last_message_at"].isoformat() if r["last_message_at"] else None,
+                        "lastMessageText": r["last_message_text"] or "",
+                        "unreadCount": r["trainer_unread_count"] or 0,
+                    })
+                return {"success": True, "data": items}
+        except Exception as e:
+            log.warning("list_trainer_conversations_pg_failed", extra={"error": str(e)})
+            return {"success": True, "data": []}
+
     convs = await get_db().conversations.find({"trainerUserId": ctx.user_id, "collegeId": ctx.college_id}).sort("lastMessageAt", -1).to_list(100)
     return {"success": True, "data": serialize(convs)}
 
 
 @router.post("/chat/conversations/start")
 async def trainer_start_conversation(payload: dict[str, Any], ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
-    student_id = ObjectId(payload["studentUserId"])
+    student_id = payload["studentUserId"]
     conv = await chat_service.get_or_create_conversation(student_id, ctx.user_id, ctx.college_id)
     return {"success": True, "data": serialize(conv)}
 
 
 @router.get("/chat/conversations/{conv_id}/messages")
 async def trainer_get_chat_messages(conv_id: str, ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES and ctx.user_id:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        try:
+            c_uuid = _uuid.UUID(str(conv_id))
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+            async with get_pg_connection() as conn:
+                conv = await conn.fetchrow("SELECT * FROM conversations WHERE id = $1 AND trainer_user_id = $2", c_uuid, u_uuid)
+                if not conv:
+                    raise NotFound("Conversation not found.")
+                msgs = await conn.fetch("""
+                    SELECT id, conversation_id, sender_user_id, receiver_user_id, sender_role,
+                           message_type, message_text, is_read, read_at, created_at
+                    FROM messages
+                    WHERE conversation_id = $1
+                    ORDER BY created_at ASC LIMIT 200
+                """, c_uuid)
+                await chat_service.mark_conversation_read(c_uuid, u_uuid, "TRAINER")
+                return {
+                    "success": True,
+                    "data": [
+                        {
+                            "id": str(m["id"]),
+                            "_id": str(m["id"]),
+                            "conversationId": str(m["conversation_id"]),
+                            "senderId": str(m["sender_user_id"]),
+                            "senderRole": m["sender_role"],
+                            "receiverId": str(m["receiver_user_id"]),
+                            "message": m["message_text"],
+                            "messageType": m["message_type"],
+                            "isRead": m["is_read"],
+                            "readAt": m["read_at"].isoformat() if m["read_at"] else None,
+                            "createdAt": m["created_at"].isoformat() if m["created_at"] else None,
+                        }
+                        for m in msgs
+                    ]
+                }
+        except NotFound:
+            raise
+        except Exception as e:
+            log.warning("get_trainer_chat_messages_pg_failed", extra={"error": str(e)})
+            raise NotFound("Conversation not found.")
+
     cid = ObjectId(conv_id)
     conv = await get_db().conversations.find_one({"_id": cid, "trainerUserId": ctx.user_id})
     if not conv:
@@ -2356,15 +2477,13 @@ async def trainer_get_chat_messages(conv_id: str, ctx: ScopeContext = TrainerCtx
 
 @router.post("/chat/conversations/{conv_id}/messages")
 async def trainer_send_chat_message(conv_id: str, payload: dict[str, Any], ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
-    cid = ObjectId(conv_id)
-    msg = await chat_service.send_chat_message(cid, ctx.user_id, "TRAINER", payload.get("message", ""))
+    msg = await chat_service.send_chat_message(conv_id, ctx.user_id, "TRAINER", payload.get("message", ""))
     return {"success": True, "data": msg}
 
 
 @router.post("/chat/conversations/{conv_id}/read")
 async def trainer_mark_chat_read(conv_id: str, ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
-    cid = ObjectId(conv_id)
-    await chat_service.mark_conversation_read(cid, ctx.user_id, "TRAINER")
+    await chat_service.mark_conversation_read(conv_id, ctx.user_id, "TRAINER")
     return {"success": True}
 
 
