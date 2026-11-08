@@ -48,6 +48,11 @@ interface SuperAdminPayment {
   status: string;
   paymentMethod: string;
   transactionId: string;
+  utr?: string;
+  legacyReference?: string;
+  legacy_reference?: string;
+  verificationSource?: string;
+  verification_source?: string;
   invoiceNumber?: string;
   createdAt: string | null;
 }
@@ -132,7 +137,10 @@ export default function SuperAdminPaymentsPage() {
       p.collegeName.toLowerCase().includes(search.toLowerCase()) ||
       p.studentName.toLowerCase().includes(search.toLowerCase()) ||
       p.courseTitle.toLowerCase().includes(search.toLowerCase()) ||
-      p.transactionId.toLowerCase().includes(search.toLowerCase())
+      p.transactionId.toLowerCase().includes(search.toLowerCase()) ||
+      (p.utr && p.utr.toLowerCase().includes(search.toLowerCase())) ||
+      (p.legacyReference && p.legacyReference.toLowerCase().includes(search.toLowerCase())) ||
+      (p.legacy_reference && p.legacy_reference.toLowerCase().includes(search.toLowerCase()))
   );
 
   const filteredQueue = queueItems.filter(
@@ -140,6 +148,7 @@ export default function SuperAdminPaymentsPage() {
       p.studentName.toLowerCase().includes(search.toLowerCase()) ||
       p.courseTitle.toLowerCase().includes(search.toLowerCase()) ||
       p.transactionId.toLowerCase().includes(search.toLowerCase()) ||
+      (p.utr && p.utr.toLowerCase().includes(search.toLowerCase())) ||
       (p.studentEmail && p.studentEmail.toLowerCase().includes(search.toLowerCase()))
   );
 
@@ -488,7 +497,16 @@ export default function SuperAdminPaymentsPage() {
                     {filtered.map((p) => (
                       <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
                         <td className="px-5 py-3.5 font-mono text-slate-600 dark:text-slate-300 font-medium">
-                          {p.transactionId}
+                          {p.legacyReference || p.legacy_reference ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-semibold text-primary">{p.legacyReference || p.legacy_reference}</span>
+                              {p.utr && p.utr !== (p.legacyReference || p.legacy_reference) && (
+                                <span className="text-[10px] text-muted-foreground/80">UTR: {p.utr}</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span>{p.utr || p.transactionId}</span>
+                          )}
                         </td>
                         <td className="px-5 py-3.5 font-semibold text-slate-800 dark:text-slate-200">
                           {p.collegeName}

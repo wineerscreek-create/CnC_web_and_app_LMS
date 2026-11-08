@@ -39,6 +39,10 @@ interface AdminPayment {
   orderId?: string;
   transaction_ref?: string;
   utr?: string;
+  legacyReference?: string;
+  legacy_reference?: string;
+  verificationSource?: string;
+  verification_source?: string;
   studentId?: string;
   studentName?: string;
   student_name?: string;
@@ -163,7 +167,7 @@ export default function AdminPaymentsPage() {
   const filtered = payments.filter((p) => {
     const s = (p.status || '').toLowerCase();
     const matchStatus = filterStatus === 'all' || s === filterStatus.toLowerCase();
-    const orderRef = p.utr || p.transaction_ref || p.orderId || '';
+    const orderRef = p.legacyReference || p.legacy_reference || p.utr || p.transaction_ref || p.orderId || '';
     const sName = p.student_name || p.studentName || '';
     const sEmail = p.student_email || p.studentEmail || '';
     const purp = p.course_title || p.purpose || '';
@@ -294,7 +298,16 @@ export default function AdminPaymentsPage() {
                     return (
                       <tr key={p.id} className="hover:bg-muted/50">
                         <td className="px-5 py-3.5 font-mono text-muted-foreground font-medium">
-                          {p.utr || p.transaction_ref || p.orderId || '—'}
+                          {p.legacyReference || p.legacy_reference ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-semibold text-primary">{p.legacyReference || p.legacy_reference}</span>
+                              {p.utr && p.utr !== (p.legacyReference || p.legacy_reference) && (
+                                <span className="text-[10px] text-muted-foreground/80">UTR: {p.utr}</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span>{p.utr || p.transaction_ref || p.orderId || '—'}</span>
+                          )}
                         </td>
                         <td className="px-5 py-3.5">
                           <p className="font-semibold text-foreground">{p.student_name || p.studentName}</p>

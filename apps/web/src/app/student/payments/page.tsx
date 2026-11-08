@@ -46,6 +46,13 @@ interface PaymentRecord {
   orderId?: string;
   transactionId?: string;
   transactionRef?: string;
+  utr?: string;
+  legacyReference?: string;
+  legacy_reference?: string;
+  verificationSource?: string;
+  verification_source?: string;
+  taxableAmount?: number;
+  gstAmount?: number;
   courseId?: string;
   courseTitle?: string;
   courseMode?: string;
@@ -681,7 +688,16 @@ function StudentPaymentsContent() {
                             </Badge>
                           </td>
                           <td className="px-5 py-3.5 font-mono text-[11px] text-muted-foreground">
-                            {p.transactionRef || p.transactionId || '—'}
+                            {p.legacyReference || p.legacy_reference ? (
+                              <div className="flex flex-col gap-0.5">
+                                <span className="font-semibold text-primary">{p.legacyReference || p.legacy_reference}</span>
+                                {p.utr && p.utr !== (p.legacyReference || p.legacy_reference) && (
+                                  <span className="text-[10px] text-muted-foreground/80">UTR: {p.utr}</span>
+                                )}
+                              </div>
+                            ) : (
+                              <span>{p.utr || p.transactionRef || p.transactionId || '—'}</span>
+                            )}
                           </td>
                           <td className="px-5 py-3.5 text-muted-foreground">
                             {formatDate(p.createdAt || p.paidAt)}

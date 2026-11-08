@@ -4744,6 +4744,11 @@ async def list_student_payments(ctx: ScopeContext = StudentCtx) -> dict[str, Any
                         p.currency,
                         p.transaction_ref,
                         COALESCE(p.utr, p.transaction_ref) as utr,
+                        p.legacy_reference,
+                        p.verification_source,
+                        p.taxable_amount,
+                        p.gst_amount,
+                        p.gst_rate,
                         p.payment_method,
                         p.status,
                         p.verified_by,
@@ -4779,6 +4784,13 @@ async def list_student_payments(ctx: ScopeContext = StudentCtx) -> dict[str, Any
                         "paymentMethod": r["payment_method"] or "Official Institutional Fee",
                         "transactionId": r["transaction_ref"],
                         "utr": r["utr"],
+                        "legacyReference": r["legacy_reference"],
+                        "legacy_reference": r["legacy_reference"],
+                        "verificationSource": r["verification_source"],
+                        "verification_source": r["verification_source"],
+                        "taxableAmount": float(r["taxable_amount"]) if r["taxable_amount"] is not None else None,
+                        "gstAmount": float(r["gst_amount"]) if r["gst_amount"] is not None else None,
+                        "gstRate": float(r["gst_rate"]) if r["gst_rate"] is not None else None,
                         "invoiceId": str(r["invoice_id"]) if r["invoice_id"] else None,
                         "invoiceNumber": inv_num,
                         "rejectionReason": r["rejection_reason"],
@@ -5137,6 +5149,39 @@ async def student_get_semester_fee_status(
             "upiId": row["upi_id"] or "pay@winnerscreek",
             "merchantName": row["merchant_name"] or "Winners Creek LMS",
         }
+
+        # Check for verified or latest payment record
+        p_row = await conn.fetchrow(
+            """
+            SELECT p.id, p.status, p.amount, p.utr, p.legacy_reference, p.verification_source,
+                   p.verified_at, inv.invoice_number, p.invoice_id
+            FROM payments p
+            LEFT JOIN invoices inv ON inv.id = p.invoice_id
+            WHERE p.enrollment_id = $1
+            ORDER BY p.created_at DESC
+            LIMIT 1
+            """,
+            row["enrollment_id"],
+        )
+        if p_row:
+            payload["lastPayment"] = {
+                "id": str(p_row["id"]),
+                "status": str(p_row["status"]),
+                "amount": float(p_row["amount"]) if p_row["amount"] is not None else None,
+                "utr": p_row["utr"],
+                "legacyReference": p_row["legacy_reference"],
+                "legacy_reference": p_row["legacy_reference"],
+                "verificationSource": p_row["verification_source"],
+                "verification_source": p_row["verification_source"],
+                "invoiceNumber": p_row["invoice_number"],
+                "invoiceId": str(p_row["invoice_id"]) if p_row["invoice_id"] else None,
+                "verifiedAt": p_row["verified_at"].isoformat() if p_row["verified_at"] else None,
+            }
+            payload["legacyReference"] = p_row["legacy_reference"]
+            payload["legacy_reference"] = p_row["legacy_reference"]
+            payload["latestUtr"] = p_row["utr"]
+            if p_row["invoice_number"]:
+                payload["invoiceNumber"] = p_row["invoice_number"]
 
         # Return both encapsulated in data and also top-level for immediate component binding
         res = {

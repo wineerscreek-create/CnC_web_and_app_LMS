@@ -43,12 +43,14 @@ class PaymentRepository:
                 INSERT INTO payments (
                     enrollment_id, participant_user_id, course_id, semester,
                     amount, currency, transaction_ref, utr, payment_method, status,
-                    receipt_url, payer_upi_id, metadata, institution_id
+                    receipt_url, payer_upi_id, metadata, institution_id,
+                    legacy_reference, verification_source
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16)
                 RETURNING id, enrollment_id, participant_user_id, course_id, semester,
                           amount, currency, transaction_ref, utr, payment_method, status,
-                          receipt_url, payer_upi_id, metadata, created_at, institution_id
+                          receipt_url, payer_upi_id, metadata, created_at, institution_id,
+                          legacy_reference, verification_source
                 """,
                 UUID(str(enrollment_id)),
                 UUID(str(participant_id)),
@@ -64,6 +66,8 @@ class PaymentRepository:
                 payer_upi_id,
                 json.dumps(metadata or {}),
                 inst_id,
+                metadata.get("legacy_reference") if metadata else None,
+                metadata.get("verification_source") if metadata else None,
             )
             return dict(row)
 
@@ -269,6 +273,8 @@ class PaymentRepository:
                 """
                 SELECT p.id, p.enrollment_id, p.course_id, p.semester, p.amount, p.currency,
                        p.transaction_ref, COALESCE(p.utr, p.transaction_ref) as utr,
+                       p.legacy_reference, p.verification_source,
+                       p.taxable_amount, p.gst_amount, p.gst_rate,
                        p.payment_method, p.status, p.verified_at, p.created_at,
                        p.invoice_id, p.rejection_reason,
                        inv.invoice_number,
@@ -348,7 +354,7 @@ class PaymentRepository:
 
         if search:
             params.append(f"%{search.strip()}%")
-            conditions.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR p.transaction_ref ILIKE ${len(params)} OR p.utr ILIKE ${len(params)})")
+            conditions.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR p.transaction_ref ILIKE ${len(params)} OR p.utr ILIKE ${len(params)} OR p.legacy_reference ILIKE ${len(params)})")
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.append(limit)
@@ -359,8 +365,10 @@ class PaymentRepository:
         query = f"""
             SELECT p.id, p.enrollment_id, p.participant_user_id, p.course_id, p.semester,
                    p.amount, p.currency, p.transaction_ref, COALESCE(p.utr, p.transaction_ref) as utr,
+                   p.legacy_reference, p.verification_source,
                    p.payer_upi_id, p.payment_method, p.status,
                    p.verified_at, p.created_at, p.verified_by_role, p.rejection_reason, p.invoice_id,
+                   p.taxable_amount, p.gst_amount, p.gst_rate,
                    inv.invoice_number,
                    u.name as student_name, u.email as student_email,
                    c.title as course_title,
@@ -406,7 +414,7 @@ class PaymentRepository:
 
         if search:
             params.append(f"%{search.strip()}%")
-            conditions.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR p.transaction_ref ILIKE ${len(params)} OR p.utr ILIKE ${len(params)})")
+            conditions.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR p.transaction_ref ILIKE ${len(params)} OR p.utr ILIKE ${len(params)} OR p.legacy_reference ILIKE ${len(params)})")
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         query = f"""
@@ -767,7 +775,9 @@ class PaymentRepository:
 
         query = f"""
             SELECT p.id, p.enrollment_id, p.participant_user_id, p.course_id, p.semester,
-                   p.amount, p.currency, p.transaction_ref, p.payment_method, p.status,
+                   p.amount, p.currency, p.transaction_ref, COALESCE(p.utr, p.transaction_ref) as utr,
+                   p.legacy_reference, p.verification_source,
+                   p.payment_method, p.status,
                    p.verified_at, p.receipt_url, p.payer_upi_id, p.rejection_reason,
                    p.refunded_at, p.refund_amount, p.refund_ref, p.created_at,
                    u.name as student_name, u.email as student_email
