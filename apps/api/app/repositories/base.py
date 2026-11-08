@@ -93,7 +93,18 @@ class ScopedRepository:
         if ctx is None:  # pragma: no cover - programming error
             raise RuntimeError("ScopedRepository requires an authorization context")
         self.ctx = ctx
-        self.db = get_db()
+        self._db = None
+        if not (settings.USE_POSTGRES or settings.is_production):
+            try:
+                self._db = get_db()
+            except Exception:
+                pass
+
+    @property
+    def db(self):
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     # ------------------------------------------------------------------ internals
     @property
@@ -257,6 +268,73 @@ class ScopedRepository:
                                 "departmentId": str(row["department_id"]) if row["department_id"] else None,
                                 "status": row["status"],
                             }
+                    elif self.collection == "courses":
+                        row = await conn.fetchrow(
+                            "SELECT id, title, code, description, institution_id, department_id, status FROM courses WHERE id = $1 AND deleted_at IS NULL",
+                            u_id,
+                        )
+                        if row:
+                            return {
+                                "_id": str(row["id"]),
+                                "id": str(row["id"]),
+                                "title": row["title"],
+                                "code": row["code"],
+                                "description": row["description"],
+                                "collegeId": str(row["institution_id"]) if row["institution_id"] else None,
+                                "departmentId": str(row["department_id"]) if row["department_id"] else None,
+                                "status": row["status"],
+                            }
+                    elif self.collection == "practice_sessions":
+                        import json as _json
+                        row = await conn.fetchrow(
+                            """SELECT id, participant_user_id, mode_code, practice_mode_title, kind,
+                                      state, attempt_number, overall_score, ai_feedback, transcript,
+                                      audio_recording_url, metrics, created_at, completed_at
+                               FROM practice_sessions WHERE id = $1""",
+                            u_id,
+                        )
+                        if row:
+                            metrics_data = row["metrics"]
+                            if isinstance(metrics_data, str):
+                                try:
+                                    metrics_data = _json.loads(metrics_data)
+                                except Exception:
+                                    metrics_data = {}
+                            elif not isinstance(metrics_data, dict):
+                                metrics_data = {}
+
+                            ai_fb = row["ai_feedback"]
+                            if isinstance(ai_fb, str):
+                                try:
+                                    ai_fb = _json.loads(ai_fb)
+                                except Exception:
+                                    ai_fb = {}
+                            elif not isinstance(ai_fb, dict):
+                                ai_fb = {}
+
+                            res = {
+                                "_id": str(row["id"]),
+                                "id": str(row["id"]),
+                                "studentUserId": str(row["participant_user_id"]),
+                                "practiceModeCode": row["mode_code"],
+                                "practiceModeTitle": row["practice_mode_title"],
+                                "kind": row["kind"],
+                                "state": row["state"],
+                                "attemptNumber": row["attempt_number"],
+                                "overallScore": float(row["overall_score"]) if row["overall_score"] is not None else None,
+                                "aiFeedback": ai_fb,
+                                "transcript": row["transcript"],
+                                "audioRecordingUrl": row["audio_recording_url"],
+                                "recordingConsent": metrics_data.get("recordingConsent", True),
+                                "questions": metrics_data.get("questions", []),
+                                "metrics": metrics_data,
+                                "createdAt": row["created_at"],
+                                "completedAt": row["completed_at"],
+                            }
+                            # Also expose metrics keys at root level for compatibility
+                            for k, v in metrics_data.items():
+                                res.setdefault(k, v)
+                            return res
 
         # Fallback to Mongo/Mock collection
         try:

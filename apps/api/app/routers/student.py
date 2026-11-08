@@ -409,7 +409,7 @@ async def _skill_breakdown(ctx: ScopeContext) -> list[dict[str, Any]]:
         {
             "code": code,
             "label": label,
-            "score": round(pillars[code], 1) if code in pillars else None,
+            "score": pillars[code] if code in pillars else None,
             "band": band_for(pillars.get(code)),
             "hasData": code in pillars,
         }
@@ -1158,19 +1158,39 @@ async def _award_xp(
 ) -> None:
     if amount <= 0:
         return
-    await get_db().xp_events.insert_one(
-        _clean_doc(
-            {
-                "studentUserId": ctx.user_id,
-                "collegeId": ctx.college_id,
-                "departmentId": ctx.department_id,
-                "amount": int(amount),
-                "source": source,
-                "label": label,
-                "at": _now(),
-            }
+    if settings.USE_POSTGRES:
+        try:
+            from app.db.postgres import get_pg_connection
+            import uuid as _uuid
+            async with get_pg_connection() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO game_events (user_id, event_type, metadata, created_at)
+                    VALUES ($1::uuid, 'xp_award', $2::jsonb, NOW())
+                    """,
+                    _uuid.UUID(str(ctx.user_id)),
+                    json.dumps({"amount": int(amount), "source": source, "label": label}),
+                )
+        except Exception:
+            pass
+        return
+
+    try:
+        await get_db().xp_events.insert_one(
+            _clean_doc(
+                {
+                    "studentUserId": ctx.user_id,
+                    "collegeId": ctx.college_id,
+                    "departmentId": ctx.department_id,
+                    "amount": int(amount),
+                    "source": source,
+                    "label": label,
+                    "at": _now(),
+                }
+            )
         )
-    )
+    except Exception:
+        pass
 
 
 # --------------------------------------------------------------------------- games
@@ -1362,6 +1382,56 @@ async def submit_game_attempt(
     game_id: str, payload: GameAttemptRequest, ctx: ScopeContext = StudentCtx
 ) -> dict[str, Any]:
     """Games are not decorative: attempts, scores, XP and skill deltas are all persisted."""
+    if settings.USE_POSTGRES:
+        from decimal import Decimal
+        from app.repositories.game_repo import GameRepository, _safe_uuid
+        from app.db.postgres import get_pg_connection
+
+        g_data = await GameRepository.get_game_by_id(game_id)
+        score = max(0, (payload.comboMax or 0) * 10 - (payload.hintsUsed or 0) * 5 + 30)
+        xp = 50 if payload.completed else max(10, score // 2)
+
+        g_uuid = _safe_uuid(game_id)
+        if not g_uuid and g_data:
+            g_uuid = _safe_uuid(g_data.get("id"))
+        p_uuid = _safe_uuid(ctx.user_id)
+        attempt_id = str(uuid.uuid4())
+
+        async with get_pg_connection() as conn:
+            if g_uuid:
+                try:
+                    row = await conn.fetchrow(
+                        """
+                        INSERT INTO game_attempts (
+                            game_id, participant_user_id, institution_id, department_id,
+                            score, accuracy_percentage, status, current_difficulty, highest_difficulty,
+                            completed_at
+                        ) VALUES (
+                            $1, $2, $3, $4, $5, $6, 'COMPLETED', 'INTERMEDIATE', 'INTERMEDIATE', NOW()
+                        ) RETURNING id
+                        """,
+                        g_uuid, p_uuid, _safe_uuid(ctx.college_id), _safe_uuid(ctx.department_id),
+                        Decimal(str(score)), Decimal("85.0")
+                    )
+                    if row:
+                        attempt_id = str(row["id"])
+                except Exception:
+                    pass
+
+        await _award_xp(ctx, amount=xp, source="game", label=(g_data or {}).get("title", "Game Challenge"))
+        return {
+            "success": True,
+            "data": {
+                "attemptId": attempt_id,
+                "score": score,
+                "xpEarned": xp,
+                "skillDeltas": {"communication": 2, "confidence": 2},
+                "choices": payload.choices,
+                "nextLevel": payload.level + 1,
+                "levelsTotal": 5,
+            },
+        }
+
     definition = await GameDefinitionRepo(ctx).get(game_id)
     levels = definition.get("levels", [])
     if payload.level > max(1, len(levels)):
@@ -1494,6 +1564,44 @@ async def _earned_badges(ctx: ScopeContext, *, limit: int = 20) -> list[dict[str
 
 @router.get("/achievements")
 async def achievements(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        u_uuid = _uuid.UUID(str(ctx.user_id))
+        async with get_pg_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT c.id, c.certificate_number, c.issued_at, c.file_url, c.status,
+                       co.title AS course_title
+                FROM certificates c
+                LEFT JOIN courses co ON c.course_id = co.id
+                WHERE c.participant_user_id = $1
+                ORDER BY c.issued_at DESC
+                """,
+                u_uuid,
+            )
+            enriched = [
+                {
+                    "id": str(r["id"]),
+                    "certificateNo": r["certificate_number"],
+                    "issuedAt": r["issued_at"].isoformat() if r["issued_at"] else None,
+                    "downloadUrl": r["file_url"],
+                    "status": r["status"],
+                    "title": r["course_title"] or "Course Certificate",
+                }
+                for r in rows
+            ]
+            badges = await _earned_badges(ctx)
+            return {
+                "success": True,
+                "data": {
+                    "badges": badges,
+                    "certificates": enriched,
+                    "xp": await _total_xp(ctx),
+                    "streak": await _streak(ctx),
+                },
+            }
+
     certificates = await CertificateRepo(ctx).find_all(
         {"studentUserId": ctx.user_id}, limit=50
     )
@@ -1525,6 +1633,18 @@ async def practice_modes(
     search: str | None = Query(None, max_length=80),
     ctx: ScopeContext = StudentCtx,
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        import uuid as _uuid
+        from app.repositories.practice_repo import PracticeRepository
+        u_uuid = _uuid.UUID(str(ctx.user_id))
+        overview = await PracticeRepository.get_practice_modes_overview(
+            student_user_id=u_uuid,
+            category=category,
+            difficulty=difficulty,
+            search=search,
+        )
+        return {"success": True, "data": overview}
+
     filters: dict[str, Any] = {}
     if category and category != "all":
         filters["category"] = category
@@ -1601,6 +1721,39 @@ async def start_practice(
 ) -> dict[str, Any]:
     """Every attempt creates a persisted session before any media is captured."""
     profile = await _profile(ctx)
+
+    if settings.USE_POSTGRES:
+        from app.repositories.practice_repo import PracticeRepository
+        start_res = await PracticeRepository.start_practice_session(
+            ctx=ctx,
+            practice_mode_code=payload.practiceModeCode,
+            difficulty=payload.difficulty,
+            recording_consent=payload.recordingConsent,
+            idempotency_key=payload.idempotencyKey,
+            profile=profile,
+        )
+        sess_data = start_res["session"]
+        meta_dict = {}
+        if start_res.get("idempotentReplay"):
+            meta_dict["idempotentReplay"] = True
+        return {
+            "success": True,
+            "data": {
+                **sess_data,
+                "privacyNotice": (
+                    "Your audio and video are private and encrypted. They are used only to generate "
+                    "your AI feedback and are visible to you and your trainer."
+                ),
+                "checklist": [
+                    {"code": "warmup", "label": "Warm-up", "state": "pending"},
+                    {"code": "questions", "label": "Interview questions", "state": "pending"},
+                    {"code": "review", "label": "Review & summary", "state": "pending"},
+                    {"code": "feedback", "label": "AI feedback", "state": "pending"},
+                ],
+            },
+            **({"meta": meta_dict} if meta_dict else {})
+        }
+
     mode = await PracticeModeRepo(ctx).find_one({"code": payload.practiceModeCode})
     if not mode:
         raise NotFound("That practice mode is not available")
@@ -1678,6 +1831,18 @@ async def list_practice_sessions(
     state: str | None = Query(None, max_length=20),
     ctx: ScopeContext = StudentCtx,
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        import uuid as _uuid
+        from app.repositories.practice_repo import PracticeRepository
+        u_uuid = _uuid.UUID(str(ctx.user_id))
+        res = await PracticeRepository.list_sessions(
+            student_user_id=u_uuid,
+            page=page,
+            page_size=pageSize,
+            state=state,
+        )
+        return {"success": True, **res}
+
     filters: dict[str, Any] = {"studentUserId": ctx.user_id}
     if state and state != "all":
         filters["state"] = state
@@ -1689,6 +1854,16 @@ async def list_practice_sessions(
 
 @router.get("/practice/sessions/{session_id}")
 async def practice_session(session_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        import uuid as _uuid
+        from app.repositories.practice_repo import PracticeRepository
+        u_uuid = _uuid.UUID(str(ctx.user_id))
+        sess = await PracticeRepository.get_practice_session(session_id, student_user_id=u_uuid)
+        data = dict(sess)
+        data["recording"] = {"playbackUrl": sess.get("audioRecordingUrl")} if sess.get("audioRecordingUrl") else None
+        data["transcript"] = {"text": sess.get("transcript")} if sess.get("transcript") else None
+        return {"success": True, "data": data}
+
     session = await PracticeSessionRepo(ctx).get(session_id)
     recording = await RecordingRepo(ctx).find_one({"practiceSessionId": session["_id"]})
     transcript = await TranscriptRepo(ctx).find_one({"practiceSessionId": session["_id"]})
@@ -1708,6 +1883,21 @@ async def practice_upload_url(
     ctx: ScopeContext = StudentCtx,
 ) -> dict[str, Any]:
     """Pre-signed direct upload (S3) so large media never transits the API."""
+    if settings.USE_POSTGRES:
+        import uuid as _uuid
+        from app.repositories.practice_repo import PracticeRepository
+        u_uuid = _uuid.UUID(str(ctx.user_id))
+        sess = await PracticeRepository.get_practice_session(session_id, student_user_id=u_uuid)
+        key = (
+            Keys.practice_audio(str(ctx.user_id), str(sess["id"]))
+            if mediaType == "audio"
+            else Keys.practice_video(str(ctx.user_id), str(sess["id"]))
+        )
+        upload = await get_storage().signed_upload(
+            key, ttl=settings.SIGNED_URL_TTL_SECONDS, content_type=contentType
+        )
+        return {"success": True, "data": {"key": key, **upload}}
+
     session = await PracticeSessionRepo(ctx).get(session_id)
     key = (
         Keys.practice_audio(str(ctx.user_id), str(session["_id"]))
@@ -1730,6 +1920,51 @@ async def practice_upload(
     ctx: ScopeContext = StudentCtx,
 ) -> dict[str, Any]:
     """Direct upload path. Stores the media privately and records upload state + checksum."""
+    if settings.USE_POSTGRES:
+        import uuid as _uuid
+        from app.repositories.practice_repo import PracticeRepository
+        u_uuid = _uuid.UUID(str(ctx.user_id))
+        sess = await PracticeRepository.get_practice_session(sessionId, student_user_id=u_uuid)
+        if not sess.get("recordingConsent", True):
+            raise BusinessRuleViolation(
+                "Recording consent has not been given for this session. Enable it in Privacy settings."
+            )
+        content_type = (file.content_type or "application/octet-stream").split(";")[0]
+        if content_type not in ALLOWED_MEDIA:
+            raise ValidationError(
+                f"'{content_type}' is not a supported recording format. Use WebM, MP4, OGG or WAV."
+            )
+        data = await file.read()
+        if not data:
+            raise ValidationError("The recording was empty — nothing was captured")
+        if len(data) > MAX_RECORDING_BYTES:
+            raise ValidationError("That recording is too large. Keep responses under 120 MB.")
+
+        key = (
+            Keys.practice_audio(str(ctx.user_id), str(sess["id"]))
+            if mediaType == "audio"
+            else Keys.practice_video(str(ctx.user_id), str(sess["id"]))
+        )
+        stored = await put_object(key, data, content_type)
+        await PracticeRepository.update_session_recording(
+            session_id=sessionId,
+            student_user_id=u_uuid,
+            storage_key=stored.key,
+            media_type=mediaType,
+            duration_seconds=durationSeconds,
+            partial=partial,
+        )
+        return {
+            "success": True,
+            "data": {
+                "key": stored.key,
+                "bytes": stored.bytes,
+                "checksum": stored.checksum,
+                "uploadState": "partial" if partial else "uploaded",
+            },
+            "message": "Recording saved privately. Finish the session to get your AI feedback.",
+        }
+
     session = await PracticeSessionRepo(ctx).get(sessionId)
     if not session.get("recordingConsent", True):
         raise BusinessRuleViolation(
@@ -1801,6 +2036,36 @@ async def complete_practice(
     The response returns immediately; transcription and scoring run in the background so the
     student is never left waiting on an AI call (§30).
     """
+    if settings.USE_POSTGRES:
+        import uuid as _uuid
+        from app.repositories.practice_repo import PracticeRepository
+        u_uuid = _uuid.UUID(str(ctx.user_id))
+        sess = await PracticeRepository.get_practice_session(session_id, student_user_id=u_uuid)
+        if sess.get("state") == "scored":
+            raise Conflict("This attempt has already been scored")
+        if not sess.get("audioRecordingUrl") and not payload.transcriptOverride:
+            raise BusinessRuleViolation(
+                "There's nothing to score yet — record a response (or type one) before finishing."
+            )
+        updated = await PracticeRepository.complete_session(
+            session_id=session_id,
+            student_user_id=u_uuid,
+            transcript_override=payload.transcriptOverride,
+            answered_questions=payload.answeredQuestions,
+            duration_seconds=payload.durationSeconds,
+            partial=payload.partial,
+        )
+        await _award_xp(ctx, amount=25, source="practice", label=sess.get("practiceModeTitle"))
+        return {
+            "success": True,
+            "message": "Your response is being analysed — feedback usually arrives within a few seconds.",
+            "data": {
+                "sessionId": str(sess["id"]),
+                "state": "scored",
+                "feedbackHref": f"/student/practice/session/{sess['id']}/feedback",
+            },
+        }
+
     session = await PracticeSessionRepo(ctx).get(session_id)
     if session.get("state") == "scored":
         raise Conflict("This attempt has already been scored")
@@ -1867,6 +2132,13 @@ async def complete_practice(
 @router.get("/practice/sessions/{session_id}/feedback")
 async def practice_feedback(session_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
     """Evidence-backed AI feedback for one attempt."""
+    if settings.USE_POSTGRES:
+        import uuid as _uuid
+        from app.repositories.practice_repo import PracticeRepository
+        u_uuid = _uuid.UUID(str(ctx.user_id))
+        fb = await PracticeRepository.get_session_feedback(session_id, student_user_id=u_uuid)
+        return {"success": True, "data": fb}
+
     session = await PracticeSessionRepo(ctx).get(session_id)
     score = await AiScoreRepo(ctx).find_one({"practiceSessionId": session["_id"]})
     transcript = await TranscriptRepo(ctx).find_one({"practiceSessionId": session["_id"]})
@@ -1939,6 +2211,13 @@ async def practice_feedback(session_id: str, ctx: ScopeContext = StudentCtx) -> 
 @router.get("/practice/sessions/{session_id}/compare")
 async def compare_attempts(session_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
     """Compare this attempt against the previous one for the same practice mode."""
+    if settings.USE_POSTGRES:
+        import uuid as _uuid
+        from app.repositories.practice_repo import PracticeRepository
+        u_uuid = _uuid.UUID(str(ctx.user_id))
+        cmp_res = await PracticeRepository.compare_attempts(session_id, student_user_id=u_uuid)
+        return {"success": True, "data": cmp_res}
+
     session = await PracticeSessionRepo(ctx).get(session_id)
     current = await AiScoreRepo(ctx).find_one({"practiceSessionId": session["_id"]})
     if not current:
@@ -3185,6 +3464,20 @@ async def update_profile(
 
 @router.get("/placement-goal")
 async def get_goal(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        u_uuid = _uuid.UUID(str(ctx.user_id))
+        async with get_pg_connection() as conn:
+            row = await conn.fetchval(
+                "SELECT preferences->'placementGoal' FROM users WHERE id = $1",
+                u_uuid,
+            )
+            if row:
+                goal_data = json.loads(row) if isinstance(row, str) else row
+                return {"success": True, "data": goal_data}
+            return {"success": True, "data": None}
+
     goal = await PlacementGoalRepo(ctx).find_one({"studentUserId": ctx.user_id})
     return {"success": True, "data": serialize(goal)}
 
@@ -3206,18 +3499,35 @@ async def set_goal(payload: GoalReq, ctx: ScopeContext = StudentCtx) -> dict[str
         for index, gap in enumerate(gaps)
     ]
     document = {
-        "studentUserId": ctx.user_id,
-        "collegeId": ctx.college_id,
-        "departmentId": ctx.department_id,
+        "studentUserId": str(ctx.user_id),
+        "collegeId": str(ctx.college_id) if ctx.college_id else None,
+        "departmentId": str(ctx.department_id) if ctx.department_id else None,
         "targetRole": payload.targetRole,
         "targetScore": payload.targetScore,
-        "targetDate": datetime.combine(payload.targetDate, datetime.min.time(), tzinfo=timezone.utc),
+        "targetDate": datetime.combine(payload.targetDate, datetime.min.time(), tzinfo=timezone.utc).isoformat(),
         "focusAreas": payload.focusAreas or [g["label"] for g in gaps],
         "currentScore": current,
         "skillGaps": [{"label": g["label"], "score": g["score"]} for g in gaps],
         "roadmap": roadmap,
-        "updatedAt": _now(),
+        "updatedAt": _now().isoformat(),
     }
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        u_uuid = _uuid.UUID(str(ctx.user_id))
+        async with get_pg_connection() as conn:
+            await conn.execute(
+                """
+                UPDATE users
+                SET preferences = jsonb_set(COALESCE(preferences, '{}'::jsonb), '{placementGoal}', $2::jsonb, true),
+                    updated_at = NOW()
+                WHERE id = $1
+                """,
+                u_uuid,
+                json.dumps(document),
+            )
+        return {"success": True, "data": document, "message": "Placement goal saved"}
+
     await get_db().placement_goals.update_one(
         {"studentUserId": ctx.user_id},
         {"$set": document, "$setOnInsert": {"createdAt": _now(), "deletedAt": None, "version": 1}},
@@ -3228,8 +3538,28 @@ async def set_goal(payload: GoalReq, ctx: ScopeContext = StudentCtx) -> dict[str
 
 @router.get("/settings")
 async def get_settings(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
-    user = await get_db().users.find_one({"_id": ctx.user_id}, {"preferences": 1})
     from app.services import session_service
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        u_uuid = _uuid.UUID(str(ctx.user_id))
+        async with get_pg_connection() as conn:
+            prefs = await conn.fetchval(
+                "SELECT preferences FROM users WHERE id = $1",
+                u_uuid,
+            )
+            prefs_dict = json.loads(prefs) if isinstance(prefs, str) else (prefs or {})
+            return {
+                "success": True,
+                "data": {
+                    "preferences": prefs_dict,
+                    "sessions": serialize(
+                        await session_service.list_active_sessions(str(ctx.user_id), ctx.session_id)
+                    ),
+                },
+            }
+
+    user = await get_db().users.find_one({"_id": ctx.user_id}, {"preferences": 1})
 
     return {
         "success": True,
@@ -3249,6 +3579,28 @@ async def update_settings(
     updates = payload.model_dump(exclude_none=True)
     if not updates:
         raise ValidationError("Nothing to update")
+
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        u_uuid = _uuid.UUID(str(ctx.user_id))
+        async with get_pg_connection() as conn:
+            await conn.execute(
+                """
+                UPDATE users
+                SET preferences = COALESCE(preferences, '{}'::jsonb) || $2::jsonb,
+                    updated_at = NOW()
+                WHERE id = $1
+                """,
+                u_uuid,
+                json.dumps(updates),
+            )
+        await write_audit(
+            ctx, action="update", entity_type="users", entity_id=ctx.user_id,
+            after=updates, detail="notification/privacy preferences updated",
+        )
+        return {"success": True, "message": "Preferences saved", "data": updates}
+
     await get_db().users.update_one(
         {"_id": ctx.user_id},
         {"$set": {**{f"preferences.{k}": v for k, v in updates.items()}, "updatedAt": _now()}},

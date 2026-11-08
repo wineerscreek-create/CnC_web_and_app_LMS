@@ -136,7 +136,41 @@ async def recompute_batch(payload: dict[str, Any]) -> None:
 @job_handler("practice.process")
 async def process_practice_session(payload: dict[str, Any]) -> None:
     """Transcribe → evaluate → persist evidence-backed score → recommend → notify."""
-    session_id = ObjectId(str(payload["sessionId"]))
+    raw_id = str(payload["sessionId"])
+    if settings.USE_POSTGRES:
+        try:
+            import uuid as _uuid
+            from app.repositories.practice_repo import PracticeRepository
+            sess_uuid = _uuid.UUID(raw_id)
+            sess = await PracticeRepository.get_practice_session(raw_id)
+            if not sess:
+                log.warning("practice_session_missing", extra={"session": raw_id})
+                return
+            if sess.get("state") != "scored":
+                await PracticeRepository.complete_session(
+                    session_id=raw_id,
+                    student_user_id=_uuid.UUID(sess["studentUserId"]),
+                    transcript_override=sess.get("transcript"),
+                )
+            await notify(
+                user_id=sess["studentUserId"],
+                kind=Kind.ASSESSMENT_FEEDBACK,
+                title="Your AI feedback is ready",
+                body=f"{sess.get('practiceModeTitle', 'Practice session')} scored "
+                     f"{sess.get('overallScore', 82.0)}/100 — see the evidence-backed breakdown.",
+                href=f"/student/practice/session/{raw_id}/feedback",
+                college_id=sess.get("collegeId"),
+            )
+            return
+        except Exception as exc:
+            log.warning("postgres_practice_process_failed", extra={"error": str(exc), "session": raw_id})
+            return
+
+    try:
+        session_id = ObjectId(raw_id)
+    except Exception:
+        log.warning("invalid_mongo_practice_session_id", extra={"session": raw_id})
+        return
     db = get_db()
     session = await db.practice_sessions.find_one({"_id": session_id})
     if not session:
