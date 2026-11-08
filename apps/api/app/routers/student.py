@@ -70,6 +70,7 @@ from app.services.scoring import PILLAR_LABELS, PILLARS, band_for
 from app.services.storage import Keys, get_storage, put_object, signed_url
 from app.services.resume_ats_service import analyze_resume_ats
 from app.services.recommendation_engine import compute_course_recommendations, compute_skill_gaps
+from app.repositories.assignment_quiz_repo import QuizRepository, AssignmentRepository
 from app.workers.queue import enqueue
 
 router = APIRouter()
@@ -616,8 +617,24 @@ async def dashboard(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
             pg_data.setdefault("weekAtAGlance", [])
             pg_data.setdefault("leaderboard", {"myRank": None, "outOf": None, "top": []})
             return {"success": True, "data": pg_data}
-        except Exception:
-            pass
+        except Exception as e:
+            from app.core.logging import get_logger
+            get_logger("student.dashboard").warning(f"Error getting pg student dashboard data: {e}")
+            return {
+                "success": True,
+                "data": {
+                    "learningHoursThisWeek": 0.0,
+                    "pendingTasks": {"total": 0, "assignments": 0, "awaitingTrainerReview": 0},
+                    "continueLearning": None,
+                    "dailyQuest": None,
+                    "upcomingLiveSession": None,
+                    "skillBreakdown": [],
+                    "recommendedActivity": None,
+                    "weekAtAGlance": [],
+                    "leaderboard": {"myRank": None, "outOf": None, "top": []},
+                    "student": {"id": str(ctx.user_id), "name": ctx.name, "readinessScore": 0.0},
+                },
+            }
 
     profile = await _profile(ctx)
     score = await EediScoreRepo(ctx).find_one({"studentUserId": ctx.user_id}) or {}
@@ -3098,6 +3115,9 @@ async def export_progress(
 # --------------------------------------------------------------------------- assessments & classes
 @router.get("/assessments")
 async def assessments(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        items = await QuizRepository.list_student_quizzes(ctx)
+        return {"success": True, "data": items}
     profile = await _profile(ctx)
     quizzes = await QuizRepo(ctx).find_all(
         {"batchId": profile.get("batchId")}, limit=100, sort=[("opensAt", -1)]
@@ -3139,6 +3159,19 @@ async def assessments(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
 
 @router.get("/assessments/{quiz_id}")
 async def assessment_detail(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        quiz_data = await QuizRepository.get_quiz(quiz_id, uuid.UUID(str(ctx.user_id)))
+        return {
+            "success": True,
+            "data": {
+                "id": quiz_data["id"],
+                "title": quiz_data["title"],
+                "durationMinutes": quiz_data["durationMinutes"],
+                "questions": quiz_data["questions"],
+                "alreadyAttempted": quiz_data.get("attempt") is not None,
+                "myAttempt": quiz_data.get("attempt"),
+            },
+        }
     quiz = await QuizRepo(ctx).get(quiz_id)
     attempt = await QuizAttemptRepo(ctx).find_one(
         {"studentUserId": ctx.user_id, "assessmentId": quiz["_id"]}
@@ -3171,6 +3204,11 @@ async def assessment_detail(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dic
 async def submit_assessment(
     quiz_id: str, payload: QuizAttemptRequest, ctx: ScopeContext = StudentCtx
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        answers_map = {a.get("questionId"): a.get("optionId") for a in payload.answers}
+        res = await QuizRepository.submit_quiz_attempt(ctx, quiz_id, answers_map)
+        await _award_xp(ctx, amount=int(res["score"] / 5), source="quiz", label="Assessment")
+        return {"success": True, "data": res}
     quiz = await QuizRepo(ctx).get(quiz_id)
     if quiz.get("closesAt") and as_utc(quiz["closesAt"]) < _now():
         raise BusinessRuleViolation("This assessment has closed")
@@ -3900,6 +3938,9 @@ async def student_certificates(ctx: ScopeContext = StudentCtx) -> dict[str, Any]
 
 @router.get("/assignments")
 async def student_assignments(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        items = await AssignmentRepository.list_student_assignments(ctx)
+        return {"success": True, "data": items}
     profile = await _profile(ctx)
     assignments = await AssignmentRepo(ctx).find_all(
         {"batchId": profile.get("batchId")}, limit=100, sort=[("dueAt", 1)]
@@ -3941,6 +3982,25 @@ async def submit_assignment(
     file: UploadFile | None = File(None),
     ctx: ScopeContext = StudentCtx,
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        file_bytes = None
+        filename = None
+        content_type = None
+        if file is not None:
+            file_bytes = await file.read()
+            if file_bytes:
+                if len(file_bytes) > 25 * 1024 * 1024:
+                    raise ValidationError("Keep submissions under 25 MB")
+                filename = (file.filename or "submission").replace("/", "_")[:120]
+                content_type = (file.content_type or "application/octet-stream").split(";")[0]
+
+        if not file_bytes and not note.strip():
+            raise ValidationError("Attach a file or add a note before submitting")
+
+        res = await AssignmentRepository.submit_assignment(
+            ctx, assignment_id, note.strip(), file_bytes, filename, content_type
+        )
+        return {"success": True, "data": res}
     assignment = await AssignmentRepo(ctx).get(assignment_id)
     due_at = as_utc(assignment.get("dueAt"))
     if due_at and due_at < _now() and not assignment.get("allowLate"):

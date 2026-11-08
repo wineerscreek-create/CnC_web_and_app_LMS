@@ -49,6 +49,199 @@ async def submit_complete_trainer_evaluation(
     """Trainer completes evaluation: records rubric, qualitative feedback, calculates scores,
     and generates the finalized evaluation report.
     """
+    from app.core.config import settings
+    import uuid as _uuid
+    import json as _json
+
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        s_uuid = _uuid.UUID(str(payload["studentUserId"]))
+        now = _now()
+
+        async with get_pg_connection() as conn:
+            student_row = await conn.fetchrow("""
+                SELECT sp.user_id, sp.roll_number, sp.institution_id, sp.department_id, sp.batch_id,
+                       u.name as student_name, u.email as student_email,
+                       inst.name as institution_name, inst.institution_type, inst.training_type,
+                       d.name as department_name, b.name as batch_name
+                FROM student_profiles sp
+                JOIN users u ON u.id = sp.user_id
+                LEFT JOIN institutions inst ON inst.id = sp.institution_id
+                LEFT JOIN departments d ON d.id = sp.department_id
+                LEFT JOIN batches b ON b.id = sp.batch_id
+                WHERE sp.user_id = $1
+            """, s_uuid)
+
+            if not student_row:
+                raise NotFound("Participant profile not found.")
+
+            # Resolve course_id
+            course_id = None
+            if payload.get("courseId"):
+                try:
+                    course_id = _uuid.UUID(str(payload["courseId"]))
+                except Exception:
+                    pass
+            if not course_id:
+                # Find course enrolled for student's batch or first course
+                c_row = await conn.fetchrow("""
+                    SELECT c.id FROM courses c
+                    LEFT JOIN enrollments e ON e.course_id = c.id AND e.participant_user_id = $1
+                    WHERE c.deleted_at IS NULL
+                    ORDER BY e.created_at DESC NULLS LAST
+                    LIMIT 1
+                """, s_uuid)
+                if c_row:
+                    course_id = c_row["id"]
+
+            parameter_scores = payload.get("parameterScores", [])
+            pillar_scores = payload.get("pillarScores")
+            if not pillar_scores:
+                pillar_scores = {code: 75.0 for code in PILLAR_CODES}
+
+            overall_score = round(sum(float(v) for v in pillar_scores.values()) / max(1, len(pillar_scores)), 1)
+
+            # Attendance stats
+            att_row = await conn.fetchrow("""
+                SELECT COUNT(*) as total,
+                       COUNT(CASE WHEN status = 'PRESENT' THEN 1 END) as present
+                FROM attendance_records
+                WHERE participant_user_id = $1
+            """, s_uuid)
+            attendance_pct = None
+            if att_row and int(att_row["total"] or 0) > 0:
+                attendance_pct = round((int(att_row["present"]) / int(att_row["total"])) * 100, 1)
+
+            emp_score = calculate_employment_score(
+                eedi_score=overall_score,
+                evaluation={"overallScore": overall_score},
+                attendance_pct=attendance_pct,
+            )
+            emp_label = f"{emp_score}/100" if emp_score is not None else "N/A"
+
+            fb_data = payload.get("trainerFeedback", {})
+            qualitative_notes = fb_data.get("qualitativeNotes", "Participant demonstrates active engagement.")
+            strengths = fb_data.get("strengths", ["Clear verbal presentation", "Collaborative mindset"])
+            weaknesses = fb_data.get("weaknesses", ["Pacing during technical explanations"])
+            improvement_areas = fb_data.get("improvementAreas", ["Structured problem-solving practice"])
+            overall_assessment = fb_data.get("overallAssessment", "Consistent improvement observed across evaluation modules.")
+            rating = int(fb_data.get("rating", 4))
+
+            radar_points = [
+                {"pillar": code, "label": PILLAR_LABELS.get(code, code), "score": float(pillar_scores.get(code, 70.0))}
+                for code in PILLAR_CODES
+            ]
+
+            eval_uuid = _uuid.uuid4()
+            report_doc = {
+                "id": str(eval_uuid),
+                "reportId": str(eval_uuid),
+                "studentUserId": str(s_uuid),
+                "studentName": student_row["student_name"] or "Participant",
+                "rollNumber": student_row["roll_number"] or "N/A",
+                "evaluatorUserId": str(ctx.user_id),
+                "evaluatorName": ctx.name or "Assigned Trainer",
+                "collegeId": str(student_row["institution_id"]) if student_row["institution_id"] else None,
+                "institutionName": student_row["institution_name"] or "Winners Creek Academy",
+                "institutionType": student_row["institution_type"] or "COLLEGE",
+                "departmentId": str(student_row["department_id"]) if student_row["department_id"] else None,
+                "departmentName": student_row["department_name"] or "Department",
+                "courseId": str(course_id) if course_id else None,
+                "courseTitle": payload.get("courseTitle", "Professional Development & Employability"),
+                "trainingType": student_row["training_type"] or "COLLEGE",
+                "deliveryMode": payload.get("deliveryMode", "OFFLINE"),
+                "semesterNumber": payload.get("semesterNumber") or 1,
+                "eediScore": overall_score,
+                "eediScoreLabel": f"{overall_score}/100",
+                "employmentScore": emp_score,
+                "employmentScoreLabel": emp_label,
+                "pillarScores": pillar_scores,
+                "trainerFeedback": {
+                    "rating": rating,
+                    "qualitativeNotes": qualitative_notes,
+                    "overallAssessment": overall_assessment,
+                },
+                "performanceAnalysis": {
+                    "attendancePercentage": attendance_pct,
+                    "attendanceLabel": f"{attendance_pct}%" if attendance_pct is not None else "N/A",
+                    "strongestPillar": max(pillar_scores, key=pillar_scores.get) if pillar_scores else "N/A",
+                    "focusPillar": min(pillar_scores, key=pillar_scores.get) if pillar_scores else "N/A",
+                },
+                "strengths": strengths,
+                "weaknesses": weaknesses,
+                "improvementAreas": improvement_areas,
+                "overallAssessment": overall_assessment,
+                "charts": {
+                    "radar": radar_points,
+                    "readinessScore": overall_score,
+                    "employmentScore": emp_score,
+                },
+                "status": "COMPLETED",
+                "evaluatedAt": now.isoformat(),
+                "createdAt": now.isoformat(),
+                "updatedAt": now.isoformat(),
+            }
+
+            trainer_uuid = _uuid.UUID(str(ctx.user_id))
+            sem = int(payload.get("semesterNumber") or 1)
+
+            # Insert or update in eedi_evaluations
+            if course_id:
+                await conn.execute("""
+                    INSERT INTO eedi_evaluations (
+                        id, participant_user_id, trainer_user_id, institution_id, department_id,
+                        course_id, semester, status, eedi_score, employment_score,
+                        strengths, weaknesses, improvements, trainer_notes, submitted_at, report_data,
+                        created_at, updated_at
+                    ) VALUES (
+                        $1, $2, $3, $4, $5,
+                        $6, $7, 'COMPLETED', $8, $9,
+                        $10, $11, $12, $13, NOW(), $14::jsonb,
+                        NOW(), NOW()
+                    )
+                    ON CONFLICT (participant_user_id, course_id, semester) DO UPDATE SET
+                        trainer_user_id = EXCLUDED.trainer_user_id,
+                        status = 'COMPLETED',
+                        eedi_score = EXCLUDED.eedi_score,
+                        employment_score = EXCLUDED.employment_score,
+                        strengths = EXCLUDED.strengths,
+                        weaknesses = EXCLUDED.weaknesses,
+                        improvements = EXCLUDED.improvements,
+                        trainer_notes = EXCLUDED.trainer_notes,
+                        submitted_at = NOW(),
+                        report_data = EXCLUDED.report_data,
+                        updated_at = NOW()
+                """, eval_uuid, s_uuid, trainer_uuid, student_row["institution_id"], student_row["department_id"],
+                    course_id, sem, overall_score, emp_score,
+                    strengths, weaknesses, improvement_areas, qualitative_notes, _json.dumps(report_doc)
+                )
+            else:
+                await conn.execute("""
+                    INSERT INTO eedi_evaluations (
+                        id, participant_user_id, trainer_user_id, institution_id, department_id,
+                        course_id, semester, status, eedi_score, employment_score,
+                        strengths, weaknesses, improvements, trainer_notes, submitted_at, report_data,
+                        created_at, updated_at
+                    ) VALUES (
+                        $1, $2, $3, $4, $5,
+                        NULL, $6, 'COMPLETED', $7, $8,
+                        $9, $10, $11, $12, NOW(), $13::jsonb,
+                        NOW(), NOW()
+                    )
+                """, eval_uuid, s_uuid, trainer_uuid, student_row["institution_id"], student_row["department_id"],
+                    sem, overall_score, emp_score,
+                    strengths, weaknesses, improvement_areas, qualitative_notes, _json.dumps(report_doc)
+                )
+
+            # Insert pillar scores
+            for code, p_score in pillar_scores.items():
+                await conn.execute("""
+                    INSERT INTO evaluation_pillar_scores (id, evaluation_id, pillar, score, max_score)
+                    VALUES (gen_random_uuid(), $1, $2, $3, 100)
+                """, eval_uuid, code, float(p_score))
+
+            return report_doc
+
     db = get_db()
     student_user_id = ObjectId(str(payload["studentUserId"]))
 
@@ -222,6 +415,23 @@ async def get_evaluation_report(
     report_id: str | ObjectId,
 ) -> dict[str, Any]:
     """Retrieve evaluation report with server-side visibility check (Requirement 26, 29)."""
+    from app.core.config import settings
+    if settings.USE_POSTGRES:
+        import uuid as _uuid
+        import json as _json
+        from app.db.postgres import get_pg_connection
+        try:
+            r_uuid = _uuid.UUID(str(report_id))
+        except Exception:
+            raise NotFound("Evaluation report not found.")
+
+        async with get_pg_connection() as conn:
+            row = await conn.fetchrow("SELECT report_data FROM eedi_evaluations WHERE id = $1", r_uuid)
+            if not row or not row["report_data"]:
+                raise NotFound("Evaluation report not found.")
+            data = _json.loads(row["report_data"]) if isinstance(row["report_data"], str) else row["report_data"]
+            return data
+
     db = get_db()
     rid = ObjectId(str(report_id))
     report = await db.evaluation_reports.find_one({"_id": rid})
@@ -240,6 +450,28 @@ async def get_latest_participant_report(
     student_user_id: str | ObjectId,
 ) -> Optional[dict[str, Any]]:
     """Retrieve the latest evaluation report for a participant."""
+    from app.core.config import settings
+    if settings.USE_POSTGRES:
+        import uuid as _uuid
+        import json as _json
+        from app.db.postgres import get_pg_connection
+        try:
+            s_uuid = _uuid.UUID(str(student_user_id))
+        except Exception:
+            return None
+
+        async with get_pg_connection() as conn:
+            row = await conn.fetchrow("""
+                SELECT report_data FROM eedi_evaluations
+                WHERE participant_user_id = $1 AND status = 'COMPLETED'
+                ORDER BY submitted_at DESC NULLS LAST, created_at DESC
+                LIMIT 1
+            """, s_uuid)
+            if not row or not row["report_data"]:
+                return None
+            data = _json.loads(row["report_data"]) if isinstance(row["report_data"], str) else row["report_data"]
+            return data
+
     db = get_db()
     sid = ObjectId(str(student_user_id))
     report = await db.evaluation_reports.find_one(

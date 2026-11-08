@@ -20,7 +20,10 @@ from app.authz.guards import require_role
 from app.authz.roles import Role
 from app.core.config import settings
 from app.core.errors import Conflict, NotFound, ScopeForbidden, ValidationError
+from app.core.logging import get_logger
 from app.core.security import hash_password, verify_password
+
+log = get_logger("app.routers.super_admin")
 from app.db.mongo import get_db, serialize
 from app.db.postgres import get_pg_connection
 from app.schemas.requests import ReportRequest
@@ -116,12 +119,16 @@ async def super_admin_list_colleges(
     from app.repositories.user_repo import UserRepository
 
     if settings.USE_POSTGRES:
-        inst_type_filter = institutionType.upper() if institutionType and institutionType.upper() != "ALL" else None
-        trn_type_filter = trainingType.upper() if trainingType and trainingType.upper() != "ALL" else None
+        it_str = institutionType if isinstance(institutionType, str) else None
+        tt_str = trainingType if isinstance(trainingType, str) else None
+        s_str = search if isinstance(search, str) else None
+
+        inst_type_filter = it_str.upper() if it_str and it_str.upper() != "ALL" else None
+        trn_type_filter = tt_str.upper() if tt_str and tt_str.upper() != "ALL" else None
         pg_insts = await InstitutionRepository.list_all(
             institution_type=inst_type_filter,
             training_type=trn_type_filter,
-            search=search,
+            search=s_str,
             limit=100,
         )
         out = []
@@ -131,6 +138,7 @@ async def super_admin_list_colleges(
             stu_count = await UserRepository.count_by_scope(role="STUDENT", institution_id=cid)
             trn_count = await UserRepository.count_by_scope(role="TRAINER", institution_id=cid)
 
+            category_val = c.get("institution_category") or ("CORPORATE" if c.get("institution_type") == "COMPANY" else c.get("institution_type"))
             out.append({
                 "id": str(cid),
                 "name": c.get("name"),
@@ -139,6 +147,8 @@ async def super_admin_list_colleges(
                 "contact": {"city": c.get("city"), "state": c.get("state")},
                 "status": str(c.get("status", "ACTIVE")).lower(),
                 "institutionType": c.get("institution_type"),
+                "institutionCategory": category_val,
+                "category": category_val,
                 "trainingType": c.get("training_type"),
                 "departmentsCount": len(depts),
                 "studentsCount": stu_count,
@@ -2606,12 +2616,35 @@ async def super_admin_remove_course_trainer(
 async def super_admin_system_metrics(ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
     events_count = 0
     system_events = []
-    try:
-        db = get_db()
-        events_count = await db.ai_usage_events.count_documents({})
-        system_events = await db.system_events.find({}).sort("at", -1).limit(20).to_list(20)
-    except Exception as e:
-        logger.warning(f"Error fetching system metrics: {e}")
+    if settings.USE_POSTGRES:
+        try:
+            from app.db.postgres import get_pg_connection
+            async with get_pg_connection() as conn:
+                events_count = await conn.fetchval("SELECT count(1) FROM audit_logs") or 0
+                recent = await conn.fetch("""
+                    SELECT id, action, entity_name, actor_user_id, created_at, metadata
+                    FROM audit_logs
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                """)
+                for r in recent:
+                    system_events.append({
+                        "id": str(r["id"]),
+                        "action": r["action"],
+                        "entityType": r["entity_name"],
+                        "actorUserId": str(r["actor_user_id"]) if r["actor_user_id"] else None,
+                        "at": r["created_at"].isoformat() if r["created_at"] else None,
+                        "details": r["metadata"],
+                    })
+        except Exception as e:
+            log.warning(f"Error fetching system metrics from postgres: {e}")
+    else:
+        try:
+            db = get_db()
+            events_count = await db.ai_usage_events.count_documents({})
+            system_events = await db.system_events.find({}).sort("at", -1).limit(20).to_list(20)
+        except Exception as e:
+            logger.warning(f"Error fetching system metrics: {e}")
 
     return {
         "success": True,

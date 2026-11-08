@@ -173,25 +173,46 @@ async def run_import(
     ctx: ScopeContext, entity: str, content: bytes, *, filename: str | None = None
 ) -> dict[str, Any]:
     rows = parse_csv(content, entity)
-    db = get_db()
+    job_uuid = uuid.uuid4()
+    job_id = job_uuid
 
-    job = {
-        "entity": entity,
-        "filename": filename,
-        "collegeId": ctx.college_id,
-        "requestedBy": ctx.user_id,
-        "requestedByLabel": ctx.actor_label,
-        "totalRows": len(rows),
-        "successCount": 0,
-        "failureCount": 0,
-        "status": "processing",
-        "failedRows": [],
-        "createdAt": _now(),
-        "updatedAt": _now(),
-        "deletedAt": None,
-        "version": 1,
-    }
-    job_id = (await db.import_jobs.insert_one(job)).inserted_id
+    if settings.USE_POSTGRES:
+        async with get_pg_connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO import_jobs (
+                    id, institution_id, requested_by, entity, filename,
+                    total_rows, success_count, failure_count, status, errors, summary, created_at
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, 0, 0, 'processing', '[]'::jsonb, '{}'::jsonb, NOW()
+                )
+                """,
+                job_uuid,
+                _to_uuid(ctx.college_id),
+                _to_uuid(ctx.user_id),
+                entity,
+                filename,
+                len(rows),
+            )
+    else:
+        db = get_db()
+        job = {
+            "entity": entity,
+            "filename": filename,
+            "collegeId": ctx.college_id,
+            "requestedBy": ctx.user_id,
+            "requestedByLabel": ctx.actor_label,
+            "totalRows": len(rows),
+            "successCount": 0,
+            "failureCount": 0,
+            "status": "processing",
+            "failedRows": [],
+            "createdAt": _now(),
+            "updatedAt": _now(),
+            "deletedAt": None,
+            "version": 1,
+        }
+        job_id = (await db.import_jobs.insert_one(job)).inserted_id
 
     handler: Callable[..., Any] = {
         "students": _import_student,
@@ -259,19 +280,44 @@ async def run_import(
                 {"row": index, "field": "-", "value": "-", "reason": f"Unexpected error: {str(exc)}"}
             )
 
-    await db.import_jobs.update_one(
-        {"_id": job_id},
-        {
-            "$set": {
-                "status": "completed" if not failed else "completed_with_errors",
-                "successCount": succeeded,
-                "failureCount": len(failed),
-                "failedRows": failed[:1000],
-                "finishedAt": _now(),
-                "updatedAt": _now(),
-            }
-        },
-    )
+    if settings.USE_POSTGRES:
+        import json as _json
+        async with get_pg_connection() as conn:
+            await conn.execute(
+                """
+                UPDATE import_jobs
+                SET status = $2,
+                    success_count = $3,
+                    failure_count = $4,
+                    errors = $5::jsonb,
+                    summary = $6::jsonb
+                WHERE id = $1
+                """,
+                job_uuid,
+                "completed" if not failed else "completed_with_errors",
+                succeeded,
+                len(failed),
+                _json.dumps(failed[:1000]),
+                _json.dumps({
+                    "insertedCount": context["inserted_count"],
+                    "updatedCount": context["updated_count"],
+                    "skippedDuplicates": context["skipped_duplicates"],
+                }),
+            )
+    else:
+        await db.import_jobs.update_one(
+            {"_id": job_id},
+            {
+                "$set": {
+                    "status": "completed" if not failed else "completed_with_errors",
+                    "successCount": succeeded,
+                    "failureCount": len(failed),
+                    "failedRows": failed[:1000],
+                    "finishedAt": _now(),
+                    "updatedAt": _now(),
+                }
+            },
+        )
     await write_audit(
         ctx,
         action="create",
@@ -567,30 +613,31 @@ async def _import_trainer(ctx: ScopeContext, row: dict[str, str], context: dict[
             )
 
     # Sync to MongoDB for backward compatibility
-    db = get_db()
-    await db.users.insert_one(
-        {
-            "_id": str(new_user_id),
-            "name": name,
-            "email": email,
-            "passwordHash": hash_password(temp_password),
-            "mustChangePassword": True,
-            "role": "TRAINER",
-            "collegeId": str(ctx.college_id) if ctx.college_id else None,
-            "departmentId": str(dept_uuid) if dept_uuid else None,
-            "departmentName": department.get("name"),
-            "designation": designation,
-            "phone": phone,
-            "status": "active",
-            "emailVerified": True,
-            "provisionedBy": "bulk_import",
-            "createdAt": _now(),
-            "updatedAt": _now(),
-            "createdBy": str(ctx.user_id) if ctx.user_id else None,
-            "deletedAt": None,
-            "version": 1,
-        }
-    )
+    if not settings.USE_POSTGRES:
+        db = get_db()
+        await db.users.insert_one(
+            {
+                "_id": str(new_user_id),
+                "name": name,
+                "email": email,
+                "passwordHash": hash_password(temp_password),
+                "mustChangePassword": True,
+                "role": "TRAINER",
+                "collegeId": str(ctx.college_id) if ctx.college_id else None,
+                "departmentId": str(dept_uuid) if dept_uuid else None,
+                "departmentName": department.get("name"),
+                "designation": designation,
+                "phone": phone,
+                "status": "active",
+                "emailVerified": True,
+                "provisionedBy": "bulk_import",
+                "createdAt": _now(),
+                "updatedAt": _now(),
+                "createdBy": str(ctx.user_id) if ctx.user_id else None,
+                "deletedAt": None,
+                "version": 1,
+            }
+        )
 
     context["seenEmails"].add(email)
     context["inserted_count"] += 1
@@ -730,6 +777,7 @@ async def _import_student(ctx: ScopeContext, row: dict[str, str], context: dict[
         return "inserted"
 
     inst_uuid = context.get("inst_uuid")
+    dept_uuid = _to_uuid(department.get("id") or department.get("_id"))
     batch_uuid = _to_uuid(batch.get("id") or batch.get("_id"))
     semester_num = _int(row, "semester", batch.get("semester", 1))
     section_val = (row.get("section") or "A").strip()
@@ -774,26 +822,27 @@ async def _import_student(ctx: ScopeContext, row: dict[str, str], context: dict[
         )
 
     # Sync to MongoDB for backward compatibility
-    db = get_db()
-    await db.users.insert_one(
-        {
-            "_id": str(new_user_id),
-            "name": name,
-            "email": email,
-            "passwordHash": hash_password(temp_password),
-            "role": "STUDENT",
-            "collegeId": str(ctx.college_id) if ctx.college_id else None,
-            "departmentId": str(dept_uuid) if dept_uuid else None,
-            "departmentName": department.get("name"),
-            "status": "active",
-            "emailVerified": True,
-            "createdAt": _now(),
-            "updatedAt": _now(),
-            "createdBy": str(ctx.user_id) if ctx.user_id else None,
-            "deletedAt": None,
-            "version": 1,
-        }
-    )
+    if not settings.USE_POSTGRES:
+        db = get_db()
+        await db.users.insert_one(
+            {
+                "_id": str(new_user_id),
+                "name": name,
+                "email": email,
+                "passwordHash": hash_password(temp_password),
+                "role": "STUDENT",
+                "collegeId": str(ctx.college_id) if ctx.college_id else None,
+                "departmentId": str(dept_uuid) if dept_uuid else None,
+                "departmentName": department.get("name"),
+                "status": "active",
+                "emailVerified": True,
+                "createdAt": _now(),
+                "updatedAt": _now(),
+                "createdBy": str(ctx.user_id) if ctx.user_id else None,
+                "deletedAt": None,
+                "version": 1,
+            }
+        )
 
     context["seenEmails"].add(email)
     context["seenCodes"].add(roll)
@@ -874,25 +923,26 @@ async def _import_batch(ctx: ScopeContext, row: dict[str, str], context: dict[st
         )
 
     # Sync to MongoDB for backward compatibility
-    db = get_db()
-    inserted = await db.batches.insert_one(
-        {
-            "_id": str(new_batch_id),
-            "name": name,
-            "code": code,
-            "collegeId": str(ctx.college_id) if ctx.college_id else None,
-            "departmentId": str(dept_uuid) if dept_uuid else None,
-            "departmentName": department.get("name"),
-            "semesterNumber": semester_num,
-            "capacity": capacity_val,
-            "status": "active",
-            "createdAt": _now(),
-            "updatedAt": _now(),
-            "createdBy": str(ctx.user_id) if ctx.user_id else None,
-            "deletedAt": None,
-            "version": 1,
-        }
-    )
+    if not settings.USE_POSTGRES:
+        db = get_db()
+        inserted = await db.batches.insert_one(
+            {
+                "_id": str(new_batch_id),
+                "name": name,
+                "code": code,
+                "collegeId": str(ctx.college_id) if ctx.college_id else None,
+                "departmentId": str(dept_uuid) if dept_uuid else None,
+                "departmentName": department.get("name"),
+                "semesterNumber": semester_num,
+                "capacity": capacity_val,
+                "status": "active",
+                "createdAt": _now(),
+                "updatedAt": _now(),
+                "createdBy": str(ctx.user_id) if ctx.user_id else None,
+                "deletedAt": None,
+                "version": 1,
+            }
+        )
 
     context["batches"][code] = {
         "id": new_batch_id,

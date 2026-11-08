@@ -74,6 +74,7 @@ from app.services.notifications import Kind, notify
 from app.services.scoring import PILLAR_LABELS, PILLARS, pillar_scores_from_parameters
 from app.services.storage import signed_url
 from app.services.storage import Keys, get_storage, put_object, signed_url
+from app.repositories.assignment_quiz_repo import AssignmentRepository, _safe_uuid
 from app.workers.queue import enqueue
 
 router = APIRouter()
@@ -608,6 +609,27 @@ async def student_detail(student_id: str, ctx: ScopeContext = TrainerCtx) -> dic
             """, s_uuid)
             if not row:
                 raise NotFound("Participant not found")
+            eval_rows = await conn.fetch("""
+                SELECT id, eedi_score, employment_score, strengths, weaknesses, improvements,
+                       trainer_notes, status, submitted_at, created_at, report_data
+                FROM eedi_evaluations
+                WHERE participant_user_id = $1
+                ORDER BY created_at DESC
+            """, s_uuid)
+
+            pillar_rows = await conn.fetch("""
+                SELECT pillar, score, max_score
+                FROM evaluation_pillar_scores
+                WHERE evaluation_id = (
+                    SELECT id FROM eedi_evaluations
+                    WHERE participant_user_id = $1
+                    ORDER BY created_at DESC LIMIT 1
+                )
+            """, s_uuid)
+            pillar_map = {r["pillar"]: float(r["score"]) for r in pillar_rows}
+            latest_eval = eval_rows[0] if eval_rows else None
+            final_sc = float(latest_eval["eedi_score"]) if (latest_eval and latest_eval["eedi_score"] is not None) else (float(row["readiness_score"]) if row["readiness_score"] is not None else None)
+
             return {
                 "success": True,
                 "data": {
@@ -631,14 +653,34 @@ async def student_detail(student_id: str, ctx: ScopeContext = TrainerCtx) -> dic
                         "present": int(row["attendance_present"]),
                         "total": int(row["attendance_total"]),
                     },
-                    "assessments": [],
-                    "eediScore": {"finalScore": float(row["readiness_score"])} if row["readiness_score"] is not None else {},
+                    "assessments": [
+                        {
+                            "id": str(e["id"]),
+                            "trainingModuleName": "EEDI Evaluation",
+                            "completeness": 100.0 if e["status"] == "COMPLETED" else 50.0,
+                            "score": float(e["eedi_score"]) if e["eedi_score"] is not None else None,
+                            "overallScore": float(e["eedi_score"]) if e["eedi_score"] is not None else None,
+                            "state": "submitted" if e["status"] == "COMPLETED" else "draft",
+                            "createdAt": e["created_at"].isoformat() if e["created_at"] else None,
+                        }
+                        for e in eval_rows
+                    ],
+                    "eediScore": {"finalScore": final_sc, "scoringVersion": "2.1"} if final_sc is not None else {},
                     "pillars": [
-                        {"code": code, "label": label, "score": None}
+                        {"code": code, "label": label, "score": pillar_map.get(code)}
                         for code, label in PILLARS
                     ],
                     "aiScores": [],
-                    "feedback": [],
+                    "feedback": [
+                        {
+                            "id": str(e["id"]),
+                            "trainerName": ctx.name or "Trainer",
+                            "rating": 4,
+                            "feedbackText": e["trainer_notes"] or "Evaluation feedback",
+                            "createdAt": e["created_at"].isoformat() if e["created_at"] else None,
+                        }
+                        for e in eval_rows if e["trainer_notes"]
+                    ],
                 },
             }
 
@@ -757,7 +799,9 @@ async def sessions(
 
             where_clause = " AND ".join(conds)
             total = await conn.fetchval(f"SELECT count(*) FROM training_sessions ts WHERE {where_clause}", *params) or 0
-            offset = (page - 1) * pageSize
+            p_val = page if isinstance(page, int) else 1
+            ps_val = pageSize if isinstance(pageSize, int) else 20
+            offset = (p_val - 1) * ps_val
             query_sql = f"""
                 SELECT ts.id, ts.institution_id, ts.department_id, ts.batch_id, ts.trainer_user_id,
                        ts.topic, ts.room, ts.session_date, ts.status, ts.created_at, b.name as batch_name,
@@ -1224,6 +1268,71 @@ async def list_evaluations(
     pageSize: int = Query(25, ge=1, le=100),
     ctx: ScopeContext = TrainerCtx,
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        trainer_uuid = _uuid.UUID(str(ctx.user_id))
+        s_filter = _uuid.UUID(str(studentId)) if studentId else None
+        p_val = page if isinstance(page, int) else 1
+        ps_val = pageSize if isinstance(pageSize, int) else 20
+        offset = (p_val - 1) * ps_val
+
+        async with get_pg_connection() as conn:
+            where_clauses = ["ev.trainer_user_id = $1"]
+            params = [trainer_uuid]
+            if s_filter:
+                params.append(s_filter)
+                where_clauses.append(f"ev.participant_user_id = ${len(params)}")
+
+            where_str = " AND ".join(where_clauses)
+            total = await conn.fetchval(f"SELECT COUNT(*) FROM eedi_evaluations ev WHERE {where_str}", *params)
+
+            q_params = list(params) + [pageSize, offset]
+            p_len = len(params)
+            rows = await conn.fetch(f"""
+                SELECT ev.id, ev.participant_user_id, ev.status, ev.eedi_score, ev.employment_score,
+                       ev.trainer_notes, ev.submitted_at, ev.created_at,
+                       u.name as student_name, sp.roll_number, b.name as batch_name,
+                       COALESCE(c.title, 'EEDI Comprehensive Evaluation') as training_module_name
+                FROM eedi_evaluations ev
+                JOIN users u ON u.id = ev.participant_user_id
+                LEFT JOIN student_profiles sp ON sp.user_id = ev.participant_user_id
+                LEFT JOIN batches b ON b.id = sp.batch_id
+                LEFT JOIN courses c ON c.id = ev.course_id
+                WHERE {where_str}
+                ORDER BY ev.created_at DESC
+                LIMIT ${p_len + 1} OFFSET ${p_len + 2}
+            """, *q_params)
+
+        items = []
+        for r in rows:
+            sc = float(r["eedi_score"]) if r["eedi_score"] is not None else None
+            items.append({
+                "id": str(r["id"]),
+                "studentUserId": str(r["participant_user_id"]),
+                "studentName": r["student_name"] or "Participant",
+                "rollNumber": r["roll_number"] or "N/A",
+                "batchName": r["batch_name"] or "General",
+                "trainingModuleName": r["training_module_name"],
+                "completeness": 100.0 if r["status"] == "COMPLETED" else 50.0,
+                "overallScore": sc,
+                "score": sc,
+                "state": "submitted" if r["status"] == "COMPLETED" else "draft",
+                "status": r["status"].lower(),
+                "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
+                "evaluatedAt": r["submitted_at"].isoformat() if r["submitted_at"] else None,
+            })
+
+        tot = int(total or 0)
+        return {
+            "success": True,
+            "items": items,
+            "total": tot,
+            "page": page,
+            "pageSize": pageSize,
+            "pages": max(1, (tot + pageSize - 1) // pageSize),
+        }
+
     filters: dict[str, Any] = {"assessedBy": ctx.user_id}
     if state and state != "all":
         filters["state"] = state
@@ -1544,7 +1653,7 @@ async def trainer_complete_eedi_evaluation(
         ctx,
         action="create",
         entity_type="evaluation_reports",
-        entity_id=ObjectId(report["id"]),
+        entity_id=str(report["id"]),
         detail=f"Completed EEDI evaluation report for participant {report.get('studentName')}",
     )
     return {
@@ -1867,6 +1976,69 @@ async def review_submission(
 async def course_progress(
     batchId: str | None = Query(None), ctx: ScopeContext = TrainerCtx
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        b_uuid = _safe_uuid(batchId)
+        t_uuid = _safe_uuid(ctx.user_id)
+        inst_uuid = _safe_uuid(ctx.college_id)
+
+        async with get_pg_connection() as conn:
+            m_rows = await conn.fetch("""
+                SELECT m.id, m.title as name,
+                       COUNT(l.id) as total_sessions,
+                       COUNT(l.id) as completed_sessions
+                FROM modules m
+                LEFT JOIN lessons l ON l.module_id = m.id
+                WHERE m.deleted_at IS NULL
+                GROUP BY m.id, m.title
+                ORDER BY m.title
+                LIMIT 50
+            """)
+
+            module_rows = []
+            for r in m_rows:
+                tot = int(r["total_sessions"] or 0)
+                comp = int(r["completed_sessions"] or 0)
+                pct_val = round((comp / tot) * 100, 1) if tot > 0 else 0.0
+                module_rows.append({
+                    "id": str(r["id"]),
+                    "name": r["name"],
+                    "totalSessions": tot,
+                    "completedSessions": comp,
+                    "percent": pct_val,
+                    "averageScore": 75.0,
+                })
+
+            b_rows = await conn.fetch("""
+                SELECT b.id, b.name,
+                       COUNT(ts.id) as total_sessions,
+                       COUNT(CASE WHEN ts.status = 'COMPLETED' THEN 1 END) as completed_sessions,
+                       (SELECT COUNT(*) FROM student_profiles sp WHERE sp.batch_id = b.id) as student_count
+                FROM batches b
+                LEFT JOIN training_sessions ts ON ts.batch_id = b.id
+                WHERE (b.id IN (SELECT batch_id FROM batch_trainers WHERE trainer_user_id = $1)
+                   OR b.institution_id = $2)
+                  AND b.deleted_at IS NULL
+                GROUP BY b.id, b.name
+                ORDER BY b.name
+                LIMIT 50
+            """, t_uuid, inst_uuid)
+
+            batch_rows = []
+            for r in b_rows:
+                tot = int(r["total_sessions"] or 0)
+                comp = int(r["completed_sessions"] or 0)
+                pct_val = round((comp / tot) * 100, 1) if tot > 0 else 0.0
+                batch_rows.append({
+                    "id": str(r["id"]),
+                    "name": r["name"],
+                    "percent": pct_val,
+                    "studentCount": int(r["student_count"] or 0),
+                })
+
+            return {"success": True, "data": {"modules": module_rows, "batches": batch_rows}}
+
     batch_filter: dict[str, Any] = {}
     if batchId:
         batch_filter["batchId"] = await require_trainer_batch_scope(ctx, batchId)
@@ -1919,6 +2091,59 @@ async def alerts(
     pageSize: int = Query(20, ge=1, le=100),
     ctx: ScopeContext = TrainerCtx,
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        t_uuid = _uuid.UUID(str(ctx.user_id))
+        inst_uuid = _uuid.UUID(str(ctx.college_id)) if ctx.college_id else None
+        p_val = page if isinstance(page, int) else 1
+        ps_val = pageSize if isinstance(pageSize, int) else 20
+        offset = (p_val - 1) * ps_val
+
+        res_val = resolved if isinstance(resolved, bool) else False
+        async with get_pg_connection() as conn:
+            where_sql = "WHERE (w.trainer_user_id = $1 OR w.institution_id = $2)"
+            where_sql += " AND w.resolved_at IS NOT NULL" if res_val else " AND w.resolved_at IS NULL"
+
+            total = await conn.fetchval(f"SELECT COUNT(*) FROM weak_student_alerts w {where_sql}", t_uuid, inst_uuid)
+            rows = await conn.fetch(f"""
+                SELECT w.id, w.reason, w.score, w.threshold, w.resolved_at, w.resolution_note, w.created_at,
+                       u.name as student_name, sp.roll_number, b.name as batch_name
+                FROM weak_student_alerts w
+                JOIN users u ON u.id = w.student_user_id
+                LEFT JOIN student_profiles sp ON sp.user_id = w.student_user_id
+                LEFT JOIN batches b ON b.id = w.batch_id
+                {where_sql}
+                ORDER BY w.created_at DESC
+                LIMIT $3 OFFSET $4
+            """, t_uuid, inst_uuid, ps_val, offset)
+
+        items = []
+        for r in rows:
+            items.append({
+                "id": str(r["id"]),
+                "studentName": r["student_name"] or "Student",
+                "rollNumber": r["roll_number"] or "N/A",
+                "batchName": r["batch_name"] or "General",
+                "reason": r["reason"],
+                "score": float(r["score"]) if r["score"] is not None else None,
+                "threshold": float(r["threshold"]) if r["threshold"] is not None else 65.0,
+                "resolved": r["resolved_at"] is not None,
+                "resolvedAt": r["resolved_at"].isoformat() if r["resolved_at"] else None,
+                "resolutionNote": r["resolution_note"],
+                "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
+            })
+        tot = int(total or 0)
+        return {
+            "success": True,
+            "items": items,
+            "total": tot,
+            "page": p_val,
+            "pageSize": ps_val,
+            "pages": max(1, (tot + ps_val - 1) // ps_val),
+            "meta": {"threshold": settings.WEAK_STUDENT_THRESHOLD},
+        }
+
     filters = {"resolvedAt": {"$ne": None} if resolved else None}
     page_result = await WeakStudentAlertRepo(ctx).list(
         filters=filters, page=page, page_size=pageSize
@@ -1934,6 +2159,22 @@ async def alerts(
 async def resolve_alert(
     alert_id: str, payload: AlertPatch, ctx: ScopeContext = TrainerCtx
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        a_uuid = _uuid.UUID(str(alert_id))
+        t_uuid = _uuid.UUID(str(ctx.user_id))
+        async with get_pg_connection() as conn:
+            await conn.execute("""
+                UPDATE weak_student_alerts
+                SET resolved_at = $2,
+                    resolved_by = $3,
+                    resolution_note = $4
+                WHERE id = $1
+            """, a_uuid, _now() if payload.resolved else None, t_uuid if payload.resolved else None, payload.note)
+            row = await conn.fetchrow("SELECT id, reason, score, resolved_at, resolution_note FROM weak_student_alerts WHERE id = $1", a_uuid)
+            return {"success": True, "message": "Alert updated", "data": dict(row) if row else {}}
+
     saved = await WeakStudentAlertRepo(ctx).update(
         alert_id,
         {
@@ -1994,6 +2235,17 @@ async def create_report(payload: ReportRequest, ctx: ScopeContext = TrainerCtx) 
         raise ValidationError(
             f"Trainers can export: {', '.join(sorted(allowed))}"
         )
+    if settings.USE_POSTGRES:
+        from app.repositories.report_repo import ReportRepository
+        result = await ReportRepository.request_report(
+            ctx,
+            report_type=payload.reportType,
+            fmt=payload.format,
+            filters=payload.filters,
+            force_async=payload.forceAsync,
+        )
+        return {"success": True, "data": result}
+
     from app.services.reports import request_report
 
     result = await request_report(
@@ -2011,6 +2263,11 @@ async def list_reports(
     page: int = Query(1, ge=1), pageSize: int = Query(20, ge=1, le=100),
     ctx: ScopeContext = TrainerCtx,
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.repositories.report_repo import ReportRepository
+        res = await ReportRepository.list_reports(ctx, page=page, page_size=pageSize)
+        return {"success": True, **res}
+
     from app.repositories.collections import ReportJobRepo
 
     page_result = await ReportJobRepo(ctx).list(

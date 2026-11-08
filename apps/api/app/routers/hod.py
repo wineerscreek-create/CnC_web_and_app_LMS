@@ -1874,6 +1874,18 @@ async def create_report(payload: ReportRequest, ctx: ScopeContext = HodCtx) -> d
     }
     if payload.reportType not in allowed:
         raise ValidationError(f"Available report types: {', '.join(sorted(allowed))}")
+
+    if settings.USE_POSTGRES:
+        from app.repositories.report_repo import ReportRepository
+        result = await ReportRepository.request_report(
+            ctx,
+            report_type=payload.reportType,
+            fmt=payload.format,
+            filters=payload.filters,
+            force_async=payload.forceAsync,
+        )
+        return {"success": True, "data": result}
+
     from app.services.reports import request_report
 
     result = await request_report(
@@ -1891,6 +1903,27 @@ async def list_reports(
     page: int = Query(1, ge=1), pageSize: int = Query(20, ge=1, le=100),
     ctx: ScopeContext = HodCtx,
 ) -> dict[str, Any]:
+    from app.services.reports import REPORT_FAMILIES
+    families = [f for f in REPORT_FAMILIES if "HOD" in f["roles"]]
+
+    if settings.USE_POSTGRES:
+        from app.repositories.report_repo import ReportRepository
+        res = await ReportRepository.list_reports(ctx, page=page, page_size=pageSize)
+        return {
+            "success": True,
+            **res,
+            "meta": {
+                "scope": await _scope_header(ctx),
+                "available": families,
+                "asyncNotice": (
+                    "Large exports (e.g. full-program attendance for 2,000+ participants) are "
+                    "processed asynchronously as a background job — you'll be notified when the "
+                    "file is ready."
+                ),
+                "asyncRowThreshold": settings.REPORT_ASYNC_ROW_THRESHOLD,
+            },
+        }
+
     page_result = await ReportJobRepo(ctx).list(page=page, page_size=pageSize)
     rows = []
     for job in page_result.items:
@@ -1903,16 +1936,12 @@ async def list_reports(
     response = page_result.to_response()
     response["items"] = rows
 
-    from app.services.reports import REPORT_FAMILIES
-
     return {
         "success": True,
         **response,
         "meta": {
             "scope": await _scope_header(ctx),
-            "available": [
-                f for f in REPORT_FAMILIES if "HOD" in f["roles"]
-            ],
+            "available": families,
             "asyncNotice": (
                 "Large exports (e.g. full-program attendance for 2,000+ participants) are "
                 "processed asynchronously as a background job — you'll be notified when the "

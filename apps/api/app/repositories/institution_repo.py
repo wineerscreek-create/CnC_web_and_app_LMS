@@ -80,8 +80,12 @@ class InstitutionRepository:
         params: list[Any] = []
 
         if institution_type:
-            params.append(institution_type)
-            conditions.append(f"institution_type = ${len(params)}")
+            it_upper = institution_type.upper()
+            if it_upper in ("CORPORATE", "COMPANY"):
+                conditions.append("(institution_type = 'COMPANY' OR institution_category = 'CORPORATE')")
+            else:
+                params.append(it_upper)
+                conditions.append(f"institution_type = ${len(params)}")
         if training_type:
             params.append(training_type)
             conditions.append(f"training_type = ${len(params)}")
@@ -95,7 +99,7 @@ class InstitutionRepository:
         offset_clause = f"OFFSET ${len(params)}"
 
         query = f"""
-            SELECT id, name, code, institution_type, training_type, city, state, status, created_at
+            SELECT id, name, code, institution_type, institution_category, training_type, address, city, state, status, created_at
             FROM institutions
             WHERE {' AND '.join(conditions)}
             ORDER BY name ASC
@@ -113,8 +117,12 @@ class InstitutionRepository:
         conditions = ["deleted_at IS NULL"]
         params: list[Any] = []
         if institution_type:
-            params.append(institution_type)
-            conditions.append(f"institution_type = ${len(params)}")
+            it_upper = institution_type.upper()
+            if it_upper in ("CORPORATE", "COMPANY"):
+                conditions.append("(institution_type = 'COMPANY' OR institution_category = 'CORPORATE')")
+            else:
+                params.append(it_upper)
+                conditions.append(f"institution_type = ${len(params)}")
         if training_type:
             params.append(training_type)
             conditions.append(f"training_type = ${len(params)}")

@@ -2616,6 +2616,17 @@ async def reports_catalogue(ctx: ScopeContext = AdminCtx) -> dict[str, Any]:
 
 @router.post("/reports", status_code=status.HTTP_202_ACCEPTED)
 async def create_report(payload: ReportRequest, ctx: ScopeContext = AdminCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.repositories.report_repo import ReportRepository
+        result = await ReportRepository.request_report(
+            ctx,
+            report_type=payload.reportType,
+            fmt=payload.format,
+            filters=payload.filters,
+            force_async=payload.forceAsync,
+        )
+        return {"success": True, "data": result}
+
     from app.services.reports import request_report
 
     result = await request_report(
@@ -2633,6 +2644,11 @@ async def list_reports(
     page: int = Query(1, ge=1), pageSize: int = Query(20, ge=1, le=100),
     ctx: ScopeContext = AdminCtx,
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.repositories.report_repo import ReportRepository
+        res = await ReportRepository.list_reports(ctx, page=page, page_size=pageSize)
+        return {"success": True, **res}
+
     page_result = await ReportJobRepo(ctx).list(page=page, page_size=pageSize)
     rows = []
     for job in page_result.items:
@@ -2796,12 +2812,87 @@ async def import_jobs(
     page: int = Query(1, ge=1), pageSize: int = Query(20, ge=1, le=100),
     ctx: ScopeContext = AdminCtx,
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        inst_uuid = _uuid.UUID(str(ctx.college_id)) if ctx.college_id else None
+        p_val = page if isinstance(page, int) else 1
+        ps_val = pageSize if isinstance(pageSize, int) else 20
+        offset = (p_val - 1) * ps_val
+        async with get_pg_connection() as conn:
+            where_sql = "WHERE institution_id = $1" if inst_uuid else ""
+            params = [inst_uuid] if inst_uuid else []
+            total = await conn.fetchval(f"SELECT COUNT(*) FROM import_jobs {where_sql}", *params)
+            q_params = list(params) + [ps_val, offset]
+            p_idx = len(params)
+            rows = await conn.fetch(
+                f"""
+                SELECT id, entity, filename, total_rows, success_count, failure_count, status, errors, summary, created_at
+                FROM import_jobs
+                {where_sql}
+                ORDER BY created_at DESC
+                LIMIT ${p_idx + 1} OFFSET ${p_idx + 2}
+                """,
+                *q_params,
+            )
+        items = []
+        for r in rows:
+            items.append({
+                "id": str(r["id"]),
+                "entity": r["entity"],
+                "filename": r["filename"],
+                "totalRows": r["total_rows"],
+                "successCount": r["success_count"],
+                "failureCount": r["failure_count"],
+                "status": r["status"],
+                "errors": r["errors"] if isinstance(r["errors"], list) else [],
+                "summary": r["summary"] if isinstance(r["summary"], dict) else {},
+                "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
+            })
+        tot = int(total or 0)
+        return {
+            "success": True,
+            "items": items,
+            "data": items,
+            "total": tot,
+            "page": p_val,
+            "pageSize": ps_val,
+            "pages": max(1, (tot + ps_val - 1) // ps_val),
+        }
+
     page_result = await ImportJobRepo(ctx).list(page=page, page_size=pageSize)
     return {"success": True, **page_result.to_response()}
 
 
 @router.get("/import/jobs/{job_id}")
 async def import_job(job_id: str, ctx: ScopeContext = AdminCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        try:
+            j_uuid = _uuid.UUID(str(job_id))
+        except Exception:
+            raise NotFound("Import job not found")
+        async with get_pg_connection() as conn:
+            r = await conn.fetchrow("SELECT id, entity, filename, total_rows, success_count, failure_count, status, errors, summary, created_at FROM import_jobs WHERE id = $1", j_uuid)
+            if not r:
+                raise NotFound("Import job not found")
+            return {
+                "success": True,
+                "data": {
+                    "id": str(r["id"]),
+                    "entity": r["entity"],
+                    "filename": r["filename"],
+                    "totalRows": r["total_rows"],
+                    "successCount": r["success_count"],
+                    "failureCount": r["failure_count"],
+                    "status": r["status"],
+                    "errors": r["errors"] if isinstance(r["errors"], list) else [],
+                    "summary": r["summary"] if isinstance(r["summary"], dict) else {},
+                    "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
+                },
+            }
+
     job = await ImportJobRepo(ctx).get(job_id)
     return {"success": True, "data": serialize(job)}
 

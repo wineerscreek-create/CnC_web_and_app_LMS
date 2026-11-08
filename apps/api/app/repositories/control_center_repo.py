@@ -148,6 +148,9 @@ class ControlCenterRepository:
         if category not in ("COLLEGE", "SCHOOL", "CORPORATE", "INDIVIDUAL"):
             category = "COLLEGE"
 
+        inst_type = "COMPANY" if category == "CORPORATE" else ("SCHOOL" if category == "SCHOOL" else "COLLEGE")
+        training_type = "COOPERATIVE" if category == "CORPORATE" else ("SCHOOL" if category == "SCHOOL" else "COLLEGE")
+
         async with get_pg_connection() as conn:
             async with conn.transaction():
                 # Check code collision
@@ -157,16 +160,16 @@ class ControlCenterRepository:
 
                 inst_row = await conn.fetchrow("""
                     INSERT INTO institutions (
-                        name, code, institution_category, campuses_count,
+                        name, code, institution_type, training_type, institution_category, campuses_count,
                         contact_email, contact_phone, address, city, state,
                         status, created_at, updated_at
                     ) VALUES (
-                        $1, $2, $3, $4,
-                        $5, $6, $7, $8, $9,
+                        $1, $2, $3::institution_type_enum, $4::training_type_enum, $5, $6,
+                        $7, $8, $9, $10, $11,
                         'ACTIVE', NOW(), NOW()
                     )
                     RETURNING id, name, code, institution_category, campuses_count, created_at
-                """, name.strip(), code.strip().upper(), category, max(1, campuses_count),
+                """, name.strip(), code.strip().upper(), inst_type, training_type, category, max(1, campuses_count),
                     contact_email.strip() if contact_email else None,
                     contact_phone.strip() if contact_phone else None,
                     address.strip() if address else None,
