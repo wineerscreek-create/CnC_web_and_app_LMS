@@ -18,7 +18,7 @@ from typing import Any
 from app.authz.context import ScopeContext
 from app.authz.roles import Role
 from app.core.config import settings
-from app.core.errors import NotFound, RoleForbidden, ScopeForbidden
+from app.core.errors import NotFound, RoleForbidden, ScopeForbidden, SemesterPaymentRequired
 from app.db.postgres import get_pg_connection
 from app.services import trial_service
 
@@ -168,50 +168,101 @@ async def authorize_course_content_access(
                 "courseId": str(cid),
             }
 
-        # 7a. Verified paid enrollment
-        paid_enr = await conn.fetchrow(
+        # Check existing enrollment
+        enr = await conn.fetchrow(
             """
-            SELECT id, access_status, payment_status
+            SELECT id, access_status, payment_status, access_end_date, activation_source, current_semester
             FROM enrollments
             WHERE participant_user_id = $1 AND course_id = $2
-              AND payment_status = 'VERIFIED' AND access_status = 'ACTIVE'
             """,
             uid,
             cid,
         )
-        if not paid_enr:
-            # Check payments table for verified transaction
-            paid_pay = await conn.fetchrow(
+
+        if enr:
+            acc_status = str(enr["access_status"] or "").upper()
+            pay_status = str(enr["payment_status"] or "").upper()
+            act_source = str(enr["activation_source"] or "").upper()
+
+            # 7a. Historical content, report, dashboard, and invoice requests are always allowed
+            if resource_type in ("historical_content", "report", "dashboard", "invoice", "historical"):
+                return {
+                    "authorized": True,
+                    "accessType": "historical",
+                    "reason": "Historical content and reports access",
+                    "courseId": str(cid),
+                }
+
+            # 7b. Check active access status
+            if acc_status == "RESTRICTED":
+                raise SemesterPaymentRequired("Payment required for current semester")
+
+            if acc_status == "ACTIVE":
+                end_date = enr["access_end_date"]
+                if end_date and end_date < datetime.now(timezone.utc).date():
+                    # Check if student has valid period or manual approval
+                    period = await conn.fetchrow(
+                        """
+                        SELECT period_status, end_date FROM enrollment_periods
+                        WHERE enrollment_id = $1 AND semester = $2
+                          AND period_status IN ('PAID', 'INCLUDED_PERIOD', 'MANUAL_OVERRIDE')
+                        ORDER BY end_date DESC NULLS LAST LIMIT 1
+                        """,
+                        enr["id"],
+                        enr["current_semester"] or 1,
+                    )
+                    if period and (period["end_date"] is None or period["end_date"] >= datetime.now(timezone.utc).date()):
+                        # Auto-sync enrollment end_date
+                        await conn.execute(
+                            "UPDATE enrollments SET access_end_date = $1, updated_at = NOW() WHERE id = $2",
+                            period["end_date"],
+                            enr["id"],
+                        )
+                    elif act_source == "MANUAL_ADMIN_APPROVAL":
+                        # Retain manual access
+                        pass
+                    else:
+                        # Restrict access
+                        await conn.execute(
+                            "UPDATE enrollments SET access_status = 'RESTRICTED', updated_at = NOW() WHERE id = $1",
+                            enr["id"],
+                        )
+                        raise SemesterPaymentRequired("Payment required for current semester")
+
+                return {
+                    "authorized": True,
+                    "accessType": "paid" if pay_status == "VERIFIED" else "manual_override",
+                    "reason": "Active verified enrollment",
+                    "courseId": str(cid),
+                }
+
+        # 7c. Check payments table for verified transaction fallback
+        paid_pay = await conn.fetchrow(
+            """
+            SELECT id FROM payments
+            WHERE participant_user_id = $1 AND course_id = $2 AND status = 'VERIFIED'
+            """,
+            uid,
+            cid,
+        )
+        if paid_pay:
+            await conn.execute(
                 """
-                SELECT id FROM payments
-                WHERE participant_user_id = $1 AND course_id = $2 AND status = 'VERIFIED'
+                UPDATE enrollments
+                SET payment_status = 'VERIFIED',
+                    access_status = 'ACTIVE',
+                    enrollment_status = 'ACTIVE',
+                    access_start_date = COALESCE(access_start_date, CURRENT_DATE),
+                    updated_at = NOW()
+                WHERE participant_user_id = $1 AND course_id = $2
                 """,
                 uid,
                 cid,
             )
-            if paid_pay:
-                # Auto heal enrollment access
-                await conn.execute(
-                    """
-                    UPDATE enrollments
-                    SET payment_status = 'VERIFIED',
-                        access_status = 'ACTIVE',
-                        enrollment_status = 'ACTIVE',
-                        access_start_date = COALESCE(access_start_date, CURRENT_DATE),
-                        access_end_date = NULL,
-                        updated_at = NOW()
-                    WHERE participant_user_id = $1 AND course_id = $2
-                    """,
-                    uid,
-                    cid,
-                )
-                paid_enr = {"id": paid_pay["id"]}
-
-        if paid_enr:
             return {
                 "authorized": True,
                 "accessType": "paid",
-                "reason": "Active verified enrollment",
+                "reason": "Active verified payment fallback",
                 "courseId": str(cid),
             }
 

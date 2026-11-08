@@ -207,7 +207,10 @@ class CourseRepository:
                        trial_duration_days, trial_enabled, payment_methods, upi_id, merchant_name,
                        qr_code_url, payment_instructions, refund_policy, enrollment_open, status,
                        visibility_mode, target_institution_ids, target_campus_ids, target_branch_ids,
-                       portal_distribution, allowed_enrollment_methods
+                       portal_distribution, allowed_enrollment_methods,
+                       payment_frequency, semester_fee, gst_rate, gst_inclusive,
+                       current_semester_number, current_period_start_date, current_period_end_date,
+                       payment_due_date, grace_period_days, refund_policy_config
                 FROM courses
                 WHERE id = $1 AND deleted_at IS NULL
                 """,
@@ -225,7 +228,10 @@ class CourseRepository:
                        trial_duration_days, trial_enabled, payment_methods, upi_id, merchant_name,
                        qr_code_url, payment_instructions, refund_policy, enrollment_open, status,
                        visibility_mode, target_institution_ids, target_campus_ids, target_branch_ids,
-                       portal_distribution, allowed_enrollment_methods
+                       portal_distribution, allowed_enrollment_methods,
+                       payment_frequency, semester_fee, gst_rate, gst_inclusive,
+                       current_semester_number, current_period_start_date, current_period_end_date,
+                       payment_due_date, grace_period_days, refund_policy_config
                 FROM courses
                 WHERE LOWER(slug) = LOWER($1) AND deleted_at IS NULL
                 """,
@@ -302,6 +308,16 @@ class CourseRepository:
                     ("refundPolicy", "refund_policy"),
                     ("enrollmentOpen", "enrollment_open"),
                     ("status", "status"),
+                    ("paymentFrequency", "payment_frequency"),
+                    ("semesterFee", "semester_fee"),
+                    ("gstRate", "gst_rate"),
+                    ("gstInclusive", "gst_inclusive"),
+                    ("currentSemesterNumber", "current_semester_number"),
+                    ("currentPeriodStartDate", "current_period_start_date"),
+                    ("currentPeriodEndDate", "current_period_end_date"),
+                    ("paymentDueDate", "payment_due_date"),
+                    ("gracePeriodDays", "grace_period_days"),
+                    ("refundPolicyConfig", "refund_policy_config"),
                 ]
                 for in_key, col in fields:
                     if in_key in config:

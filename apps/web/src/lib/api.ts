@@ -197,6 +197,26 @@ export const api = {
     request<T>(path, { ...options, method: 'DELETE', params }),
   upload: <T = any>(path: string, form: FormData, options?: RequestOptions) =>
     request<T>(path, { ...options, method: 'POST', body: form, raw: true }),
+  download: async (path: string, defaultFilename: string) => {
+    const token = getAccessToken();
+    const headers = new Headers();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const res = await fetch(buildUrl(path), {
+      method: 'GET',
+      headers,
+      credentials: 'include',
+    });
+    if (!res.ok) throw toApiError(res.status, await readBody(res));
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = defaultFilename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
   refresh: refreshSession,
 };
 

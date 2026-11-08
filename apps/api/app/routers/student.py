@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 
 from app.authz.audit import write_audit
 from app.authz.context import ScopeContext
@@ -4743,17 +4743,23 @@ async def list_student_payments(ctx: ScopeContext = StudentCtx) -> dict[str, Any
                         p.amount,
                         p.currency,
                         p.transaction_ref,
+                        COALESCE(p.utr, p.transaction_ref) as utr,
                         p.payment_method,
                         p.status,
                         p.verified_by,
                         p.verified_at,
+                        p.verified_by_role,
+                        p.rejection_reason,
+                        p.invoice_id,
                         p.notes,
                         p.created_at,
                         c.title as course_title,
                         c.code as course_code,
-                        c.delivery_mode as course_mode
+                        c.delivery_mode as course_mode,
+                        inv.invoice_number
                     FROM payments p
                     LEFT JOIN courses c ON p.course_id = c.id
+                    LEFT JOIN invoices inv ON inv.id = p.invoice_id
                     WHERE p.participant_user_id = $1
                     ORDER BY p.created_at DESC
                 ''', user_uuid)
@@ -4761,6 +4767,7 @@ async def list_student_payments(ctx: ScopeContext = StudentCtx) -> dict[str, Any
                 for r in rows:
                     pid = str(r["id"])
                     st = str(r["status"]).lower()
+                    inv_num = r["invoice_number"] or f"INV-{r['utr'] or pid[:8].upper()}"
                     out.append({
                         "id": pid,
                         "courseTitle": r["course_title"] or f"Semester {r['semester']} Curriculum Fee",
@@ -4771,11 +4778,15 @@ async def list_student_payments(ctx: ScopeContext = StudentCtx) -> dict[str, Any
                         "status": st,
                         "paymentMethod": r["payment_method"] or "Official Institutional Fee",
                         "transactionId": r["transaction_ref"],
-                        "invoiceNumber": f"INV-{r['transaction_ref'] or pid[:8].upper()}",
-                        "paidAt": r["verified_at"].isoformat() if r["verified_at"] else (r["created_at"].isoformat() if r["created_at"] else None),
+                        "utr": r["utr"],
+                        "invoiceId": str(r["invoice_id"]) if r["invoice_id"] else None,
+                        "invoiceNumber": inv_num,
+                        "rejectionReason": r["rejection_reason"],
+                        "verifiedByRole": r["verified_by_role"],
+                        "paidAt": r["verified_at"].isoformat() if r["verified_at"] else None,
                         "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
                         "invoice": {
-                            "invoiceNumber": f"INV-{r['transaction_ref'] or pid[:8].upper()}",
+                            "invoiceNumber": inv_num,
                             "status": st,
                             "amount": float(r["amount"]) if r["amount"] is not None else 0.0,
                         },
@@ -4815,6 +4826,75 @@ async def checkout_course(payload: dict[str, Any], ctx: ScopeContext = StudentCt
         raise ValidationError("courseId is required")
 
     course_mode = (payload.get("courseMode") or payload.get("course_mode") or "ONLINE").strip().upper()
+    utr_ref = payload.get("utr") or payload.get("transactionRef") or payload.get("transaction_ref")
+    if not utr_ref:
+        raise ValidationError("Payment reference or UTR is required.")
+
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        from app.repositories.payment_repo import PaymentRepository
+        try:
+            c_uuid = uuid.UUID(str(raw_course_id))
+            u_uuid = uuid.UUID(str(ctx.user_id))
+        except (ValueError, TypeError):
+            raise NotFound("Invalid course ID or user ID.")
+
+        async with get_pg_connection() as conn:
+            enr = await conn.fetchrow(
+                "SELECT id, current_semester, institution_id FROM enrollments WHERE participant_user_id = $1 AND course_id = $2",
+                u_uuid,
+                c_uuid,
+            )
+            course = await conn.fetchrow(
+                "SELECT semester_fee, fee FROM courses WHERE id = $1",
+                c_uuid,
+            )
+            if not course:
+                raise NotFound("Course not found.")
+
+            fee_amt = float(course["semester_fee"] or course["fee"] or 5850.0)
+            enr_id = enr["id"] if enr else None
+            sem_num = enr["current_semester"] if enr and enr["current_semester"] else 1
+
+            if not enr_id:
+                # Auto-create pending enrollment for student if not enrolled
+                new_enr_id = uuid.uuid4()
+                await conn.execute(
+                    """
+                    INSERT INTO enrollments (
+                        id, participant_user_id, course_id, institution_id,
+                        current_semester, enrollment_status, payment_status, access_status,
+                        created_at, updated_at
+                    ) VALUES (
+                        $1, $2, $3, $4,
+                        $5, 'PENDING', 'PENDING', 'INACTIVE',
+                        NOW(), NOW()
+                    )
+                    """,
+                    new_enr_id,
+                    u_uuid,
+                    c_uuid,
+                    uuid.UUID(str(ctx.college_id)) if ctx.college_id else None,
+                    sem_num,
+                )
+                enr_id = new_enr_id
+
+            # Create payment record with duplicate UTR protection
+            res = await PaymentRepository.create_payment(
+                enrollment_id=enr_id,
+                participant_id=u_uuid,
+                course_id=c_uuid,
+                amount=fee_amt,
+                transaction_ref=utr_ref,
+                semester=sem_num,
+                currency="INR",
+                method=payload.get("paymentMethod") or payload.get("payment_method") or "UPI",
+                status="PENDING",
+                receipt_url=payload.get("receiptUrl") or payload.get("receipt_url"),
+                payer_upi_id=payload.get("payerUpiId") or payload.get("payer_upi_id"),
+            )
+            return {"success": True, "data": res, "message": "Payment submitted for verification."}
+
     res = await payment_service.create_course_payment(
         student_user_id=ctx.user_id,
         college_id=ctx.college_id,
@@ -4822,63 +4902,201 @@ async def checkout_course(payload: dict[str, Any], ctx: ScopeContext = StudentCt
         course_mode=course_mode,
         payment_method=payload.get("paymentMethod") or payload.get("payment_method") or "UPI",
         idempotency_key=payload.get("idempotencyKey") or payload.get("idempotency_key"),
-        transaction_ref=payload.get("transactionRef") or payload.get("transaction_ref") or payload.get("utr"),
+        transaction_ref=utr_ref,
         payer_upi_id=payload.get("payerUpiId") or payload.get("payer_upi_id"),
         receipt_url=payload.get("receiptUrl") or payload.get("receipt_url"),
     )
     return {"success": True, "data": res}
 
 
+@router.get("/invoices")
+async def list_student_invoices(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    """Retrieve all official GST invoices issued to the authenticated student."""
+    from app.db.postgres import get_pg_connection
+    try:
+        u_uuid = uuid.UUID(str(ctx.user_id))
+    except (ValueError, TypeError):
+        return {"success": True, "items": []}
+
+    async with get_pg_connection() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT i.*, 
+                   c.title as course_title,
+                   inst.name as institution_name,
+                   COALESCE(p.utr, p.transaction_ref) as utr
+            FROM invoices i
+            JOIN courses c ON i.course_id = c.id
+            JOIN institutions inst ON i.institution_id = inst.id
+            LEFT JOIN payments p ON i.payment_id = p.id
+            WHERE i.participant_user_id = $1
+            ORDER BY i.issued_at DESC
+            """,
+            u_uuid,
+        )
+        items = [
+            {
+                "id": str(r["id"]),
+                "invoiceNumber": r["invoice_number"],
+                "courseTitle": r["course_title"],
+                "semester": r["semester_number"],
+                "academicYear": r["academic_year"],
+                "taxableAmount": float(r["taxable_amount"]),
+                "gstRate": float(r["gst_rate"]),
+                "gstAmount": float(r["gst_amount"]),
+                "totalAmount": float(r["total_amount"]),
+                "utr": r.get("utr") or "N/A",
+                "status": r["status"],
+                "issuedAt": r["issued_at"].isoformat() if r["issued_at"] else None,
+            }
+            for r in rows
+        ]
+        return {"success": True, "items": items, "count": len(items)}
+
+
+@router.get("/invoices/{invoice_id}/download")
+async def student_download_invoice(
+    invoice_id: str,
+    ctx: ScopeContext = StudentCtx,
+) -> Response:
+    """Download official student tax invoice as PDF."""
+    from app.services.invoice_service import get_invoice_details, generate_invoice_pdf
+    from uuid import UUID
+    from app.core.errors import NotFound, ScopeForbidden
+    try:
+        inv_uuid = UUID(str(invoice_id))
+    except (ValueError, TypeError):
+        raise NotFound("Invalid invoice ID.")
+
+    inv = await get_invoice_details(inv_uuid)
+    if not inv:
+        raise NotFound("Invoice not found.")
+
+    if str(inv.get("participant_user_id")) != str(ctx.user_id):
+        raise ScopeForbidden("You cannot access another student's invoice.")
+
+    pdf_bytes = generate_invoice_pdf(inv)
+    filename = f"Invoice-{inv.get('invoice_number', 'download')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/invoices/{invoice_id}/html")
+async def student_view_invoice_html(
+    invoice_id: str,
+    ctx: ScopeContext = StudentCtx,
+) -> Response:
+    """View official student tax invoice as HTML."""
+    from app.services.invoice_service import get_invoice_details, generate_invoice_html
+    from uuid import UUID
+    from app.core.errors import NotFound, ScopeForbidden
+    try:
+        inv_uuid = UUID(str(invoice_id))
+    except (ValueError, TypeError):
+        raise NotFound("Invalid invoice ID.")
+
+    inv = await get_invoice_details(inv_uuid)
+    if not inv:
+        raise NotFound("Invoice not found.")
+
+    if str(inv.get("participant_user_id")) != str(ctx.user_id):
+        raise ScopeForbidden("You cannot access another student's invoice.")
+
+    html = generate_invoice_html(inv)
+    return Response(content=html, media_type="text/html")
+
+
+@router.get("/semester-fee-status")
+async def student_get_semester_fee_status(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    """Retrieve current semester fee details, GST-inclusive breakdown, and payment validity."""
+    from app.db.postgres import get_pg_connection
+    from app.services.invoice_service import calculate_tax_breakdown
+    from datetime import date
+    try:
+        u_uuid = uuid.UUID(str(ctx.user_id))
+    except (ValueError, TypeError):
+        raise NotFound("Invalid user.")
+
+    async with get_pg_connection() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT e.id as enrollment_id, e.course_id, e.current_semester,
+                   e.payment_status, e.access_status, e.access_end_date, e.activation_source,
+                   c.title as course_title, c.semester_fee, c.fee, c.gst_rate, c.gst_inclusive,
+                   c.payment_due_date, c.payment_frequency, c.upi_id, c.merchant_name,
+                   csc.end_date as sem_end_date, csc.payment_due_date as sem_due_date,
+                   csc.fee_amount as sem_fee_amount
+            FROM enrollments e
+            JOIN courses c ON e.course_id = c.id
+            LEFT JOIN course_semester_configs csc 
+                ON csc.course_id = c.id AND csc.semester_number = e.current_semester AND csc.is_active = TRUE
+            WHERE e.participant_user_id = $1
+            ORDER BY e.created_at DESC
+            LIMIT 1
+            """,
+            u_uuid,
+        )
+        if not row:
+            return {
+                "success": True,
+                "hasEnrollment": False,
+                "message": "No active course enrollment found.",
+            }
+
+        fee_amount = Decimal(str(row["sem_fee_amount"] or row["semester_fee"] or row["fee"] or 5850.0))
+        gst_rate = Decimal(str(row["gst_rate"] or 6.36))
+        breakdown = calculate_tax_breakdown(fee_amount, gst_rate, inclusive=bool(row["gst_inclusive"]))
+
+        due_date = row["sem_due_date"] or row["payment_due_date"]
+        end_date = row["access_end_date"] or row["sem_end_date"]
+        is_overdue = due_date is not None and due_date < date.today() and str(row["payment_status"]).upper() != "VERIFIED"
+        is_restricted = str(row["access_status"]).upper() in ("RESTRICTED", "EXPIRED")
+
+        return {
+            "success": True,
+            "hasEnrollment": True,
+            "data": {
+                "enrollmentId": str(row["enrollment_id"]),
+                "courseId": str(row["course_id"]),
+                "courseTitle": row["course_title"],
+                "currentSemester": row["current_semester"] or 1,
+                "paymentFrequency": row["payment_frequency"] or "Semester-wise",
+                "feeAmount": float(fee_amount),
+                "taxableAmount": float(breakdown["taxable_amount"]),
+                "gstRate": float(breakdown["gst_rate"]),
+                "gstAmount": float(breakdown["gst_amount"]),
+                "totalAmount": float(breakdown["total_amount"]),
+                "paymentDueDate": due_date.isoformat() if due_date else None,
+                "accessEndDate": end_date.isoformat() if end_date else None,
+                "paymentStatus": str(row["payment_status"]),
+                "accessStatus": str(row["access_status"]),
+                "activationSource": row["activation_source"],
+                "isOverdue": is_overdue,
+                "isRestricted": is_restricted,
+                "upiId": row["upi_id"] or "pay@winnerscreek",
+                "merchantName": row["merchant_name"] or "Winners Creek LMS",
+            },
+        }
+
+
 @router.get("/payments/{payment_id}/invoice")
 async def get_payment_invoice(payment_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
     if settings.USE_POSTGRES:
+        from uuid import UUID
+        try:
+            pid_uuid = UUID(payment_id)
+        except (ValueError, TypeError):
+            raise NotFound("Invalid payment ID.")
+
         from app.db.postgres import get_pg_connection
         async with get_pg_connection() as conn:
-            try:
-                pid_uuid = uuid.UUID(payment_id)
-                uid_uuid = uuid.UUID(str(ctx.user_id))
-            except Exception:
+            inv = await conn.fetchrow("SELECT * FROM invoices WHERE payment_id = $1", pid_uuid)
+            if not inv:
                 raise NotFound("Invoice not found.")
-            row = await conn.fetchrow('''
-                SELECT 
-                    p.id,
-                    p.amount,
-                    p.currency,
-                    p.transaction_ref,
-                    p.payment_method,
-                    p.status,
-                    p.verified_at,
-                    p.created_at,
-                    p.semester,
-                    c.title as course_title,
-                    u.name as student_name,
-                    inst.name as institution_name
-                FROM payments p
-                LEFT JOIN courses c ON p.course_id = c.id
-                LEFT JOIN users u ON p.participant_user_id = u.id
-                LEFT JOIN institutions inst ON u.institution_id = inst.id
-                WHERE p.id = $1 AND p.participant_user_id = $2
-            ''', pid_uuid, uid_uuid)
-            if not row:
-                raise NotFound("Invoice not found.")
-
-            st = str(row["status"]).lower()
-            inv_num = f"INV-{row['transaction_ref'] or str(row['id'])[:8].upper()}"
-            issued = row["verified_at"] or row["created_at"]
-            amount = float(row["amount"]) if row["amount"] is not None else 0.0
-            desc = f"{row['course_title'] or 'Curriculum Enrollment'} (Semester {row['semester'] or 1})"
-
-            inv = {
-                "invoiceNumber": inv_num,
-                "issuedAt": issued.isoformat() if issued else _now().isoformat(),
-                "studentName": row["student_name"] or "Student",
-                "collegeName": row["institution_name"] or "Arya College of Engineering and IT",
-                "items": [{"description": desc, "amount": amount}],
-                "total": amount,
-                "status": st,
-                "paymentMethod": row["payment_method"] or "Electronic",
-            }
-            return {"success": True, "invoice": inv, "data": {"invoice": inv}}
+            return {"success": True, "invoice": dict(inv), "data": {"invoice": dict(inv)}}
 
     pid = ObjectId(payment_id)
     inv = await get_db().invoices.find_one({"paymentId": pid})

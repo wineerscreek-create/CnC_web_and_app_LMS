@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from bson import ObjectId
 from uuid import UUID
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 
 from app.authz.audit import write_audit
 from app.authz.context import ScopeContext
@@ -1506,6 +1506,297 @@ async def super_admin_refund_payment(payment_id: str, payload: dict[str, Any] = 
     )
     await write_audit(ctx, action="refund_payment", entity_type="payments", entity_id=str(payment_id), detail=f"Refunded payment {payment_id}: {reason}")
     return {"success": True, "data": res, "message": "Payment refunded and course access revoked."}
+
+
+@router.post("/enrollments/{enrollment_id}/manual-activate")
+async def super_admin_manual_activate_enrollment(
+    enrollment_id: str,
+    payload: dict[str, Any] = {},
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Super Admin manually activates student access without falsely marking payment as VERIFIED."""
+    from app.repositories.payment_repo import PaymentRepository
+    reason = payload.get("reason", "Manual activation by Super Admin")
+    res = await PaymentRepository.manual_activate_access(
+        enrollment_id=enrollment_id,
+        activated_by=ctx.user_id,
+        activated_by_role="SUPER_ADMIN",
+        reason=reason,
+    )
+    await write_audit(ctx, action="manual_activate_enrollment", entity_type="enrollments", entity_id=str(enrollment_id), detail=f"Super Admin manually activated enrollment {enrollment_id}: {reason}")
+    return {"success": True, "data": res, "message": "Student access manually activated."}
+
+
+@router.get("/invoices")
+async def super_admin_list_invoices(
+    search: str | None = Query(None),
+    institutionId: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    pageSize: int = Query(25, ge=1, le=100),
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Super Admin lists all issued invoices globally."""
+    from app.db.postgres import get_pg_connection
+    conditions = []
+    params = []
+    if institutionId:
+        from app.repositories.game_repo import _safe_uuid
+        inst_uuid = _safe_uuid(institutionId)
+        if inst_uuid:
+            params.append(inst_uuid)
+            conditions.append(f"i.institution_id = ${len(params)}")
+    if search:
+        params.append(f"%{search.strip()}%")
+        conditions.append(f"(i.invoice_number ILIKE ${len(params)} OR u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)})")
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    async with get_pg_connection() as conn:
+        total = await conn.fetchval(
+            f"SELECT COUNT(*) FROM invoices i JOIN users u ON i.participant_user_id = u.id {where}",
+            *params,
+        ) or 0
+        params.append(pageSize)
+        p_limit = f"${len(params)}"
+        params.append((page - 1) * pageSize)
+        p_offset = f"${len(params)}"
+
+        rows = await conn.fetch(
+            f"""
+            SELECT i.*, 
+                   u.name as student_name, u.email as student_email,
+                   inst.name as institution_name,
+                   c.title as course_title,
+                   COALESCE(p.utr, p.transaction_ref) as utr
+            FROM invoices i
+            JOIN users u ON i.participant_user_id = u.id
+            JOIN institutions inst ON i.institution_id = inst.id
+            JOIN courses c ON i.course_id = c.id
+            LEFT JOIN payments p ON i.payment_id = p.id
+            {where}
+            ORDER BY i.issued_at DESC
+            LIMIT {p_limit} OFFSET {p_offset}
+            """,
+            *params,
+        )
+        items = [
+            {
+                "id": str(r["id"]),
+                "invoiceNumber": r["invoice_number"],
+                "studentName": r["student_name"],
+                "studentEmail": r["student_email"],
+                "institutionName": r["institution_name"],
+                "courseTitle": r["course_title"],
+                "semester": r["semester_number"],
+                "academicYear": r["academic_year"],
+                "taxableAmount": float(r["taxable_amount"]),
+                "gstRate": float(r["gst_rate"]),
+                "gstAmount": float(r["gst_amount"]),
+                "totalAmount": float(r["total_amount"]),
+                "utr": r.get("utr") or "N/A",
+                "status": r["status"],
+                "issuedAt": r["issued_at"].isoformat() if r["issued_at"] else None,
+            }
+            for r in rows
+        ]
+        total_pages = max(1, (total + pageSize - 1) // pageSize)
+        return {
+            "success": True,
+            "items": items,
+            "invoices": items,
+            "pagination": {
+                "page": page,
+                "pageSize": pageSize,
+                "total": total,
+                "totalPages": total_pages,
+            },
+        }
+
+
+@router.get("/invoices/{invoice_id}/download")
+async def super_admin_download_invoice(
+    invoice_id: str,
+    ctx: ScopeContext = SuperAdminCtx,
+) -> Response:
+    """Super Admin downloads invoice as PDF."""
+    from app.services.invoice_service import get_invoice_details, generate_invoice_pdf
+    from uuid import UUID
+    from app.core.errors import NotFound
+    try:
+        inv_uuid = UUID(str(invoice_id))
+    except (ValueError, TypeError):
+        raise NotFound("Invalid invoice ID.")
+
+    inv = await get_invoice_details(inv_uuid)
+    if not inv:
+        raise NotFound("Invoice not found.")
+
+    pdf_bytes = generate_invoice_pdf(inv)
+    filename = f"Invoice-{inv.get('invoice_number', 'download')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/invoices/{invoice_id}/html")
+async def super_admin_view_invoice_html(
+    invoice_id: str,
+    ctx: ScopeContext = SuperAdminCtx,
+) -> Response:
+    """Super Admin views invoice as HTML."""
+    from app.services.invoice_service import get_invoice_details, generate_invoice_html
+    from uuid import UUID
+    from app.core.errors import NotFound
+    try:
+        inv_uuid = UUID(str(invoice_id))
+    except (ValueError, TypeError):
+        raise NotFound("Invalid invoice ID.")
+
+    inv = await get_invoice_details(inv_uuid)
+    if not inv:
+        raise NotFound("Invoice not found.")
+
+    html = generate_invoice_html(inv)
+    return Response(content=html, media_type="text/html")
+
+
+@router.get("/courses/{course_id}/semesters")
+async def super_admin_get_course_semesters(course_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    """Retrieve all semester configurations and student counts for a course."""
+    from uuid import UUID
+    from app.core.errors import NotFound
+    try:
+        c_uuid = UUID(str(course_id))
+    except (ValueError, TypeError):
+        raise NotFound("Invalid course ID.")
+
+    async with get_pg_connection() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT csc.*,
+                   COUNT(e.id) as total_students,
+                   COUNT(e.id) FILTER (WHERE e.payment_status = 'VERIFIED') as paid_students,
+                   COUNT(e.id) FILTER (WHERE e.payment_status != 'VERIFIED' AND e.access_status = 'ACTIVE') as manual_activated_students,
+                   COUNT(e.id) FILTER (WHERE e.access_status = 'RESTRICTED') as restricted_students
+            FROM course_semester_configs csc
+            LEFT JOIN enrollments e ON e.course_id = csc.course_id AND e.current_semester = csc.semester_number
+            WHERE csc.course_id = $1
+            GROUP BY csc.id
+            ORDER BY csc.semester_number ASC
+            """,
+            c_uuid,
+        )
+        items = [
+            {
+                "id": str(r["id"]),
+                "courseId": str(r["course_id"]),
+                "semesterNumber": r["semester_number"],
+                "semesterName": r["semester_name"],
+                "academicYear": r["academic_year"],
+                "startDate": r["start_date"].isoformat() if r["start_date"] else None,
+                "endDate": r["end_date"].isoformat() if r["end_date"] else None,
+                "paymentDueDate": r["payment_due_date"].isoformat() if r["payment_due_date"] else None,
+                "feeAmount": float(r["fee_amount"]),
+                "isActive": bool(r["is_active"]),
+                "totalStudents": int(r["total_students"]),
+                "paidStudents": int(r["paid_students"]),
+                "manualActivatedStudents": int(r["manual_activated_students"]),
+                "restrictedStudents": int(r["restricted_students"]),
+            }
+            for r in rows
+        ]
+        return {"success": True, "data": items, "count": len(items)}
+
+
+@router.post("/courses/{course_id}/semesters")
+async def super_admin_configure_course_semester(
+    course_id: str,
+    payload: dict[str, Any],
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    """Super Admin configures or edits a semester schedule for a course."""
+    from uuid import UUID
+    from datetime import date
+    from app.core.errors import NotFound, ValidationError
+    try:
+        c_uuid = UUID(str(course_id))
+    except (ValueError, TypeError):
+        raise NotFound("Invalid course ID.")
+
+    sem_num = int(payload.get("semesterNumber") or payload.get("semester", 1))
+    sem_name = payload.get("semesterName") or f"Semester {sem_num}"
+    acad_year = payload.get("academicYear") or "2025-2026"
+
+    try:
+        start_date = date.fromisoformat(str(payload["startDate"]))
+        end_date = date.fromisoformat(str(payload["endDate"]))
+    except (KeyError, ValueError):
+        raise ValidationError("Valid startDate and endDate (YYYY-MM-DD) are required.")
+
+    due_date = None
+    if payload.get("paymentDueDate"):
+        try:
+            due_date = date.fromisoformat(str(payload["paymentDueDate"]))
+        except ValueError:
+            pass
+
+    fee_amount = float(payload.get("feeAmount") or 5850.0)
+
+    async with get_pg_connection() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO course_semester_configs (
+                course_id, semester_number, semester_name, academic_year,
+                start_date, end_date, payment_due_date, fee_amount, is_active,
+                updated_at
+            ) VALUES (
+                $1, $2, $3, $4,
+                $5, $6, $7, $8, TRUE,
+                NOW()
+            )
+            ON CONFLICT (course_id, semester_number, academic_year) DO UPDATE SET
+                semester_name = EXCLUDED.semester_name,
+                start_date = EXCLUDED.start_date,
+                end_date = EXCLUDED.end_date,
+                payment_due_date = EXCLUDED.payment_due_date,
+                fee_amount = EXCLUDED.fee_amount,
+                is_active = EXCLUDED.is_active,
+                updated_at = NOW()
+            RETURNING *
+            """,
+            c_uuid,
+            sem_num,
+            sem_name,
+            acad_year,
+            start_date,
+            end_date,
+            due_date,
+            fee_amount,
+        )
+
+        if payload.get("isCurrent", True):
+            await conn.execute(
+                """
+                UPDATE courses
+                SET current_semester_number = $2,
+                    current_period_start_date = $3,
+                    current_period_end_date = $4,
+                    payment_due_date = $5,
+                    semester_fee = $6,
+                    updated_at = NOW()
+                WHERE id = $1
+                """,
+                c_uuid,
+                sem_num,
+                start_date,
+                end_date,
+                due_date,
+                fee_amount,
+            )
+
+        await write_audit(ctx, action="configure_semester", entity_type="course_semester_configs", entity_id=str(row["id"]), detail=f"Configured Sem {sem_num} for course {c_uuid}")
+        return {"success": True, "data": dict(row), "message": f"Configured {sem_name} successfully"}
 
 
 

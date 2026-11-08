@@ -361,8 +361,13 @@ async def create_course_payment(
     return serialize(payment_doc)
 
 
-async def verify_course_payment(payment_id: Any, verified_by: Any, note: str = "") -> dict[str, Any]:
-    """Super Admin approves transaction: transitions payment to verified."""
+async def verify_course_payment(
+    payment_id: Any,
+    verified_by: Any,
+    note: str = "",
+    verified_by_role: str = "SUPER_ADMIN",
+) -> dict[str, Any]:
+    """Approves transaction: transitions payment to verified, activates semester access, and generates invoice."""
     try:
         pid_uuid = uuid.UUID(str(payment_id))
     except (ValueError, TypeError):
@@ -370,19 +375,27 @@ async def verify_course_payment(payment_id: Any, verified_by: Any, note: str = "
 
     if settings.USE_POSTGRES and pid_uuid:
         from app.repositories.payment_repo import PaymentRepository
-        from app.db.postgres import get_pg_connection
         v_uid = None
         try:
             v_uid = uuid.UUID(str(verified_by)) if verified_by else None
         except Exception:
             v_uid = None
 
-        res = await PaymentRepository.verify_payment(pid_uuid, v_uid or pid_uuid, note, activate_access=True)
+        res = await PaymentRepository.verify_payment(
+            pid_uuid,
+            v_uid or pid_uuid,
+            note,
+            activate_access=True,
+            verified_by_role=verified_by_role,
+            verification_source="PORTAL_ACTION",
+        )
         return {
             "success": True,
             "status": "VERIFIED",
             "accessStatus": "ACTIVE",
             "paymentId": str(res["id"]),
+            "invoiceId": str(res.get("invoice_id")) if res.get("invoice_id") else None,
+            "invoiceNumber": res.get("invoice_number"),
         }
 
     from app.models.domain_models import AccessStatus, DeliveryMode, EnrollmentStatus, PaymentStatus
@@ -677,8 +690,13 @@ async def renew_participant_semester(
     }
 
 
-async def reject_course_payment(payment_id: Any, rejected_by: Any = None, reason: str = "") -> dict[str, Any]:
-    """Super Admin rejects transaction: transitions payment to rejected."""
+async def reject_course_payment(
+    payment_id: Any,
+    rejected_by: Any = None,
+    reason: str = "",
+    rejected_by_role: str = "SUPER_ADMIN",
+) -> dict[str, Any]:
+    """Rejects transaction: transitions payment to rejected."""
     try:
         pid_uuid = uuid.UUID(str(payment_id))
     except (ValueError, TypeError):
@@ -692,7 +710,12 @@ async def reject_course_payment(payment_id: Any, rejected_by: Any = None, reason
         except Exception:
             v_uid = None
 
-        res = await PaymentRepository.reject_payment(pid_uuid, v_uid or pid_uuid, reason)
+        res = await PaymentRepository.reject_payment(
+            pid_uuid,
+            v_uid or pid_uuid,
+            reason,
+            rejected_by_role=rejected_by_role,
+        )
         return {"success": True, "status": "REJECTED", "paymentId": str(res["id"])}
 
     db = get_db()

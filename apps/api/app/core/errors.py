@@ -88,6 +88,12 @@ class ServiceUnavailable(AppError):
     message = "A dependent service is temporarily unavailable"
 
 
+class SemesterPaymentRequired(AppError):
+    code = "SEMESTER_PAYMENT_REQUIRED"
+    http_status = status.HTTP_403_FORBIDDEN
+    message = "Payment required for current semester"
+
+
 def error_body(code: str, message: str, request_id: str, details: Any = None) -> dict:
     return {
         "success": False,

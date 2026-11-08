@@ -2252,3 +2252,117 @@ async def hod_get_evaluation_report(
     return {"success": True, "data": report}
 
 
+@router.get("/payments/student-status")
+async def hod_get_student_payment_status(
+    semester: int | None = Query(None),
+    status: str | None = Query(None),
+    search: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    pageSize: int = Query(25, ge=1, le=100),
+    ctx: ScopeContext = HodCtx,
+) -> dict[str, Any]:
+    """HOD views read-only payment and fee validity status of students in their department."""
+    from app.db.postgres import get_pg_connection
+    dept_id = ctx.department_id
+    inst_id = ctx.college_id
+
+    conditions = []
+    params = []
+    if inst_id:
+        from app.repositories.game_repo import _safe_uuid
+        inst_uuid = _safe_uuid(inst_id)
+        if inst_uuid:
+            params.append(inst_uuid)
+            conditions.append(f"e.institution_id = ${len(params)}")
+    if dept_id:
+        from app.repositories.game_repo import _safe_uuid
+        dept_uuid = _safe_uuid(dept_id)
+        if dept_uuid:
+            params.append(dept_uuid)
+            conditions.append(f"e.department_id = ${len(params)}")
+    if semester:
+        params.append(semester)
+        conditions.append(f"e.current_semester = ${len(params)}")
+    if status:
+        params.append(status.upper())
+        conditions.append(f"e.payment_status = ${len(params)}")
+    if search:
+        params.append(f"%{search.strip()}%")
+        conditions.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR sp.roll_number ILIKE ${len(params)})")
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    async with get_pg_connection() as conn:
+        total = await conn.fetchval(
+            f"""
+            SELECT COUNT(*)
+            FROM enrollments e
+            JOIN users u ON e.participant_user_id = u.id
+            LEFT JOIN student_profiles sp ON sp.user_id = u.id
+            {where}
+            """,
+            *params,
+        ) or 0
+
+        params.append(pageSize)
+        p_limit = f"${len(params)}"
+        params.append((page - 1) * pageSize)
+        p_offset = f"${len(params)}"
+
+        rows = await conn.fetch(
+            f"""
+            SELECT e.id as enrollment_id, e.participant_user_id, e.course_id, e.current_semester,
+                   e.payment_status, e.access_status, e.access_end_date, e.activation_source,
+                   u.name as student_name, u.email as student_email,
+                   sp.roll_number, sp.branch,
+                   c.title as course_title,
+                   p.amount, p.status as last_payment_status, p.utr, p.verified_at
+            FROM enrollments e
+            JOIN users u ON e.participant_user_id = u.id
+            LEFT JOIN student_profiles sp ON sp.user_id = u.id
+            JOIN courses c ON e.course_id = c.id
+            LEFT JOIN LATERAL (
+                SELECT amount, status, utr, verified_at
+                FROM payments
+                WHERE enrollment_id = e.id
+                ORDER BY created_at DESC
+                LIMIT 1
+            ) p ON true
+            {where}
+            ORDER BY e.created_at DESC
+            LIMIT {p_limit} OFFSET {p_offset}
+            """,
+            *params,
+        )
+        items = [
+            {
+                "enrollmentId": str(r["enrollment_id"]),
+                "studentId": str(r["participant_user_id"]),
+                "studentName": r["student_name"],
+                "studentEmail": r["student_email"],
+                "rollNumber": r.get("roll_number") or "",
+                "branch": r.get("branch") or "",
+                "courseTitle": r["course_title"],
+                "semester": r["current_semester"] or 1,
+                "paymentStatus": str(r["payment_status"]),
+                "accessStatus": str(r["access_status"]),
+                "activationSource": r.get("activation_source") or "PAYMENT_VERIFICATION",
+                "validUntil": r["access_end_date"].isoformat() if r.get("access_end_date") else None,
+                "lastAmount": float(r["amount"]) if r.get("amount") else None,
+                "utr": r.get("utr") or "N/A",
+                "verifiedAt": r["verified_at"].isoformat() if r.get("verified_at") else None,
+            }
+            for r in rows
+        ]
+        total_pages = max(1, (total + pageSize - 1) // pageSize)
+        return {
+            "success": True,
+            "items": items,
+            "pagination": {
+                "page": page,
+                "pageSize": pageSize,
+                "total": total,
+                "totalPages": total_pages,
+            },
+        }
+
+

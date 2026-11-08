@@ -24,18 +24,31 @@ class PaymentRepository:
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         import json
+        from app.core.errors import Conflict
+        clean_utr = transaction_ref.strip()
         async with get_pg_connection() as conn:
+            # Check duplicate UTR for non-rejected payments
+            dup = await conn.fetchrow(
+                "SELECT id, status FROM payments WHERE utr = $1 AND status != 'REJECTED'",
+                clean_utr,
+            )
+            if dup:
+                raise Conflict(f"A payment with UTR '{clean_utr}' has already been submitted and is currently {dup['status']}.")
+
+            enr = await conn.fetchrow("SELECT institution_id FROM enrollments WHERE id = $1", UUID(str(enrollment_id)))
+            inst_id = enr["institution_id"] if enr else None
+
             row = await conn.fetchrow(
                 """
                 INSERT INTO payments (
                     enrollment_id, participant_user_id, course_id, semester,
-                    amount, currency, transaction_ref, payment_method, status,
-                    receipt_url, payer_upi_id, metadata
+                    amount, currency, transaction_ref, utr, payment_method, status,
+                    receipt_url, payer_upi_id, metadata, institution_id
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14)
                 RETURNING id, enrollment_id, participant_user_id, course_id, semester,
-                          amount, currency, transaction_ref, payment_method, status,
-                          receipt_url, payer_upi_id, metadata, created_at
+                          amount, currency, transaction_ref, utr, payment_method, status,
+                          receipt_url, payer_upi_id, metadata, created_at, institution_id
                 """,
                 UUID(str(enrollment_id)),
                 UUID(str(participant_id)),
@@ -43,12 +56,14 @@ class PaymentRepository:
                 semester,
                 Decimal(str(amount)),
                 currency,
-                transaction_ref.strip(),
+                clean_utr,
+                clean_utr,
                 method,
                 status,
                 receipt_url,
                 payer_upi_id,
                 json.dumps(metadata or {}),
+                inst_id,
             )
             return dict(row)
 
@@ -57,10 +72,14 @@ class PaymentRepository:
         payment_id: UUID | str,
         verified_by: UUID | str,
         notes: str | None = None,
-        activate_access: bool = False,
+        activate_access: bool = True,
+        verified_by_role: str = "ADMIN",
+        verification_source: str = "PORTAL_ACTION",
     ) -> dict[str, Any]:
-        """Atomically marks payment VERIFIED, and optionally activates enrollment access and converts trials."""
+        """Atomically marks payment VERIFIED, sets semester access validity, generates an official GST invoice exactly once, and emits an audit event."""
+        from datetime import date, timedelta
         from app.core.errors import Conflict, NotFound
+        from app.services.invoice_service import create_invoice_record
         async with pg_transaction() as conn:
             pid = UUID(str(payment_id))
             orig = await conn.fetchrow("SELECT * FROM payments WHERE id = $1", pid)
@@ -76,23 +95,55 @@ class PaymentRepository:
                 raise Conflict("Cannot verify a rejected payment.")
 
             v_uid = UUID(str(verified_by))
+            sem_num = orig["semester"] or 1
+
+            # Fetch course semester config or course validity settings
+            course_row = await conn.fetchrow(
+                """
+                SELECT c.current_period_end_date, c.grace_period_days, c.payment_frequency, c.gst_rate,
+                       csc.end_date as sem_end_date, csc.academic_year as sem_academic_year
+                FROM courses c
+                LEFT JOIN course_semester_configs csc 
+                    ON csc.course_id = c.id AND csc.semester_number = $2 AND csc.is_active = TRUE
+                WHERE c.id = $1
+                """,
+                orig["course_id"],
+                sem_num,
+            )
+            grace_days = course_row["grace_period_days"] if course_row and course_row["grace_period_days"] is not None else 7
+            if course_row and course_row["sem_end_date"]:
+                target_end_date = course_row["sem_end_date"] + timedelta(days=grace_days)
+                academic_year = course_row["sem_academic_year"] or "2025-2026"
+            elif course_row and course_row["current_period_end_date"]:
+                target_end_date = course_row["current_period_end_date"] + timedelta(days=grace_days)
+                academic_year = "2025-2026"
+            else:
+                target_end_date = date.today() + timedelta(days=120)
+                academic_year = "2025-2026"
+
             p_row = await conn.fetchrow(
                 """
                 UPDATE payments
                 SET status = 'VERIFIED',
                     verified_by = $2,
+                    verified_by_role = $3,
+                    verification_source = $4,
                     verified_at = NOW(),
-                    notes = COALESCE($3, notes)
+                    academic_year = COALESCE(academic_year, $5),
+                    notes = COALESCE($6, notes)
                 WHERE id = $1
-                RETURNING id, enrollment_id, participant_user_id, course_id, semester, amount, status, verified_at
+                RETURNING id, enrollment_id, participant_user_id, course_id, semester, amount, status, verified_at, verified_by_role
                 """,
                 pid,
                 v_uid,
+                verified_by_role,
+                verification_source,
+                academic_year,
                 notes,
             )
 
             if activate_access:
-                # Update corresponding enrollment payment_status to VERIFIED and access to ACTIVE (lifetime access without trial date expiry)
+                # Update corresponding enrollment payment_status to VERIFIED and access to ACTIVE
                 await conn.execute(
                     """
                     UPDATE enrollments
@@ -102,15 +153,38 @@ class PaymentRepository:
                         activated_by = $2,
                         activated_at = NOW(),
                         access_start_date = COALESCE(access_start_date, CURRENT_DATE),
-                        access_end_date = NULL,
+                        access_end_date = $3,
                         updated_at = NOW()
                     WHERE id = $1
                     """,
-                    p_row["enrollment_id"],
+                    orig["enrollment_id"],
+                    v_uid,
+                    target_end_date,
+                )
+
+                # Upsert enrollment_periods record
+                await conn.execute(
+                    """
+                    INSERT INTO enrollment_periods (
+                        enrollment_id, participant_user_id, course_id, semester,
+                        start_date, end_date, access_status, payment_status,
+                        period_status, activation_source, activated_by, activated_at
+                    ) VALUES (
+                        $1, $2, $3, $4,
+                        CURRENT_DATE, $5, 'ACTIVE', 'VERIFIED',
+                        'PAID', 'PAYMENT_VERIFICATION', $6, NOW()
+                    )
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    orig["enrollment_id"],
+                    orig["participant_user_id"],
+                    orig["course_id"],
+                    sem_num,
+                    target_end_date,
                     v_uid,
                 )
 
-                # Convert any trial (active or expired) for this participant and course
+                # Convert any trial for this participant and course
                 await conn.execute(
                     """
                     UPDATE course_trials
@@ -119,11 +193,10 @@ class PaymentRepository:
                         updated_at = NOW()
                     WHERE participant_user_id = $1 AND course_id = $2
                     """,
-                    p_row["participant_user_id"],
-                    p_row["course_id"],
+                    orig["participant_user_id"],
+                    orig["course_id"],
                 )
             else:
-                # Update enrollment payment_status only; access remains managed by institutional admin
                 await conn.execute(
                     """
                     UPDATE enrollments
@@ -131,10 +204,50 @@ class PaymentRepository:
                         updated_at = NOW()
                     WHERE id = $1
                     """,
-                    p_row["enrollment_id"],
+                    orig["enrollment_id"],
                 )
 
-            return dict(p_row)
+            # Issue official GST invoice exactly once
+            enr_row = await conn.fetchrow("SELECT institution_id FROM enrollments WHERE id = $1", orig["enrollment_id"])
+            inst_id = orig["institution_id"] or (enr_row["institution_id"] if enr_row else None)
+            if not inst_id:
+                user_row = await conn.fetchrow("SELECT institution_id FROM users WHERE id = $1", orig["participant_user_id"])
+                inst_id = user_row["institution_id"] if user_row else None
+
+            inv = await create_invoice_record(
+                conn,
+                payment_id=pid,
+                enrollment_id=orig["enrollment_id"],
+                participant_user_id=orig["participant_user_id"],
+                institution_id=inst_id,
+                course_id=orig["course_id"],
+                semester_number=sem_num,
+                academic_year=academic_year,
+                total_amount=orig["amount"],
+                gst_rate=course_row["gst_rate"] if course_row and course_row["gst_rate"] is not None else Decimal("6.36"),
+                gst_inclusive=True,
+                generation_source="VERIFICATION",
+            )
+
+            # Record audit event
+            await conn.execute(
+                """
+                INSERT INTO payment_verification_events (
+                    payment_id, action, verified_by_user_id, verified_by_role,
+                    previous_status, new_status, reason
+                ) VALUES ($1, 'VERIFY', $2, $3, $4, 'VERIFIED', $5)
+                """,
+                pid,
+                v_uid,
+                verified_by_role,
+                current_status,
+                notes,
+            )
+
+            res = dict(p_row)
+            res["invoice_id"] = inv.get("id")
+            res["invoice_number"] = inv.get("invoice_number")
+            return res
 
     @staticmethod
     async def list_by_participant(participant_id: UUID | str) -> list[dict[str, Any]]:
@@ -142,10 +255,14 @@ class PaymentRepository:
             rows = await conn.fetch(
                 """
                 SELECT p.id, p.enrollment_id, p.course_id, p.semester, p.amount, p.currency,
-                       p.transaction_ref, p.payment_method, p.status, p.verified_at, p.created_at,
+                       p.transaction_ref, COALESCE(p.utr, p.transaction_ref) as utr,
+                       p.payment_method, p.status, p.verified_at, p.created_at,
+                       p.invoice_id, p.rejection_reason,
+                       inv.invoice_number,
                        c.title as course_title
                 FROM payments p
                 JOIN courses c ON c.id = p.course_id
+                LEFT JOIN invoices inv ON inv.id = p.invoice_id
                 WHERE p.participant_user_id = $1
                 ORDER BY p.created_at DESC
                 """,
@@ -218,7 +335,7 @@ class PaymentRepository:
 
         if search:
             params.append(f"%{search.strip()}%")
-            conditions.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR p.transaction_ref ILIKE ${len(params)})")
+            conditions.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR p.transaction_ref ILIKE ${len(params)} OR p.utr ILIKE ${len(params)})")
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.append(limit)
@@ -228,8 +345,10 @@ class PaymentRepository:
 
         query = f"""
             SELECT p.id, p.enrollment_id, p.participant_user_id, p.course_id, p.semester,
-                   p.amount, p.currency, p.transaction_ref, p.payment_method, p.status,
-                   p.verified_at, p.created_at,
+                   p.amount, p.currency, p.transaction_ref, COALESCE(p.utr, p.transaction_ref) as utr,
+                   p.payer_upi_id, p.payment_method, p.status,
+                   p.verified_at, p.created_at, p.verified_by_role, p.rejection_reason, p.invoice_id,
+                   inv.invoice_number,
                    u.name as student_name, u.email as student_email,
                    c.title as course_title,
                    d.name as department_name,
@@ -238,8 +357,9 @@ class PaymentRepository:
             JOIN users u ON u.id = p.participant_user_id
             JOIN courses c ON c.id = p.course_id
             LEFT JOIN enrollments e ON e.id = p.enrollment_id
-            LEFT JOIN institutions i ON i.id = COALESCE(e.institution_id, u.institution_id)
+            LEFT JOIN institutions i ON i.id = COALESCE(p.institution_id, e.institution_id, u.institution_id)
             LEFT JOIN departments d ON d.id = u.department_id
+            LEFT JOIN invoices inv ON inv.id = p.invoice_id
             {where}
             ORDER BY p.created_at DESC
             {limit_clause} {offset_clause}
@@ -273,7 +393,7 @@ class PaymentRepository:
 
         if search:
             params.append(f"%{search.strip()}%")
-            conditions.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR p.transaction_ref ILIKE ${len(params)})")
+            conditions.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR p.transaction_ref ILIKE ${len(params)} OR p.utr ILIKE ${len(params)})")
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         query = f"""
@@ -343,6 +463,7 @@ class PaymentRepository:
         payment_id: UUID | str,
         rejected_by: UUID | str,
         reason: str | None = None,
+        rejected_by_role: str = "ADMIN",
     ) -> dict[str, Any]:
         """Atomically marks payment REJECTED and leaves enrollment unactivated."""
         from app.core.errors import Conflict, NotFound
@@ -360,33 +481,116 @@ class PaymentRepository:
             if current_status == "REJECTED":
                 raise Conflict("Payment is already rejected.")
 
+            v_uid = UUID(str(rejected_by))
             p_row = await conn.fetchrow(
                 """
                 UPDATE payments
                 SET status = 'REJECTED',
                     verified_by = $2,
-                    rejection_reason = $3,
+                    verified_by_role = $3,
+                    rejection_reason = $4,
                     updated_at = NOW()
                 WHERE id = $1
-                RETURNING id, enrollment_id, participant_user_id, course_id, semester, amount, status, rejection_reason;
+                RETURNING id, enrollment_id, participant_user_id, course_id, semester, amount, status, rejection_reason, verified_by_role
                 """,
                 pid,
-                UUID(str(rejected_by)),
+                v_uid,
+                rejected_by_role,
                 reason,
             )
 
-            # Update enrollment payment_status to REJECTED and ensure access is INACTIVE
+            # Update enrollment payment_status to REJECTED (student account remains ACTIVE so they can log in and submit correct UTR)
             await conn.execute(
                 """
                 UPDATE enrollments
                 SET payment_status = 'REJECTED',
-                    access_status = 'INACTIVE',
                     updated_at = NOW()
                 WHERE id = $1
                 """,
                 p_row["enrollment_id"],
             )
+
+            # Record audit event
+            await conn.execute(
+                """
+                INSERT INTO payment_verification_events (
+                    payment_id, action, verified_by_user_id, verified_by_role,
+                    previous_status, new_status, reason
+                ) VALUES ($1, 'REJECT', $2, $3, $4, 'REJECTED', $5)
+                """,
+                pid,
+                v_uid,
+                rejected_by_role,
+                current_status,
+                reason,
+            )
+
             return dict(p_row)
+
+    @staticmethod
+    async def manual_activate_access(
+        enrollment_id: UUID | str,
+        activated_by: UUID | str,
+        activated_by_role: str = "ADMIN",
+        reason: str = "Manual admin approval",
+        access_end_date: Any | None = None,
+    ) -> dict[str, Any]:
+        """Atomically activates student access without falsely marking payment as VERIFIED."""
+        from datetime import date, timedelta
+        from app.core.errors import NotFound
+        async with pg_transaction() as conn:
+            eid = UUID(str(enrollment_id))
+            enr = await conn.fetchrow("SELECT * FROM enrollments WHERE id = $1", eid)
+            if not enr:
+                raise NotFound("Enrollment not found.")
+
+            v_uid = UUID(str(activated_by))
+            target_end_date = access_end_date or (date.today() + timedelta(days=120))
+
+            updated = await conn.fetchrow(
+                """
+                UPDATE enrollments
+                SET access_status = 'ACTIVE',
+                    activation_source = 'MANUAL_ADMIN_APPROVAL',
+                    manual_activation_reason = $2,
+                    manual_activated_by = $3,
+                    manual_activated_at = NOW(),
+                    access_end_date = $4,
+                    updated_at = NOW()
+                WHERE id = $1
+                RETURNING id, participant_user_id, course_id, access_status, payment_status, 
+                          activation_source, manual_activation_reason, access_end_date
+                """,
+                eid,
+                reason,
+                v_uid,
+                target_end_date,
+            )
+
+            # Upsert enrollment period as MANUAL_OVERRIDE (no fake paid invoice issued)
+            await conn.execute(
+                """
+                INSERT INTO enrollment_periods (
+                    enrollment_id, participant_user_id, course_id, semester,
+                    start_date, end_date, access_status, payment_status,
+                    period_status, activation_source, activated_by, activated_at
+                ) VALUES (
+                    $1, $2, $3, $4,
+                    CURRENT_DATE, $5, 'ACTIVE', $6,
+                    'MANUAL_OVERRIDE', 'MANUAL_ADMIN_APPROVAL', $7, NOW()
+                )
+                ON CONFLICT (id) DO NOTHING
+                """,
+                eid,
+                enr["participant_user_id"],
+                enr["course_id"],
+                enr["current_semester"] or 1,
+                target_end_date,
+                enr["payment_status"] or "PENDING",
+                v_uid,
+            )
+
+            return dict(updated)
 
     @staticmethod
     async def refund_payment(

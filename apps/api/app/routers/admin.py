@@ -3388,8 +3388,127 @@ async def admin_payments_summary(ctx: ScopeContext = AdminCtx) -> dict[str, Any]
     }
 
 
+@router.post("/payments/{payment_id}/verify")
+async def admin_verify_payment(
+    payment_id: str,
+    payload: dict[str, Any] = {},
+    ctx: ScopeContext = AdminCtx,
+) -> dict[str, Any]:
+    """College Admin verifies student payment, activating access and issuing official GST invoice."""
+    from app.services import payment_service
+    note = payload.get("note") or payload.get("notes") or "Payment verified by College Admin"
+    res = await payment_service.verify_course_payment(
+        payment_id=payment_id,
+        verified_by=ctx.user_id,
+        note=note,
+        verified_by_role="COLLEGE_ADMIN",
+    )
+    await write_audit(ctx, action="verify_payment", entity_type="payments", entity_id=str(payment_id), detail=f"College Admin verified payment {payment_id}")
+    return {"success": True, "status": res.get("status", "VERIFIED"), "data": res}
+
+
+@router.post("/payments/{payment_id}/reject")
+async def admin_reject_payment(
+    payment_id: str,
+    payload: dict[str, Any] = {},
+    ctx: ScopeContext = AdminCtx,
+) -> dict[str, Any]:
+    """College Admin rejects student payment with reason."""
+    from app.services import payment_service
+    reason = payload.get("reason", "Verification rejected by College Admin")
+    res = await payment_service.reject_course_payment(
+        payment_id=payment_id,
+        rejected_by=ctx.user_id,
+        reason=reason,
+        rejected_by_role="COLLEGE_ADMIN",
+    )
+    await write_audit(ctx, action="reject_payment", entity_type="payments", entity_id=str(payment_id), detail=f"College Admin rejected payment {payment_id}")
+    return {"success": True, "status": res.get("status", "REJECTED"), "data": res}
+
+
+@router.post("/enrollments/{enrollment_id}/manual-activate")
+async def admin_manual_activate_enrollment(
+    enrollment_id: str,
+    payload: dict[str, Any] = {},
+    ctx: ScopeContext = AdminCtx,
+) -> dict[str, Any]:
+    """College Admin manually activates student access without falsely marking payment as VERIFIED."""
+    from app.repositories.payment_repo import PaymentRepository
+    reason = payload.get("reason", "Manual activation by College Admin")
+    res = await PaymentRepository.manual_activate_access(
+        enrollment_id=enrollment_id,
+        activated_by=ctx.user_id,
+        activated_by_role="COLLEGE_ADMIN",
+        reason=reason,
+    )
+    await write_audit(ctx, action="manual_activate_enrollment", entity_type="enrollments", entity_id=str(enrollment_id), detail=f"College Admin manually activated enrollment {enrollment_id}: {reason}")
+    return {"success": True, "data": res, "message": "Student access manually activated."}
+
+
+@router.get("/invoices/{invoice_id}/download")
+async def admin_download_invoice(
+    invoice_id: str,
+    ctx: ScopeContext = AdminCtx,
+) -> Response:
+    """College Admin downloads student invoice as PDF."""
+    from app.services.invoice_service import get_invoice_details, generate_invoice_pdf
+    from uuid import UUID
+    from app.core.errors import NotFound, ScopeForbidden
+    try:
+        inv_uuid = UUID(str(invoice_id))
+    except (ValueError, TypeError):
+        raise NotFound("Invalid invoice ID.")
+
+    inv = await get_invoice_details(inv_uuid)
+    if not inv:
+        raise NotFound("Invoice not found.")
+
+    if ctx.college_id and str(inv.get("institution_id")) != str(ctx.college_id):
+        raise ScopeForbidden("You cannot access invoices from other institutions.")
+
+    pdf_bytes = generate_invoice_pdf(inv)
+    filename = f"Invoice-{inv.get('invoice_number', 'download')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/invoices/{invoice_id}/html")
+async def admin_view_invoice_html(
+    invoice_id: str,
+    ctx: ScopeContext = AdminCtx,
+) -> Response:
+    """College Admin views student invoice as HTML."""
+    from app.services.invoice_service import get_invoice_details, generate_invoice_html
+    from uuid import UUID
+    from app.core.errors import NotFound, ScopeForbidden
+    try:
+        inv_uuid = UUID(str(invoice_id))
+    except (ValueError, TypeError):
+        raise NotFound("Invalid invoice ID.")
+
+    inv = await get_invoice_details(inv_uuid)
+    if not inv:
+        raise NotFound("Invoice not found.")
+
+    if ctx.college_id and str(inv.get("institution_id")) != str(ctx.college_id):
+        raise ScopeForbidden("You cannot access invoices from other institutions.")
+
+    html = generate_invoice_html(inv)
+    return Response(content=html, media_type="text/html")
+
+
 @router.post("/payments/{payment_id}/refund")
 async def admin_refund_payment(payment_id: str, payload: dict[str, Any] = {}, ctx: ScopeContext = AdminCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.repositories.payment_repo import PaymentRepository
+        reason = payload.get("reason", "Admin authorized refund")
+        result = await PaymentRepository.refund_payment(payment_id=payment_id, refunded_by=ctx.user_id, reason=reason)
+        await write_audit(ctx, action="refund_payment", entity_type="payments", entity_id=str(payment_id), detail=f"Refund issued: {reason}")
+        return {"success": True, "data": result}
+
     pid = ObjectId(payment_id)
     payment = await get_db().payments.find_one({"_id": pid, "collegeId": ctx.college_id})
     if not payment:
@@ -3413,29 +3532,97 @@ async def list_admin_enrollments(
     ctx: ScopeContext = AdminCtx,
 ) -> dict[str, Any]:
     """List participant enrollments with separated payment, enrollment, and access statuses."""
-    db = get_db()
-    query_filter: dict[str, Any] = {"collegeId": ctx.college_id}
-    if departmentId:
-        query_filter["departmentId"] = ObjectId(departmentId)
-    if status:
-        query_filter["status"] = status
-    if accessStatus:
-        query_filter["accessStatus"] = accessStatus
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        conditions = []
+        params = []
+        if ctx.college_id:
+            from app.repositories.game_repo import _safe_uuid
+            inst_uuid = _safe_uuid(ctx.college_id)
+            if inst_uuid:
+                params.append(inst_uuid)
+                conditions.append(f"e.institution_id = ${len(params)}")
+        if departmentId:
+            from app.repositories.game_repo import _safe_uuid
+            dept_uuid = _safe_uuid(departmentId)
+            if dept_uuid:
+                params.append(dept_uuid)
+                conditions.append(f"e.department_id = ${len(params)}")
+        if status:
+            params.append(status.upper())
+            conditions.append(f"e.enrollment_status = ${len(params)}")
+        if accessStatus:
+            params.append(accessStatus.upper())
+            conditions.append(f"e.access_status = ${len(params)}")
 
-    skip = (page - 1) * pageSize
-    total = await db.enrollments.count_documents(query_filter)
-    rows = await db.enrollments.find(query_filter).sort("createdAt", -1).skip(skip).limit(pageSize).to_list(pageSize)
-
-    return {
-        "success": True,
-        "items": serialize(rows),
-        "pagination": {
-            "page": page,
-            "pageSize": pageSize,
-            "total": total,
-            "totalPages": (total + pageSize - 1) // pageSize,
-        },
-    }
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        async with get_pg_connection() as conn:
+            total = await conn.fetchval(f"SELECT COUNT(*) FROM enrollments e {where_clause}", *params) or 0
+            params.append(pageSize)
+            p_limit = f"${len(params)}"
+            params.append((page - 1) * pageSize)
+            p_offset = f"${len(params)}"
+            rows = await conn.fetch(
+                f"""
+                SELECT e.id, e.participant_user_id, e.course_id, e.institution_id, e.department_id,
+                       e.batch_id, e.current_semester, e.enrollment_status, e.payment_status,
+                       e.access_status, e.access_start_date, e.access_end_date, e.activation_source,
+                       e.manual_activation_reason, e.created_at,
+                       u.name as student_name, u.email as student_email,
+                       sp.roll_number, sp.branch,
+                       c.title as course_title, c.semester_fee, c.payment_frequency,
+                       d.name as department_name,
+                       b.name as batch_name
+                FROM enrollments e
+                JOIN users u ON e.participant_user_id = u.id
+                LEFT JOIN student_profiles sp ON sp.user_id = u.id
+                JOIN courses c ON e.course_id = c.id
+                LEFT JOIN departments d ON e.department_id = d.id
+                LEFT JOIN batches b ON e.batch_id = b.id
+                {where_clause}
+                ORDER BY e.created_at DESC
+                LIMIT {p_limit} OFFSET {p_offset}
+                """,
+                *params,
+            )
+            items = [
+                {
+                    "id": str(r["id"]),
+                    "studentId": str(r["participant_user_id"]),
+                    "studentName": r["student_name"],
+                    "studentEmail": r["student_email"],
+                    "rollNumber": r.get("roll_number") or "",
+                    "branch": r.get("branch") or "",
+                    "courseId": str(r["course_id"]),
+                    "courseTitle": r["course_title"],
+                    "semester": r.get("current_semester") or 1,
+                    "enrollmentStatus": str(r["enrollment_status"]),
+                    "paymentStatus": str(r["payment_status"]),
+                    "accessStatus": str(r["access_status"]),
+                    "activationSource": r.get("activation_source") or "PAYMENT_VERIFICATION",
+                    "manualReason": r.get("manual_activation_reason"),
+                    "accessStartDate": r["access_start_date"].isoformat() if r.get("access_start_date") else None,
+                    "accessEndDate": r["access_end_date"].isoformat() if r.get("access_end_date") else None,
+                    "departmentName": r.get("department_name") or "",
+                    "batchName": r.get("batch_name") or "",
+                    "createdAt": r["created_at"].isoformat() if r.get("created_at") else None,
+                }
+                for r in rows
+            ]
+            total_pages = max(1, (total + pageSize - 1) // pageSize)
+            return {
+                "success": True,
+                "items": items,
+                "enrollments": items,
+                "pagination": {
+                    "page": page,
+                    "pageSize": pageSize,
+                    "total": total,
+                    "totalPages": total_pages,
+                    "hasNext": page < total_pages,
+                    "hasPrev": page > 1,
+                },
+            }
 
 
 @router.post("/enrollments/{enrollment_id}/activate")

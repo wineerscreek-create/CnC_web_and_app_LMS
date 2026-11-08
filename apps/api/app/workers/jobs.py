@@ -634,3 +634,83 @@ async def assignment_due(payload: dict[str, Any]) -> None:
         await db.assignments.update_one(
             {"_id": assignment["_id"]}, {"$set": {"reminderSentAt": _now()}}
         )
+
+
+@job_handler("enrollment.check_validity_and_expire")
+async def check_semester_validity_and_expire(payload: dict[str, Any] = {}) -> dict[str, Any]:
+    """Automated semester expiry check:
+    Finds enrollments where access_end_date < CURRENT_DATE, access_status = 'ACTIVE',
+    no verified payment for next cycle, and no active MANUAL_ADMIN_APPROVAL override.
+    Safely transitions access_status to 'RESTRICTED' (user account remains ACTIVE).
+    """
+    dry_run = bool(payload.get("dryRun") or payload.get("dry_run", False))
+    from app.db.postgres import get_pg_connection
+    from datetime import date
+    import json
+
+    today = date.today()
+    restricted_count = 0
+    skipped_count = 0
+    details = []
+
+    async with get_pg_connection() as conn:
+        candidates = await conn.fetch(
+            """
+            SELECT e.id, e.participant_user_id, e.course_id, e.institution_id,
+                   e.current_semester, e.access_status, e.payment_status,
+                   e.access_end_date, e.activation_source,
+                   u.name as student_name, u.email as student_email,
+                   c.title as course_title
+            FROM enrollments e
+            JOIN users u ON e.participant_user_id = u.id
+            JOIN courses c ON e.course_id = c.id
+            WHERE e.access_status = 'ACTIVE'
+              AND e.access_end_date IS NOT NULL
+              AND e.access_end_date < $1
+            """,
+            today,
+        )
+
+        for c in candidates:
+            active_period = await conn.fetchrow(
+                """
+                SELECT id FROM enrollment_periods
+                WHERE enrollment_id = $1
+                  AND (end_date IS NULL OR end_date >= $2)
+                  AND period_status IN ('PAID', 'INCLUDED_PERIOD', 'MANUAL_OVERRIDE')
+                LIMIT 1
+                """,
+                c["id"],
+                today,
+            )
+            if active_period:
+                skipped_count += 1
+                continue
+
+            if not dry_run:
+                await conn.execute(
+                    """
+                    UPDATE enrollments
+                    SET access_status = 'RESTRICTED',
+                        updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    c["id"],
+                )
+
+            restricted_count += 1
+            details.append({
+                "enrollmentId": str(c["id"]),
+                "studentName": c["student_name"],
+                "studentEmail": c["student_email"],
+                "courseTitle": c["course_title"],
+                "accessEndDate": c["access_end_date"].isoformat() if c["access_end_date"] else None,
+            })
+
+    return {
+        "success": True,
+        "dryRun": dry_run,
+        "restrictedCount": restricted_count,
+        "skippedCount": skipped_count,
+        "details": details,
+    }

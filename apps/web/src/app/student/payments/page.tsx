@@ -90,6 +90,22 @@ function StudentPaymentsContent() {
 
   const paymentsQuery = useApi<any>('/student/payments');
   const trialsQuery = useApi<any>('/student/trials');
+  const semesterFeeQuery = useApi<any>('/student/semester-fee-status');
+  const invoicesQuery = useApi<any>('/student/invoices');
+
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = React.useState<string | null>(null);
+
+  const handleDownloadInvoice = async (invoiceId: string, invoiceNumber: string) => {
+    setDownloadingInvoiceId(invoiceId);
+    try {
+      await api.download(`/student/invoices/${invoiceId}/download`, `${invoiceNumber}.pdf`);
+      toast.success('Invoice downloaded successfully.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to download invoice PDF.');
+    } finally {
+      setDownloadingInvoiceId(null);
+    }
+  };
 
   const [checkoutModalOpen, setCheckoutModalOpen] = React.useState(false);
   const [selectedTrialToBuy, setSelectedTrialToBuy] = React.useState<CourseTrial | null>(null);
@@ -369,6 +385,78 @@ function StudentPaymentsContent() {
           />
         </div>
 
+        {/* Semester Fee & Program Access Status Card */}
+        {semesterFeeQuery.data?.course_title && (
+          <Card elevated className="border-indigo-500/20 bg-gradient-to-r from-indigo-950/20 via-background to-card">
+            <CardHeader className="p-5 border-b border-border">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base">Semester Fee &amp; Program Status</CardTitle>
+                    <Badge
+                      tone={
+                        semesterFeeQuery.data.access_status === 'ACTIVE'
+                          ? 'success'
+                          : semesterFeeQuery.data.access_status === 'RESTRICTED'
+                          ? 'danger'
+                          : 'amber'
+                      }
+                    >
+                      {semesterFeeQuery.data.access_status === 'ACTIVE'
+                        ? 'Active Access'
+                        : semesterFeeQuery.data.access_status === 'RESTRICTED'
+                        ? 'Payment Required'
+                        : semesterFeeQuery.data.access_status}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {semesterFeeQuery.data.course_title} · Semester {semesterFeeQuery.data.current_semester}
+                  </p>
+                </div>
+
+                <div className="text-right">
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Semester Fee (Incl. 6.36% GST)</p>
+                  <p className="text-lg font-extrabold text-foreground">₹{num(semesterFeeQuery.data.semester_fee ?? 5850)}</p>
+                </div>
+              </div>
+            </CardHeader>
+
+            <CardBody className="p-5 space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-xl bg-card/60 border border-border text-xs">
+                <div>
+                  <p className="text-muted-foreground text-[11px]">Taxable Amount</p>
+                  <p className="font-semibold text-foreground">₹{num(semesterFeeQuery.data.taxable_amount ?? 5500.19)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-[11px]">GST (6.36%)</p>
+                  <p className="font-semibold text-foreground">₹{num(semesterFeeQuery.data.gst_amount ?? 349.81)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-[11px]">Due Date</p>
+                  <p className="font-semibold text-foreground">{semesterFeeQuery.data.due_date ? formatDate(semesterFeeQuery.data.due_date) : 'Current Semester'}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-[11px]">Payment Status</p>
+                  <p className="font-semibold text-foreground">{semesterFeeQuery.data.payment_status ?? 'PENDING'}</p>
+                </div>
+              </div>
+
+              {semesterFeeQuery.data.access_status === 'RESTRICTED' && (
+                <div className="p-4 rounded-xl border border-destructive/30 bg-destructive/10 text-xs space-y-2">
+                  <div className="flex items-center gap-2 font-semibold text-destructive">
+                    <AlertCircle className="size-4 shrink-0" />
+                    <span>Current Semester Learning Modules Restricted</span>
+                  </div>
+                  <p className="text-muted-foreground text-[11px]">
+                    Your account remains active. All completed lessons, past assessments, and historical invoices remain fully accessible.
+                    To unlock new lessons and current semester assessments, please submit your semester fee payment reference (UTR) below.
+                  </p>
+                </div>
+              )}
+            </CardBody>
+          </Card>
+        )}
+
         {/* Active 3-Day Free Trials Section */}
         {trials.length > 0 && (
           <Card elevated>
@@ -580,6 +668,80 @@ function StudentPaymentsContent() {
             )}
           </CardBody>
         </Card>
+
+        {/* Official GST Invoices Section */}
+        {Array.isArray(invoicesQuery.data) && invoicesQuery.data.length > 0 && (
+          <Card elevated>
+            <CardHeader className="p-5 border-b border-border flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Receipt className="size-4 text-primary" />
+                  Official Tax Invoices (GST Compliant)
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Authorized digital tax invoices with strict GST breakdown (6.36%) and transaction references.
+                </p>
+              </div>
+            </CardHeader>
+            <CardBody className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-card border-b border-border text-muted-foreground uppercase tracking-wider font-semibold">
+                    <tr>
+                      <th className="px-5 py-3">Invoice Number</th>
+                      <th className="px-5 py-3">Semester</th>
+                      <th className="px-5 py-3">Academic Year</th>
+                      <th className="px-5 py-3">Taxable</th>
+                      <th className="px-5 py-3">GST (6.36%)</th>
+                      <th className="px-5 py-3">Total Amount</th>
+                      <th className="px-5 py-3">Date</th>
+                      <th className="px-5 py-3 text-right">Download</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {invoicesQuery.data.map((inv: any) => (
+                      <tr key={inv.id} className="hover:bg-muted/50">
+                        <td className="px-5 py-3.5 font-mono font-medium text-heading">
+                          {inv.invoice_number}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          Semester {inv.semester_number}
+                        </td>
+                        <td className="px-5 py-3.5 text-muted-foreground">
+                          {inv.academic_year || '—'}
+                        </td>
+                        <td className="px-5 py-3.5 text-foreground">
+                          ₹{num(inv.taxable_amount ?? 5500.19)}
+                        </td>
+                        <td className="px-5 py-3.5 text-foreground">
+                          ₹{num(inv.gst_amount ?? 349.81)}
+                        </td>
+                        <td className="px-5 py-3.5 font-bold text-heading">
+                          ₹{num(inv.total_amount ?? 5850.00)}
+                        </td>
+                        <td className="px-5 py-3.5 text-muted-foreground">
+                          {formatDate(inv.issued_at || inv.created_at)}
+                        </td>
+                        <td className="px-5 py-3.5 text-right">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={downloadingInvoiceId === inv.id}
+                            onClick={() => handleDownloadInvoice(inv.id, inv.invoice_number)}
+                            className="h-7 px-2.5 text-xs text-primary hover:bg-primary/10 gap-1"
+                          >
+                            <Download className="size-3" />
+                            {downloadingInvoiceId === inv.id ? 'Downloading…' : 'PDF Receipt'}
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardBody>
+          </Card>
+        )}
       </div>
 
       {/* Course Checkout Modal with Real UPI and Gateway Options */}
