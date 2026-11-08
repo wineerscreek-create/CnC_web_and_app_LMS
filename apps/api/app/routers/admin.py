@@ -3275,7 +3275,10 @@ async def admin_list_payments(
                 "status": "success" if p.get("status") == "VERIFIED" else ("pending" if p.get("status") == "PENDING" else "failed"),
                 "paymentMethod": p.get("payment_method") or "Official Fee Receipt",
                 "transactionId": p.get("transaction_ref") or str(p["id"]),
-                "invoiceNumber": f"INV-{str(p['id'])[:8].upper()}",
+                "invoiceId": str(p["invoice_id"]) if p.get("invoice_id") else None,
+                "invoice_id": str(p["invoice_id"]) if p.get("invoice_id") else None,
+                "invoiceNumber": p.get("invoice_number") or f"INV-{str(p['id'])[:8].upper()}",
+                "invoice_number": p.get("invoice_number") or f"INV-{str(p['id'])[:8].upper()}",
                 "createdAt": p["created_at"].isoformat() if p.get("created_at") else None,
             }
             for p in pg_payments

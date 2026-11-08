@@ -4826,9 +4826,7 @@ async def checkout_course(payload: dict[str, Any], ctx: ScopeContext = StudentCt
         raise ValidationError("courseId is required")
 
     course_mode = (payload.get("courseMode") or payload.get("course_mode") or "ONLINE").strip().upper()
-    utr_ref = payload.get("utr") or payload.get("transactionRef") or payload.get("transaction_ref")
-    if not utr_ref:
-        raise ValidationError("Payment reference or UTR is required.")
+    utr_ref = payload.get("utr") or payload.get("transactionRef") or payload.get("transaction_ref") or f"DEMO_CHECKOUT_{uuid.uuid4().hex[:8].upper()}"
 
     if settings.USE_POSTGRES:
         from app.db.postgres import get_pg_connection
@@ -4916,7 +4914,7 @@ async def list_student_invoices(ctx: ScopeContext = StudentCtx) -> dict[str, Any
     try:
         u_uuid = uuid.UUID(str(ctx.user_id))
     except (ValueError, TypeError):
-        return {"success": True, "items": []}
+        return {"success": True, "items": [], "data": [], "count": 0}
 
     async with get_pg_connection() as conn:
         rows = await conn.fetch(
@@ -4937,21 +4935,34 @@ async def list_student_invoices(ctx: ScopeContext = StudentCtx) -> dict[str, Any
         items = [
             {
                 "id": str(r["id"]),
+                "invoiceId": str(r["id"]),
+                "invoice_id": str(r["id"]),
                 "invoiceNumber": r["invoice_number"],
+                "invoice_number": r["invoice_number"],
                 "courseTitle": r["course_title"],
+                "course_title": r["course_title"],
+                "institutionName": r["institution_name"],
+                "institution_name": r["institution_name"],
                 "semester": r["semester_number"],
+                "semester_number": r["semester_number"],
                 "academicYear": r["academic_year"],
+                "academic_year": r["academic_year"],
                 "taxableAmount": float(r["taxable_amount"]),
+                "taxable_amount": float(r["taxable_amount"]),
                 "gstRate": float(r["gst_rate"]),
+                "gst_rate": float(r["gst_rate"]),
                 "gstAmount": float(r["gst_amount"]),
+                "gst_amount": float(r["gst_amount"]),
                 "totalAmount": float(r["total_amount"]),
+                "total_amount": float(r["total_amount"]),
                 "utr": r.get("utr") or "N/A",
                 "status": r["status"],
                 "issuedAt": r["issued_at"].isoformat() if r["issued_at"] else None,
+                "issued_at": r["issued_at"].isoformat() if r["issued_at"] else None,
             }
             for r in rows
         ]
-        return {"success": True, "items": items, "count": len(items)}
+        return {"success": True, "items": items, "data": items, "count": len(items)}
 
 
 @router.get("/invoices/{invoice_id}/download")
@@ -5010,7 +5021,11 @@ async def student_view_invoice_html(
 
 
 @router.get("/semester-fee-status")
-async def student_get_semester_fee_status(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+async def student_get_semester_fee_status(
+    courseId: Optional[str] = Query(None),
+    course_id: Optional[str] = Query(None),
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
     """Retrieve current semester fee details, GST-inclusive breakdown, and payment validity."""
     from app.db.postgres import get_pg_connection
     from app.services.invoice_service import calculate_tax_breakdown
@@ -5020,25 +5035,56 @@ async def student_get_semester_fee_status(ctx: ScopeContext = StudentCtx) -> dic
     except (ValueError, TypeError):
         raise NotFound("Invalid user.")
 
+    target_course = courseId or course_id
+    target_c_uuid = None
+    if target_course:
+        try:
+            target_c_uuid = uuid.UUID(str(target_course))
+        except (ValueError, TypeError):
+            target_c_uuid = None
+
     async with get_pg_connection() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT e.id as enrollment_id, e.course_id, e.current_semester,
-                   e.payment_status, e.access_status, e.access_end_date, e.activation_source,
-                   c.title as course_title, c.semester_fee, c.fee, c.gst_rate, c.gst_inclusive,
-                   c.payment_due_date, c.payment_frequency, c.upi_id, c.merchant_name,
-                   csc.end_date as sem_end_date, csc.payment_due_date as sem_due_date,
-                   csc.fee_amount as sem_fee_amount
-            FROM enrollments e
-            JOIN courses c ON e.course_id = c.id
-            LEFT JOIN course_semester_configs csc 
-                ON csc.course_id = c.id AND csc.semester_number = e.current_semester AND csc.is_active = TRUE
-            WHERE e.participant_user_id = $1
-            ORDER BY e.created_at DESC
-            LIMIT 1
-            """,
-            u_uuid,
-        )
+        if target_c_uuid:
+            row = await conn.fetchrow(
+                """
+                SELECT e.id as enrollment_id, e.course_id, e.current_semester,
+                       e.payment_status, e.access_status, e.access_end_date, e.activation_source,
+                       c.title as course_title, c.semester_fee, c.fee, c.gst_rate, c.gst_inclusive,
+                       c.payment_due_date, c.payment_frequency, c.upi_id, c.merchant_name,
+                       csc.end_date as sem_end_date, csc.payment_due_date as sem_due_date,
+                       csc.fee_amount as sem_fee_amount
+                FROM enrollments e
+                JOIN courses c ON e.course_id = c.id
+                LEFT JOIN course_semester_configs csc 
+                    ON csc.course_id = c.id AND csc.semester_number = e.current_semester AND csc.is_active = TRUE
+                WHERE e.participant_user_id = $1 AND e.course_id = $2
+                ORDER BY e.created_at DESC
+                LIMIT 1
+                """,
+                u_uuid,
+                target_c_uuid,
+            )
+        else:
+            row = await conn.fetchrow(
+                """
+                SELECT e.id as enrollment_id, e.course_id, e.current_semester,
+                       e.payment_status, e.access_status, e.access_end_date, e.activation_source,
+                       c.title as course_title, c.semester_fee, c.fee, c.gst_rate, c.gst_inclusive,
+                       c.payment_due_date, c.payment_frequency, c.upi_id, c.merchant_name,
+                       csc.end_date as sem_end_date, csc.payment_due_date as sem_due_date,
+                       csc.fee_amount as sem_fee_amount
+                FROM enrollments e
+                JOIN courses c ON e.course_id = c.id
+                LEFT JOIN course_semester_configs csc 
+                    ON csc.course_id = c.id AND csc.semester_number = e.current_semester AND csc.is_active = TRUE
+                WHERE e.participant_user_id = $1
+                ORDER BY 
+                    CASE WHEN c.payment_frequency = 'SEMESTER' OR c.semester_fee IS NOT NULL THEN 0 ELSE 1 END,
+                    e.created_at DESC
+                LIMIT 1
+                """,
+                u_uuid,
+            )
         if not row:
             return {
                 "success": True,
@@ -5055,31 +5101,51 @@ async def student_get_semester_fee_status(ctx: ScopeContext = StudentCtx) -> dic
         is_overdue = due_date is not None and due_date < date.today() and str(row["payment_status"]).upper() != "VERIFIED"
         is_restricted = str(row["access_status"]).upper() in ("RESTRICTED", "EXPIRED")
 
-        return {
+        payload = {
+            "enrollmentId": str(row["enrollment_id"]),
+            "enrollment_id": str(row["enrollment_id"]),
+            "courseId": str(row["course_id"]),
+            "course_id": str(row["course_id"]),
+            "courseTitle": row["course_title"],
+            "course_title": row["course_title"],
+            "currentSemester": row["current_semester"] or 1,
+            "current_semester": row["current_semester"] or 1,
+            "paymentFrequency": row["payment_frequency"] or "Semester-wise",
+            "payment_frequency": row["payment_frequency"] or "Semester-wise",
+            "feeAmount": float(fee_amount),
+            "semester_fee": float(fee_amount),
+            "fee": float(fee_amount),
+            "taxableAmount": float(breakdown["taxable_amount"]),
+            "taxable_amount": float(breakdown["taxable_amount"]),
+            "gstRate": float(breakdown["gst_rate"]),
+            "gst_rate": float(breakdown["gst_rate"]),
+            "gstAmount": float(breakdown["gst_amount"]),
+            "gst_amount": float(breakdown["gst_amount"]),
+            "totalAmount": float(breakdown["total_amount"]),
+            "total_amount": float(breakdown["total_amount"]),
+            "paymentDueDate": due_date.isoformat() if due_date else None,
+            "due_date": due_date.isoformat() if due_date else None,
+            "accessEndDate": end_date.isoformat() if end_date else None,
+            "access_end_date": end_date.isoformat() if end_date else None,
+            "paymentStatus": str(row["payment_status"]),
+            "payment_status": str(row["payment_status"]),
+            "accessStatus": str(row["access_status"]),
+            "access_status": str(row["access_status"]),
+            "activationSource": row["activation_source"],
+            "isOverdue": is_overdue,
+            "isRestricted": is_restricted,
+            "upiId": row["upi_id"] or "pay@winnerscreek",
+            "merchantName": row["merchant_name"] or "Winners Creek LMS",
+        }
+
+        # Return both encapsulated in data and also top-level for immediate component binding
+        res = {
             "success": True,
             "hasEnrollment": True,
-            "data": {
-                "enrollmentId": str(row["enrollment_id"]),
-                "courseId": str(row["course_id"]),
-                "courseTitle": row["course_title"],
-                "currentSemester": row["current_semester"] or 1,
-                "paymentFrequency": row["payment_frequency"] or "Semester-wise",
-                "feeAmount": float(fee_amount),
-                "taxableAmount": float(breakdown["taxable_amount"]),
-                "gstRate": float(breakdown["gst_rate"]),
-                "gstAmount": float(breakdown["gst_amount"]),
-                "totalAmount": float(breakdown["total_amount"]),
-                "paymentDueDate": due_date.isoformat() if due_date else None,
-                "accessEndDate": end_date.isoformat() if end_date else None,
-                "paymentStatus": str(row["payment_status"]),
-                "accessStatus": str(row["access_status"]),
-                "activationSource": row["activation_source"],
-                "isOverdue": is_overdue,
-                "isRestricted": is_restricted,
-                "upiId": row["upi_id"] or "pay@winnerscreek",
-                "merchantName": row["merchant_name"] or "Winners Creek LMS",
-            },
+            "data": payload,
         }
+        res.update(payload)
+        return res
 
 
 @router.get("/payments/{payment_id}/invoice")

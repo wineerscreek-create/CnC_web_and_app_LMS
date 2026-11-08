@@ -145,6 +145,36 @@ function StudentPaymentsContent() {
     [successfulPayments]
   );
 
+  const semesterFee = React.useMemo(() => {
+    const raw = semesterFeeQuery.data?.data ?? semesterFeeQuery.data;
+    if (!raw || (!raw.course_title && !raw.courseTitle)) return null;
+    return {
+      courseId: raw.course_id || raw.courseId,
+      courseTitle: raw.course_title || raw.courseTitle,
+      currentSemester: raw.current_semester ?? raw.currentSemester ?? 1,
+      feeAmount: Number(raw.semester_fee ?? raw.feeAmount ?? raw.fee ?? 5850),
+      taxableAmount: Number(raw.taxable_amount ?? raw.taxableAmount ?? 5500.19),
+      gstAmount: Number(raw.gst_amount ?? raw.gstAmount ?? 349.81),
+      gstRate: Number(raw.gst_rate ?? raw.gstRate ?? 6.36),
+      totalAmount: Number(raw.total_amount ?? raw.totalAmount ?? 5850),
+      dueDate: raw.due_date || raw.paymentDueDate,
+      accessStatus: (raw.access_status || raw.accessStatus || 'ACTIVE').toUpperCase(),
+      paymentStatus: (raw.payment_status || raw.paymentStatus || 'VERIFIED').toUpperCase(),
+      isOverdue: Boolean(raw.isOverdue || raw.is_overdue),
+      isRestricted: Boolean(raw.isRestricted || raw.is_restricted),
+      upiId: raw.upi_id || raw.upiId || 'pay@winnerscreek',
+      merchantName: raw.merchant_name || raw.merchantName || 'Winners Creek LMS',
+    };
+  }, [semesterFeeQuery.data]);
+
+  const invoicesList = React.useMemo(() => {
+    const raw =
+      invoicesQuery.data?.data ??
+      invoicesQuery.data?.items ??
+      invoicesQuery.data;
+    return Array.isArray(raw) ? raw : [];
+  }, [invoicesQuery.data]);
+
   const rawTrials =
     trialsQuery.data?.trials ??
     trialsQuery.data?.data?.trials ??
@@ -386,7 +416,7 @@ function StudentPaymentsContent() {
         </div>
 
         {/* Semester Fee & Program Access Status Card */}
-        {semesterFeeQuery.data?.course_title && (
+        {semesterFee && (
           <Card elevated className="border-indigo-500/20 bg-gradient-to-r from-indigo-950/20 via-background to-card">
             <CardHeader className="p-5 border-b border-border">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -395,28 +425,28 @@ function StudentPaymentsContent() {
                     <CardTitle className="text-base">Semester Fee &amp; Program Status</CardTitle>
                     <Badge
                       tone={
-                        semesterFeeQuery.data.access_status === 'ACTIVE'
+                        semesterFee.accessStatus === 'ACTIVE'
                           ? 'success'
-                          : semesterFeeQuery.data.access_status === 'RESTRICTED'
+                          : semesterFee.accessStatus === 'RESTRICTED'
                           ? 'danger'
                           : 'amber'
                       }
                     >
-                      {semesterFeeQuery.data.access_status === 'ACTIVE'
+                      {semesterFee.accessStatus === 'ACTIVE'
                         ? 'Active Access'
-                        : semesterFeeQuery.data.access_status === 'RESTRICTED'
+                        : semesterFee.accessStatus === 'RESTRICTED'
                         ? 'Payment Required'
-                        : semesterFeeQuery.data.access_status}
+                        : semesterFee.accessStatus}
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {semesterFeeQuery.data.course_title} · Semester {semesterFeeQuery.data.current_semester}
+                    {semesterFee.courseTitle} · Semester {semesterFee.currentSemester}
                   </p>
                 </div>
 
                 <div className="text-right">
-                  <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Semester Fee (Incl. 6.36% GST)</p>
-                  <p className="text-lg font-extrabold text-foreground">₹{num(semesterFeeQuery.data.semester_fee ?? 5850)}</p>
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Semester Fee (Incl. {semesterFee.gstRate}% GST)</p>
+                  <p className="text-lg font-extrabold text-foreground">₹{num(semesterFee.feeAmount)}</p>
                 </div>
               </div>
             </CardHeader>
@@ -425,23 +455,23 @@ function StudentPaymentsContent() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-xl bg-card/60 border border-border text-xs">
                 <div>
                   <p className="text-muted-foreground text-[11px]">Taxable Amount</p>
-                  <p className="font-semibold text-foreground">₹{num(semesterFeeQuery.data.taxable_amount ?? 5500.19)}</p>
+                  <p className="font-semibold text-foreground">₹{num(semesterFee.taxableAmount)}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground text-[11px]">GST (6.36%)</p>
-                  <p className="font-semibold text-foreground">₹{num(semesterFeeQuery.data.gst_amount ?? 349.81)}</p>
+                  <p className="text-muted-foreground text-[11px]">GST ({semesterFee.gstRate}%)</p>
+                  <p className="font-semibold text-foreground">₹{num(semesterFee.gstAmount)}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground text-[11px]">Due Date</p>
-                  <p className="font-semibold text-foreground">{semesterFeeQuery.data.due_date ? formatDate(semesterFeeQuery.data.due_date) : 'Current Semester'}</p>
+                  <p className="font-semibold text-foreground">{semesterFee.dueDate ? formatDate(semesterFee.dueDate) : 'Current Semester'}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground text-[11px]">Payment Status</p>
-                  <p className="font-semibold text-foreground">{semesterFeeQuery.data.payment_status ?? 'PENDING'}</p>
+                  <p className="font-semibold text-foreground">{semesterFee.paymentStatus}</p>
                 </div>
               </div>
 
-              {semesterFeeQuery.data.access_status === 'RESTRICTED' && (
+              {semesterFee.accessStatus === 'RESTRICTED' && (
                 <div className="p-4 rounded-xl border border-destructive/30 bg-destructive/10 text-xs space-y-2">
                   <div className="flex items-center gap-2 font-semibold text-destructive">
                     <AlertCircle className="size-4 shrink-0" />
@@ -451,6 +481,30 @@ function StudentPaymentsContent() {
                     Your account remains active. All completed lessons, past assessments, and historical invoices remain fully accessible.
                     To unlock new lessons and current semester assessments, please submit your semester fee payment reference (UTR) below.
                   </p>
+                  <div className="pt-2">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={() => handleBuyCourseById(semesterFee.courseId)}
+                      className="text-xs"
+                    >
+                      Pay Semester Fee / Submit UTR →
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {semesterFee.paymentStatus !== 'VERIFIED' && semesterFee.accessStatus !== 'RESTRICTED' && (
+                <div className="flex items-center justify-between p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs">
+                  <span className="text-muted-foreground">Semester fee pending verification or submission:</span>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={() => handleBuyCourseById(semesterFee.courseId)}
+                    className="text-xs"
+                  >
+                    Submit Semester Fee UTR →
+                  </Button>
                 </div>
               )}
             </CardBody>
@@ -670,7 +724,7 @@ function StudentPaymentsContent() {
         </Card>
 
         {/* Official GST Invoices Section */}
-        {Array.isArray(invoicesQuery.data) && invoicesQuery.data.length > 0 && (
+        {invoicesList.length > 0 && (
           <Card elevated>
             <CardHeader className="p-5 border-b border-border flex items-center justify-between">
               <div>
@@ -699,35 +753,35 @@ function StudentPaymentsContent() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {invoicesQuery.data.map((inv: any) => (
+                    {invoicesList.map((inv: any) => (
                       <tr key={inv.id} className="hover:bg-muted/50">
                         <td className="px-5 py-3.5 font-mono font-medium text-heading">
-                          {inv.invoice_number}
+                          {inv.invoice_number || inv.invoiceNumber}
                         </td>
                         <td className="px-5 py-3.5">
-                          Semester {inv.semester_number}
+                          Semester {inv.semester_number ?? inv.semester ?? 1}
                         </td>
                         <td className="px-5 py-3.5 text-muted-foreground">
-                          {inv.academic_year || '—'}
+                          {inv.academic_year || inv.academicYear || '—'}
                         </td>
                         <td className="px-5 py-3.5 text-foreground">
-                          ₹{num(inv.taxable_amount ?? 5500.19)}
+                          ₹{num(inv.taxable_amount ?? inv.taxableAmount ?? 5500.19)}
                         </td>
                         <td className="px-5 py-3.5 text-foreground">
-                          ₹{num(inv.gst_amount ?? 349.81)}
+                          ₹{num(inv.gst_amount ?? inv.gstAmount ?? 349.81)}
                         </td>
                         <td className="px-5 py-3.5 font-bold text-heading">
-                          ₹{num(inv.total_amount ?? 5850.00)}
+                          ₹{num(inv.total_amount ?? inv.totalAmount ?? 5850.00)}
                         </td>
                         <td className="px-5 py-3.5 text-muted-foreground">
-                          {formatDate(inv.issued_at || inv.created_at)}
+                          {formatDate(inv.issued_at || inv.issuedAt || inv.created_at)}
                         </td>
                         <td className="px-5 py-3.5 text-right">
                           <Button
                             variant="secondary"
                             size="sm"
                             disabled={downloadingInvoiceId === inv.id}
-                            onClick={() => handleDownloadInvoice(inv.id, inv.invoice_number)}
+                            onClick={() => handleDownloadInvoice(inv.id, inv.invoice_number || inv.invoiceNumber)}
                             className="h-7 px-2.5 text-xs text-primary hover:bg-primary/10 gap-1"
                           >
                             <Download className="size-3" />

@@ -111,15 +111,21 @@ class PaymentRepository:
                 sem_num,
             )
             grace_days = course_row["grace_period_days"] if course_row and course_row["grace_period_days"] is not None else 7
-            if course_row and course_row["sem_end_date"]:
+            if course_row and course_row.get("payment_frequency") == "ONE_TIME":
+                target_end_date = None
+                academic_year = "LIFETIME"
+            elif course_row and course_row["sem_end_date"]:
                 target_end_date = course_row["sem_end_date"] + timedelta(days=grace_days)
                 academic_year = course_row["sem_academic_year"] or "2025-2026"
             elif course_row and course_row["current_period_end_date"]:
                 target_end_date = course_row["current_period_end_date"] + timedelta(days=grace_days)
                 academic_year = "2025-2026"
-            else:
+            elif course_row and course_row.get("payment_frequency") == "SEMESTER":
                 target_end_date = date.today() + timedelta(days=120)
                 academic_year = "2025-2026"
+            else:
+                target_end_date = None
+                academic_year = "LIFETIME"
 
             p_row = await conn.fetchrow(
                 """
@@ -162,7 +168,8 @@ class PaymentRepository:
                     target_end_date,
                 )
 
-                # Upsert enrollment_periods record
+                # Upsert enrollment_periods record (guarantee non-null end_date for table constraint)
+                period_end_date = target_end_date or (date.today() + timedelta(days=3650))
                 await conn.execute(
                     """
                     INSERT INTO enrollment_periods (
@@ -174,13 +181,19 @@ class PaymentRepository:
                         CURRENT_DATE, $5, 'ACTIVE', 'VERIFIED',
                         'PAID', 'PAYMENT_VERIFICATION', $6, NOW()
                     )
-                    ON CONFLICT (id) DO NOTHING
+                    ON CONFLICT (enrollment_id, semester) DO UPDATE SET
+                        period_status = 'PAID',
+                        access_status = 'ACTIVE',
+                        payment_status = 'VERIFIED',
+                        end_date = EXCLUDED.end_date,
+                        activated_by = EXCLUDED.activated_by,
+                        activated_at = NOW()
                     """,
                     orig["enrollment_id"],
                     orig["participant_user_id"],
                     orig["course_id"],
                     sem_num,
-                    target_end_date,
+                    period_end_date,
                     v_uid,
                 )
 
@@ -579,7 +592,13 @@ class PaymentRepository:
                     CURRENT_DATE, $5, 'ACTIVE', $6,
                     'MANUAL_OVERRIDE', 'MANUAL_ADMIN_APPROVAL', $7, NOW()
                 )
-                ON CONFLICT (id) DO NOTHING
+                ON CONFLICT (enrollment_id, semester) DO UPDATE SET
+                    period_status = 'MANUAL_OVERRIDE',
+                    access_status = 'ACTIVE',
+                    end_date = EXCLUDED.end_date,
+                    activation_source = 'MANUAL_ADMIN_APPROVAL',
+                    activated_by = EXCLUDED.activated_by,
+                    activated_at = NOW()
                 """,
                 eid,
                 enr["participant_user_id"],

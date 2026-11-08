@@ -1581,20 +1581,33 @@ async def super_admin_list_invoices(
         items = [
             {
                 "id": str(r["id"]),
+                "invoice_id": str(r["id"]),
                 "invoiceNumber": r["invoice_number"],
+                "invoice_number": r["invoice_number"],
                 "studentName": r["student_name"],
+                "student_name": r["student_name"],
                 "studentEmail": r["student_email"],
+                "student_email": r["student_email"],
                 "institutionName": r["institution_name"],
+                "institution_name": r["institution_name"],
                 "courseTitle": r["course_title"],
+                "course_title": r["course_title"],
                 "semester": r["semester_number"],
+                "semester_number": r["semester_number"],
                 "academicYear": r["academic_year"],
+                "academic_year": r["academic_year"],
                 "taxableAmount": float(r["taxable_amount"]),
+                "taxable_amount": float(r["taxable_amount"]),
                 "gstRate": float(r["gst_rate"]),
+                "gst_rate": float(r["gst_rate"]),
                 "gstAmount": float(r["gst_amount"]),
+                "gst_amount": float(r["gst_amount"]),
                 "totalAmount": float(r["total_amount"]),
+                "total_amount": float(r["total_amount"]),
                 "utr": r.get("utr") or "N/A",
                 "status": r["status"],
                 "issuedAt": r["issued_at"].isoformat() if r["issued_at"] else None,
+                "issued_at": r["issued_at"].isoformat() if r["issued_at"] else None,
             }
             for r in rows
         ]
