@@ -1,90 +1,86 @@
-# CnC LMS – Learning Management System
+# CnC LMS — Winners Creek
 
-**CnC LMS** is a college-focused Learning Management System designed to enhance students' communication, soft skills, personality development, and professional readiness through interactive learning, assessments, practice activities, and performance tracking.
+**Learn. Practise. Improve. Grow.**
 
-## Key Features
+CnC LMS is a Learning Management System designed to support colleges and educational institutions with centralized academic management, interactive learning, student performance tracking, and administrative operations.
 
-- **Student Portal:** Access courses, practice activities, assessments, games, and personal performance reports.
-- **Trainer Portal:** Manage assigned batches, attendance, student evaluations, and performance.
-- **HOD Portal:** Monitor departmental activities, student progress, and trainer performance.
-- **Admin Portal:** Manage institutions, departments, users, courses, reports, and certificates.
-- **Super Admin:** Platform-level administration and access management.
-- **AI-Powered Evaluation:** Evaluate communication skills and practice sessions using AI-assisted assessment.
-- **Performance Analytics:** Track student progress, readiness scores, and skill development.
-- **Interactive Learning:** Skill-based games, practice modules, and assessments.
-- **Role-Based Access Control:** Secure access based on user roles and institutional permissions.
+The platform provides role-based portals for managing learning activities, users, courses, assessments, and institutional workflows through a centralized system.
 
-## Technology Stack
+## Tech Stack
 
 | Layer | Technologies |
 |---|---|
-| Frontend | Next.js 15, React 19, TypeScript |
-| Backend | Python, FastAPI |
-| Database | MongoDB |
-| Cache & Queue | Redis |
+| Frontend | Next.js 15, React, TypeScript |
+| Backend | FastAPI, Python |
+| Database | PostgreSQL |
+| Database Management | SQL-based migrations |
+| Caching | Redis |
+| UI & Styling | Tailwind CSS, Radix UI |
 | State Management | Redux Toolkit |
-| UI | Tailwind CSS, Radix UI |
-| Data Visualization | Recharts |
-| Testing | Pytest, Vitest, Playwright |
+| Charts & Analytics | Recharts |
+| Frontend Deployment | Vercel |
+| Backend & Database Hosting | Render |
 
-## User Roles
+## Key Features
 
-The platform supports role-based access for:
+- **Student Portal:** Learning resources, courses, assessments, progress tracking, and student activities.
+- **Trainer Portal:** Student management, attendance, evaluations, and performance monitoring.
+- **HOD Portal:** Department-level management, academic monitoring, and reporting.
+- **Admin Portal:** User management, course management, department configuration, and institutional operations.
+- **Super Admin:** Centralized platform administration and institution management.
+- **Learning Management:** Course publishing, content management, and learning activities.
+- **Assessments & Evaluation:** Structured assessments, performance tracking, and feedback.
+- **Reports & Analytics:** Performance insights and institutional reports.
+- **Role-Based Access Control:** Secure access based on user roles and permissions.
+- **Operations Center:** Dedicated security and system monitoring interface.
 
-1. Student
-2. Trainer
-3. HOD
-4. Institution Admin
-5. Super Admin
-6. Placement Cell
-7. Recruiter
-8. Parent
+## Project Architecture
 
-Each role has defined permissions and access restrictions.
-
-## Project Structure
+The application follows a modular architecture with separate frontend and backend services connected through REST APIs.
 
 ```text
 CnC-LMS/
 │
 ├── apps/
-│   ├── api/                 # FastAPI Backend
-│   │   ├── app/
-│   │   │   ├── authz/
-│   │   │   ├── core/
-│   │   │   ├── db/
-│   │   │   ├── repositories/
-│   │   │   ├── routers/
-│   │   │   ├── schemas/
-│   │   │   ├── services/
-│   │   │   └── workers/
-│   │   └── tests/
+│   ├── web/                  # Next.js frontend
+│   │   └── src/
+│   │       ├── app/
+│   │       ├── components/
+│   │       ├── hooks/
+│   │       ├── lib/
+│   │       └── store/
 │   │
-│   └── web/                 # Next.js Frontend
-│       └── src/
-│           ├── app/
-│           ├── components/
-│           ├── hooks/
-│           ├── lib/
-│           └── store/
+│   └── api/                  # FastAPI backend
+│       ├── app/
+│       │   ├── core/
+│       │   ├── routers/
+│       │   ├── services/
+│       │   ├── schemas/
+│       │   └── models/
+│       ├── migrations/
+│       └── tests/
 │
-└── docs/                    # Project Documentation
+├── docs/
+└── README.md
 ```
 
-## Installation & Setup
+*Directory structure is representative; refer to the repository for the complete implementation.*
+
+## Getting Started
 
 ### Prerequisites
 
 - Python 3.11+
 - Node.js
-- MongoDB
-- Redis
+- PostgreSQL
+- Redis (if enabled in the local configuration)
+- Git
 
-### 1. Clone Repository
+### 1. Clone the Repository
 
 ```bash
 git clone <repository-url>
-cd CnC-LMS
+cd CnC_web_and_app_LMS
 ```
 
 ### 2. Backend Setup
@@ -93,36 +89,43 @@ cd CnC-LMS
 cd apps/api
 
 python -m venv .venv
+```
 
-# Activate virtual environment
+Activate the virtual environment:
+
+```bash
 # Windows
 .venv\Scripts\activate
 
-# Linux/macOS
+# Linux / macOS
 source .venv/bin/activate
-
-pip install -r requirements.txt
-
-cp .env.example .env
 ```
 
-Configure the required environment variables in `.env`.
+Install dependencies:
 
-Start the backend:
+```bash
+pip install -r requirements.txt
+```
+
+Configure the environment variables using the project's environment example file. Set the PostgreSQL connection and required secrets.
+
+### 3. Database Configuration
+
+Create a PostgreSQL database and configure its connection in the backend environment.
+
+Apply the database migrations using the migration instructions provided in the repository.
+
+**Important:** Do not run production migrations against a local or shared database without verifying the target connection.
+
+### 4. Start the Backend
 
 ```bash
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 3. Start Background Worker
+### 5. Frontend Setup
 
-```bash
-cd apps/api
-
-python -m app.workers.worker
-```
-
-### 4. Frontend Setup
+Open another terminal:
 
 ```bash
 cd apps/web
@@ -133,33 +136,29 @@ npm run dev
 
 Open the application:
 
-```text
-http://localhost:3000
-```
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000
+- API Documentation: http://localhost:8000/docs
 
-Backend API documentation:
-
-```text
-http://localhost:8000/docs
-```
+API documentation availability depends on the backend environment configuration.
 
 ## Environment Configuration
 
-Configure the following variables in the backend `.env` file:
+Environment variables are used to configure database connections, authentication, integrations, and application settings.
 
-| Variable | Description |
+Typical configuration includes:
+
+| Variable | Purpose |
 |---|---|
-| `MONGODB_URL` | MongoDB connection URL |
-| `MONGODB_DB` | Database name |
-| `REDIS_URL` | Redis connection URL |
-| `JWT_SECRET` | Authentication secret |
-| `STORAGE_DRIVER` | File storage configuration |
-| `AI_PROVIDER` | AI evaluation provider |
-| `AI_API_KEY` | AI provider API key |
+| `DATABASE_URL` | PostgreSQL connection |
+| `JWT_SECRET` | Authentication security |
+| `REDIS_URL` | Redis connection |
+| `ENV` | Application environment |
+| `AI_API_KEY` | AI integration, if enabled |
 
-Refer to `.env.example` for the complete configuration.
+Refer to the backend environment configuration for the exact required variables.
 
-**Important:** Never commit environment files, API keys, passwords, or other sensitive credentials.
+Never commit `.env` files, credentials, API keys, or private configuration to the repository.
 
 ## Testing
 
@@ -167,7 +166,7 @@ Refer to `.env.example` for the complete configuration.
 
 ```bash
 cd apps/api
-python -m pytest tests/ -q
+python -m pytest
 ```
 
 ### Frontend
@@ -179,23 +178,41 @@ npm run typecheck
 npm run lint
 npm test
 npm run build
-npm run e2e
 ```
+
+Run only the scripts configured in the respective project `package.json` and backend test configuration.
 
 ## Security
 
+The platform uses backend-enforced security controls, including:
+
 - Role-Based Access Control (RBAC).
-- Institution and department-level data isolation.
-- Secure authentication and session management.
-- Password hashing and account protection.
-- Protected API endpoints.
-- Audit logging and security monitoring.
-- Private file storage with secure access.
+- Authentication and authorization.
+- Server-side permission validation.
+- Tenant and department-level data isolation.
+- Secure password handling.
+- Session and token management.
+- API input validation.
+- Audit logging and security event monitoring.
+- Protected administrative operations.
+
+Frontend route protection is not treated as a substitute for backend authorization.
+
+## Deployment
+
+| Component | Platform |
+|---|---|
+| Frontend | Vercel |
+| Backend API | Render |
+| PostgreSQL Database | Render PostgreSQL |
+| Source Control | GitHub |
+
+Production configuration and credentials are managed through deployment environment variables.
 
 ## Project Documentation
 
-Detailed technical documentation is available in the `docs/` directory.
+Refer to the `docs/` directory for technical documentation, requirements, architecture, API references, database information, and implementation details.
 
-## License
+---
 
-This project is maintained for the CnC LMS platform.
+**CnC LMS — A Unified Learning and Management Platform.**
