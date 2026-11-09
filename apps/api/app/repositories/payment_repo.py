@@ -354,7 +354,7 @@ class PaymentRepository:
 
         if search:
             params.append(f"%{search.strip()}%")
-            conditions.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR p.transaction_ref ILIKE ${len(params)} OR p.utr ILIKE ${len(params)} OR p.legacy_reference ILIKE ${len(params)})")
+            conditions.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR p.transaction_ref ILIKE ${len(params)} OR p.utr ILIKE ${len(params)} OR p.legacy_reference ILIKE ${len(params)} OR p.original_utr ILIKE ${len(params)})")
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.append(limit)
@@ -365,7 +365,7 @@ class PaymentRepository:
         query = f"""
             SELECT p.id, p.enrollment_id, p.participant_user_id, p.course_id, p.semester,
                    p.amount, p.currency, p.transaction_ref, COALESCE(p.utr, p.transaction_ref) as utr,
-                   p.legacy_reference, p.verification_source,
+                   p.original_utr, p.legacy_reference, p.verification_source,
                    p.payer_upi_id, p.payment_method, p.status,
                    p.verified_at, p.created_at, p.verified_by_role, p.rejection_reason, p.invoice_id,
                    p.taxable_amount, p.gst_amount, p.gst_rate,
@@ -414,7 +414,7 @@ class PaymentRepository:
 
         if search:
             params.append(f"%{search.strip()}%")
-            conditions.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR p.transaction_ref ILIKE ${len(params)} OR p.utr ILIKE ${len(params)} OR p.legacy_reference ILIKE ${len(params)})")
+            conditions.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR p.transaction_ref ILIKE ${len(params)} OR p.utr ILIKE ${len(params)} OR p.legacy_reference ILIKE ${len(params)} OR p.original_utr ILIKE ${len(params)})")
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         query = f"""

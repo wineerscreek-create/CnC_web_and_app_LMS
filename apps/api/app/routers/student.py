@@ -4744,6 +4744,7 @@ async def list_student_payments(ctx: ScopeContext = StudentCtx) -> dict[str, Any
                         p.currency,
                         p.transaction_ref,
                         COALESCE(p.utr, p.transaction_ref) as utr,
+                        p.original_utr,
                         p.legacy_reference,
                         p.verification_source,
                         p.taxable_amount,
@@ -4766,7 +4767,7 @@ async def list_student_payments(ctx: ScopeContext = StudentCtx) -> dict[str, Any
                     LEFT JOIN courses c ON p.course_id = c.id
                     LEFT JOIN invoices inv ON inv.id = p.invoice_id
                     WHERE p.participant_user_id = $1
-                    ORDER BY p.created_at DESC
+                    ORDER BY p.semester ASC NULLS LAST, p.created_at ASC
                 ''', user_uuid)
                 out = []
                 for r in rows:
@@ -4781,9 +4782,12 @@ async def list_student_payments(ctx: ScopeContext = StudentCtx) -> dict[str, Any
                         "amount": float(r["amount"]) if r["amount"] is not None else 0.0,
                         "currency": r["currency"] or "INR",
                         "status": st,
+                        "semester": r["semester"],
                         "paymentMethod": r["payment_method"] or "Official Institutional Fee",
                         "transactionId": r["transaction_ref"],
                         "utr": r["utr"],
+                        "originalUtr": r["original_utr"],
+                        "original_utr": r["original_utr"],
                         "legacyReference": r["legacy_reference"],
                         "legacy_reference": r["legacy_reference"],
                         "verificationSource": r["verification_source"],
