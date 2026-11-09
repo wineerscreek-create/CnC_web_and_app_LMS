@@ -5046,6 +5046,7 @@ async def student_get_semester_fee_status(
     from app.db.postgres import get_pg_connection
     from app.services.invoice_service import calculate_tax_breakdown
     from datetime import date
+    from decimal import Decimal
     try:
         u_uuid = uuid.UUID(str(ctx.user_id))
     except (ValueError, TypeError):
