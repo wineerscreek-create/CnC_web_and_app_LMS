@@ -22,8 +22,12 @@ class PaymentRepository:
         receipt_url: str | None = None,
         payer_upi_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        taxable_amount: float | Decimal | None = None,
+        gst_amount: float | Decimal | None = None,
+        gst_rate: float | Decimal | None = None,
     ) -> dict[str, Any]:
         import json
+        from decimal import Decimal
         from app.core.errors import Conflict
         clean_utr = transaction_ref.strip()
         async with get_pg_connection() as conn:
@@ -44,13 +48,14 @@ class PaymentRepository:
                     enrollment_id, participant_user_id, course_id, semester,
                     amount, currency, transaction_ref, utr, payment_method, status,
                     receipt_url, payer_upi_id, metadata, institution_id,
-                    legacy_reference, verification_source
+                    legacy_reference, verification_source,
+                    taxable_amount, gst_amount, gst_rate
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, $19)
                 RETURNING id, enrollment_id, participant_user_id, course_id, semester,
                           amount, currency, transaction_ref, utr, payment_method, status,
                           receipt_url, payer_upi_id, metadata, created_at, institution_id,
-                          legacy_reference, verification_source
+                          legacy_reference, verification_source, taxable_amount, gst_amount, gst_rate
                 """,
                 UUID(str(enrollment_id)),
                 UUID(str(participant_id)),
@@ -68,6 +73,9 @@ class PaymentRepository:
                 inst_id,
                 metadata.get("legacy_reference") if metadata else None,
                 metadata.get("verification_source") if metadata else None,
+                Decimal(str(taxable_amount)) if taxable_amount is not None else None,
+                Decimal(str(gst_amount)) if gst_amount is not None else None,
+                Decimal(str(gst_rate)) if gst_rate is not None else None,
             )
             return dict(row)
 

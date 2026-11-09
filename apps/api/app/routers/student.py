@@ -4847,6 +4847,8 @@ async def checkout_course(payload: dict[str, Any], ctx: ScopeContext = StudentCt
     if settings.USE_POSTGRES:
         from app.db.postgres import get_pg_connection
         from app.repositories.payment_repo import PaymentRepository
+        from app.services.invoice_service import calculate_tax_breakdown
+        from decimal import Decimal
         try:
             c_uuid = uuid.UUID(str(raw_course_id))
             u_uuid = uuid.UUID(str(ctx.user_id))
@@ -4859,16 +4861,38 @@ async def checkout_course(payload: dict[str, Any], ctx: ScopeContext = StudentCt
                 u_uuid,
                 c_uuid,
             )
+            stu_profile = await conn.fetchrow(
+                "SELECT current_semester, institution_id FROM student_profiles WHERE user_id = $1",
+                u_uuid,
+            )
             course = await conn.fetchrow(
-                "SELECT semester_fee, fee FROM courses WHERE id = $1",
+                "SELECT semester_fee, fee, gst_rate, gst_inclusive FROM courses WHERE id = $1",
                 c_uuid,
             )
             if not course:
                 raise NotFound("Course not found.")
 
-            fee_amt = float(course["semester_fee"] or course["fee"] or 5850.0)
+            sem_num = (
+                (enr["current_semester"] if enr and enr["current_semester"] else None)
+                or (stu_profile["current_semester"] if stu_profile and stu_profile["current_semester"] else None)
+                or 1
+            )
+            csc = await conn.fetchrow(
+                "SELECT fee_amount FROM course_semester_configs WHERE course_id = $1 AND semester_number = $2 AND is_active = TRUE",
+                c_uuid,
+                sem_num,
+            )
+            fee_amt = float(
+                csc["fee_amount"]
+                if csc and csc["fee_amount"] is not None
+                else (course["semester_fee"] or course["fee"] or 5850.0)
+            )
+
+            gst_rate_val = Decimal(str(course["gst_rate"] if course.get("gst_rate") is not None else 6.36))
+            gst_inc = bool(course.get("gst_inclusive", True))
+            tax_breakdown = calculate_tax_breakdown(Decimal(str(fee_amt)), gst_rate_val, inclusive=gst_inc)
+
             enr_id = enr["id"] if enr else None
-            sem_num = enr["current_semester"] if enr and enr["current_semester"] else 1
 
             if not enr_id:
                 # Auto-create pending enrollment for student if not enrolled
@@ -4906,6 +4930,9 @@ async def checkout_course(payload: dict[str, Any], ctx: ScopeContext = StudentCt
                 status="PENDING",
                 receipt_url=payload.get("receiptUrl") or payload.get("receipt_url"),
                 payer_upi_id=payload.get("payerUpiId") or payload.get("payer_upi_id"),
+                taxable_amount=tax_breakdown["taxable_amount"],
+                gst_amount=tax_breakdown["gst_amount"],
+                gst_rate=tax_breakdown["gst_rate"],
             )
             return {"success": True, "data": res, "message": "Payment submitted for verification."}
 

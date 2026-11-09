@@ -196,6 +196,15 @@ function StudentPaymentsContent() {
     };
   }, [semesterFeeQuery.data]);
 
+  const effectiveCheckoutFee = React.useMemo(() => {
+    return Number(
+      courseConfig?.semester_fee ??
+      courseConfig?.fee ??
+      semesterFee?.feeAmount ??
+      5850
+    );
+  }, [courseConfig, semesterFee]);
+
   const invoicesList = React.useMemo(() => {
     const raw =
       invoicesQuery.data?.data ??
@@ -909,7 +918,7 @@ function StudentPaymentsContent() {
                 <div className="text-right">
                   <span className="text-xs text-muted-foreground uppercase tracking-wider block font-semibold">Course Fee</span>
                   <span className="text-xl font-extrabold text-primary">
-                    ₹{num(courseConfig?.fee ?? 2499)}
+                    ₹{num(effectiveCheckoutFee)}
                   </span>
                 </div>
               </div>
@@ -999,7 +1008,7 @@ function StudentPaymentsContent() {
                           `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
                             `upi://pay?pa=${courseConfig?.upiId || 'eedi@icici'}&pn=${encodeURIComponent(
                               courseConfig?.merchantName || 'SkillSharp LMS'
-                            )}&am=${courseConfig?.fee ?? 2499}&cu=INR`
+                            )}&am=${effectiveCheckoutFee}&cu=INR`
                           )}`
                         }
                         alt="UPI Payment QR Code"
@@ -1010,7 +1019,7 @@ function StudentPaymentsContent() {
                     </div>
                     <div className="space-y-1.5 text-xs">
                       <p className="font-bold text-heading">
-                        Scan with any UPI App to Pay ₹{num(courseConfig?.fee ?? 2499)}
+                        Scan with any UPI App to Pay ₹{num(effectiveCheckoutFee)}
                       </p>
                       <p className="text-muted-foreground">
                         UPI ID:{' '}
@@ -1090,8 +1099,8 @@ function StudentPaymentsContent() {
                   {checkoutProcessing
                     ? 'Submitting…'
                     : selectedMethod === 'UPI'
-                    ? `Submit UPI Payment (₹${num(courseConfig?.fee ?? 2499)})`
-                    : `Pay ₹${num(courseConfig?.fee ?? 2499)} (Instant Checkout)`}
+                    ? `Submit UPI Payment (₹${num(effectiveCheckoutFee)})`
+                    : `Pay ₹${num(effectiveCheckoutFee)} (Instant Checkout)`}
                 </Button>
               </div>
             </form>
