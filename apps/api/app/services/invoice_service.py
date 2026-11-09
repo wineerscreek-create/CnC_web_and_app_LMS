@@ -228,7 +228,7 @@ async def get_invoice_details(invoice_id: uuid.UUID) -> Optional[dict[str, Any]]
                 sp.academic_year,
                 inst.name AS institution_name,
                 inst.code AS institution_code,
-                inst.gstin AS institution_gstin,
+                NULL::varchar AS institution_gstin,
                 inst.address AS institution_address,
                 c.title AS course_title,
                 c.code AS course_code,
