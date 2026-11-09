@@ -201,6 +201,13 @@ def create_app() -> FastAPI:
     app.include_router(feedback.router, prefix=f"{prefix}/feedback", tags=["feedback"])
     app.include_router(feedback.router, prefix=f"{prefix}/public", tags=["feedback-public"])
 
+    from app.routers import operations_center
+    app.include_router(
+        operations_center.router,
+        prefix=f"{prefix}/operations-center",
+        tags=["operations-center"],
+    )
+
     from fastapi.staticfiles import StaticFiles
     from app.routers.user_banner import BANNER_UPLOAD_DIR
     app.mount("/static/banners", StaticFiles(directory=BANNER_UPLOAD_DIR), name="banners")
