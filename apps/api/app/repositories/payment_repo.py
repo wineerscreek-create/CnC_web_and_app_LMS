@@ -279,9 +279,9 @@ class PaymentRepository:
         async with get_pg_connection() as conn:
             rows = await conn.fetch(
                 """
-                SELECT p.id, p.enrollment_id, p.course_id, p.semester, p.amount, p.currency,
+                SELECT p.id, p.enrollment_id, p.course_id, p.semester, p.academic_year, p.amount, p.currency,
                        p.transaction_ref, COALESCE(p.utr, p.transaction_ref) as utr,
-                       p.legacy_reference, p.verification_source,
+                       p.original_utr, p.legacy_reference, p.verification_source,
                        p.taxable_amount, p.gst_amount, p.gst_rate,
                        p.payment_method, p.status, p.verified_at, p.created_at,
                        p.invoice_id, p.rejection_reason,
@@ -291,7 +291,7 @@ class PaymentRepository:
                 JOIN courses c ON c.id = p.course_id
                 LEFT JOIN invoices inv ON inv.id = p.invoice_id
                 WHERE p.participant_user_id = $1
-                ORDER BY p.created_at DESC
+                ORDER BY p.semester ASC NULLS LAST, p.created_at ASC
                 """,
                 UUID(str(participant_id)),
             )
@@ -342,6 +342,9 @@ class PaymentRepository:
         search: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        semester: int | None = None,
+        academic_year: str | None = None,
+        course_id: UUID | str | None = None,
     ) -> list[dict[str, Any]]:
         conditions = []
         params: list[Any] = []
@@ -360,9 +363,28 @@ class PaymentRepository:
             params.append(s_val)
             conditions.append(f"p.status = ${len(params)}")
 
+        if semester is not None:
+            params.append(int(semester))
+            conditions.append(f"p.semester = ${len(params)}")
+
+        if academic_year:
+            params.append(academic_year)
+            conditions.append(f"p.academic_year = ${len(params)}")
+
+        if course_id:
+            from app.repositories.game_repo import _safe_uuid
+            c_uuid = _safe_uuid(course_id)
+            if c_uuid:
+                params.append(c_uuid)
+                conditions.append(f"p.course_id = ${len(params)}")
+
         if search:
             params.append(f"%{search.strip()}%")
-            conditions.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR p.transaction_ref ILIKE ${len(params)} OR p.utr ILIKE ${len(params)} OR p.legacy_reference ILIKE ${len(params)} OR p.original_utr ILIKE ${len(params)})")
+            conditions.append(
+                f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR sp.roll_number ILIKE ${len(params)} "
+                f"OR p.transaction_ref ILIKE ${len(params)} OR p.utr ILIKE ${len(params)} OR p.legacy_reference ILIKE ${len(params)} "
+                f"OR p.original_utr ILIKE ${len(params)} OR inv.invoice_number ILIKE ${len(params)})"
+            )
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.append(limit)
@@ -372,6 +394,7 @@ class PaymentRepository:
 
         query = f"""
             SELECT p.id, p.enrollment_id, p.participant_user_id, p.course_id, p.semester,
+                   p.academic_year,
                    p.amount, p.currency, p.transaction_ref, COALESCE(p.utr, p.transaction_ref) as utr,
                    p.original_utr, p.legacy_reference, p.verification_source,
                    p.payer_upi_id, p.payment_method, p.status,
@@ -379,12 +402,14 @@ class PaymentRepository:
                    p.taxable_amount, p.gst_amount, p.gst_rate,
                    inv.invoice_number,
                    u.name as student_name, u.email as student_email,
+                   sp.roll_number as roll_number,
                    c.title as course_title,
                    d.name as department_name,
                    i.name as institution_name
             FROM payments p
             JOIN users u ON u.id = p.participant_user_id
             JOIN courses c ON c.id = p.course_id
+            LEFT JOIN student_profiles sp ON sp.user_id = u.id
             LEFT JOIN enrollments e ON e.id = p.enrollment_id
             LEFT JOIN institutions i ON i.id = COALESCE(p.institution_id, e.institution_id, u.institution_id)
             LEFT JOIN departments d ON d.id = u.department_id
@@ -402,6 +427,9 @@ class PaymentRepository:
         institution_id: UUID | str | None = None,
         status: str | None = None,
         search: str | None = None,
+        semester: int | None = None,
+        academic_year: str | None = None,
+        course_id: UUID | str | None = None,
     ) -> int:
         conditions = []
         params: list[Any] = []
@@ -420,23 +448,49 @@ class PaymentRepository:
             params.append(s_val)
             conditions.append(f"p.status = ${len(params)}")
 
+        if semester is not None:
+            params.append(int(semester))
+            conditions.append(f"p.semester = ${len(params)}")
+
+        if academic_year:
+            params.append(academic_year)
+            conditions.append(f"p.academic_year = ${len(params)}")
+
+        if course_id:
+            from app.repositories.game_repo import _safe_uuid
+            c_uuid = _safe_uuid(course_id)
+            if c_uuid:
+                params.append(c_uuid)
+                conditions.append(f"p.course_id = ${len(params)}")
+
         if search:
             params.append(f"%{search.strip()}%")
-            conditions.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR p.transaction_ref ILIKE ${len(params)} OR p.utr ILIKE ${len(params)} OR p.legacy_reference ILIKE ${len(params)} OR p.original_utr ILIKE ${len(params)})")
+            conditions.append(
+                f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR sp.roll_number ILIKE ${len(params)} "
+                f"OR p.transaction_ref ILIKE ${len(params)} OR p.utr ILIKE ${len(params)} OR p.legacy_reference ILIKE ${len(params)} "
+                f"OR p.original_utr ILIKE ${len(params)} OR inv.invoice_number ILIKE ${len(params)})"
+            )
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         query = f"""
             SELECT COUNT(*)
             FROM payments p
             JOIN users u ON u.id = p.participant_user_id
+            LEFT JOIN student_profiles sp ON sp.user_id = u.id
             LEFT JOIN enrollments e ON e.id = p.enrollment_id
+            LEFT JOIN invoices inv ON inv.id = p.invoice_id
             {where}
         """
         async with get_pg_connection() as conn:
             return await conn.fetchval(query, *params) or 0
 
     @staticmethod
-    async def get_admin_summary(institution_id: UUID | str | None = None) -> dict[str, Any]:
+    async def get_admin_summary(
+        institution_id: UUID | str | None = None,
+        course_id: UUID | str | None = None,
+        semester: int | None = None,
+        academic_year: str | None = None,
+    ) -> dict[str, Any]:
         conditions = []
         params: list[Any] = []
         if institution_id:
@@ -445,6 +499,21 @@ class PaymentRepository:
             if inst_uuid:
                 params.append(inst_uuid)
                 conditions.append(f"(e.institution_id = ${len(params)} OR u.institution_id = ${len(params)})")
+
+        if course_id:
+            from app.repositories.game_repo import _safe_uuid
+            c_uuid = _safe_uuid(course_id)
+            if c_uuid:
+                params.append(c_uuid)
+                conditions.append(f"p.course_id = ${len(params)}")
+
+        if semester is not None:
+            params.append(int(semester))
+            conditions.append(f"p.semester = ${len(params)}")
+
+        if academic_year:
+            params.append(academic_year)
+            conditions.append(f"p.academic_year = ${len(params)}")
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         query = f"""

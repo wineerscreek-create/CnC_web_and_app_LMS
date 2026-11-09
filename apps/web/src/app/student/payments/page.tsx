@@ -692,8 +692,18 @@ function StudentPaymentsContent() {
                         p.status === 'verified';
                       return (
                         <tr key={p.id} className="hover:bg-muted/50">
-                          <td className="px-5 py-3.5 font-medium text-heading max-w-xs truncate">
-                            {p.courseTitle || p.purpose || 'Course Enrollment'}
+                          <td className="px-5 py-3.5 font-medium text-heading max-w-xs">
+                            <p className="truncate">{p.courseTitle || p.purpose || 'Course Enrollment'}</p>
+                            {p.semester && (
+                              <p className="text-[11px] text-primary font-medium mt-0.5">
+                                Semester {p.semester}
+                                {((p as any).academicYear || (p as any).academic_year) && (
+                                  <span className="text-muted-foreground ml-1">
+                                    • {((p as any).academicYear || (p as any).academic_year)}
+                                  </span>
+                                )}
+                              </p>
+                            )}
                           </td>
                           <td className="px-5 py-3.5">
                             <Badge tone="neutral" className="text-[10px]">

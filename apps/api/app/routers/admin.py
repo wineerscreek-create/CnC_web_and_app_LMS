@@ -3240,8 +3240,11 @@ async def admin_game_attempts(
 async def admin_list_payments(
     status: str | None = Query(None),
     search: str | None = Query(None),
+    semester: int | None = Query(None),
+    academic_year: str | None = Query(None, alias="academicYear"),
+    course_id: str | None = Query(None, alias="courseId"),
     page: int = Query(1, ge=1),
-    pageSize: int = Query(20, ge=1, le=100),
+    pageSize: int = Query(50, ge=1, le=5000),
     ctx: ScopeContext = AdminCtx,
 ) -> dict[str, Any]:
     if settings.USE_POSTGRES:
@@ -3254,11 +3257,17 @@ async def admin_list_payments(
             search=search,
             limit=pageSize,
             offset=offset,
+            semester=semester,
+            academic_year=academic_year,
+            course_id=course_id,
         )
         total = await PaymentRepository.count_admin_payments(
             institution_id=inst_id,
             status=status,
             search=search,
+            semester=semester,
+            academic_year=academic_year,
+            course_id=course_id,
         )
         items = [
             {
@@ -3267,8 +3276,11 @@ async def admin_list_payments(
                 "studentId": str(p.get("participant_user_id")),
                 "studentName": p.get("student_name", "Student"),
                 "studentEmail": p.get("student_email") or "",
+                "rollNumber": p.get("roll_number") or "",
+                "roll_number": p.get("roll_number") or "",
                 "departmentName": p.get("department_name") or "Computer Science & Engineering",
                 "courseTitle": p.get("course_title", "Soft Skills Training"),
+                "courseId": str(p.get("course_id")) if p.get("course_id") else None,
                 "amount": float(p.get("amount") or 0.0),
                 "currency": p.get("currency", "INR"),
                 "purpose": f"Annual Soft Skills Training Fee - {p.get('course_title', 'Soft Skills')}",
@@ -3279,6 +3291,8 @@ async def admin_list_payments(
                 "originalUtr": p.get("original_utr"),
                 "original_utr": p.get("original_utr"),
                 "semester": p.get("semester"),
+                "academicYear": p.get("academic_year"),
+                "academic_year": p.get("academic_year"),
                 "legacyReference": p.get("legacy_reference"),
                 "legacy_reference": p.get("legacy_reference"),
                 "verificationSource": p.get("verification_source"),

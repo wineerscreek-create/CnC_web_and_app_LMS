@@ -4,8 +4,11 @@ import {
   AlertCircle,
   ArrowDownLeft,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   CreditCard,
+  Download,
   FileSpreadsheet,
   Receipt,
   RotateCcw,
@@ -39,6 +42,8 @@ interface AdminPayment {
   orderId?: string;
   transaction_ref?: string;
   utr?: string;
+  originalUtr?: string;
+  original_utr?: string;
   legacyReference?: string;
   legacy_reference?: string;
   verificationSource?: string;
@@ -48,9 +53,15 @@ interface AdminPayment {
   student_name?: string;
   studentEmail?: string;
   student_email?: string;
+  rollNumber?: string;
+  roll_number?: string;
   departmentName?: string;
   department_name?: string;
   course_title?: string;
+  courseTitle?: string;
+  semester?: number;
+  academicYear?: string;
+  academic_year?: string;
   amount: number;
   currency: string;
   purpose?: string;
@@ -58,7 +69,9 @@ interface AdminPayment {
   createdAt?: string;
   created_at?: string;
   invoice_id?: string;
+  invoiceId?: string;
   invoice_number?: string;
+  invoiceNumber?: string;
   refundReason?: string;
 }
 
@@ -72,7 +85,13 @@ interface PaymentSummary {
 
 export default function AdminPaymentsPage() {
   const [filterStatus, setFilterStatus] = React.useState<string>('all');
+  const [filterSemester, setFilterSemester] = React.useState<string>('all');
+  const [filterYear, setFilterYear] = React.useState<string>('all');
   const [search, setSearch] = React.useState<string>('');
+
+  const [currentPage, setCurrentPage] = React.useState<number>(1);
+  const [pageSize, setPageSize] = React.useState<number>(50);
+
   const [refundTarget, setRefundTarget] = React.useState<AdminPayment | null>(null);
   const [refundReason, setRefundReason] = React.useState('');
   const [refundProcessing, setRefundProcessing] = React.useState(false);
@@ -82,7 +101,7 @@ export default function AdminPaymentsPage() {
   const [rejectionReason, setRejectionReason] = React.useState('');
   const [processingAction, setProcessingAction] = React.useState(false);
 
-  const paymentsQuery = useApi<any>('/admin/payments');
+  const paymentsQuery = useApi<any>('/admin/payments?pageSize=5000');
   const summaryQuery = useApi<PaymentSummary>('/admin/payments/summary');
 
   const rawPayments =
@@ -164,21 +183,68 @@ export default function AdminPaymentsPage() {
     }
   };
 
-  const filtered = payments.filter((p) => {
-    const s = (p.status || '').toLowerCase();
-    const matchStatus = filterStatus === 'all' || s === filterStatus.toLowerCase();
-    const orderRef = p.legacyReference || p.legacy_reference || p.utr || p.transaction_ref || p.orderId || '';
-    const sName = p.student_name || p.studentName || '';
-    const sEmail = p.student_email || p.studentEmail || '';
-    const purp = p.course_title || p.purpose || '';
-    const matchSearch =
-      !search ||
-      orderRef.toLowerCase().includes(search.toLowerCase()) ||
-      sName.toLowerCase().includes(search.toLowerCase()) ||
-      sEmail.toLowerCase().includes(search.toLowerCase()) ||
-      purp.toLowerCase().includes(search.toLowerCase());
-    return matchStatus && matchSearch;
-  });
+  const uniqueSemesters = React.useMemo(() => {
+    const s = new Set<number>();
+    payments.forEach((p) => {
+      if (p.semester) s.add(p.semester);
+    });
+    return Array.from(s).sort((a, b) => a - b);
+  }, [payments]);
+
+  const uniqueYears = React.useMemo(() => {
+    const s = new Set<string>();
+    payments.forEach((p) => {
+      const yr = p.academicYear || p.academic_year;
+      if (yr) s.add(yr);
+    });
+    return Array.from(s).sort();
+  }, [payments]);
+
+  const filtered = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return payments.filter((p) => {
+      const s = (p.status || '').toLowerCase();
+      if (filterStatus !== 'all') {
+        if (filterStatus === 'success' && s !== 'success' && s !== 'verified' && s !== 'completed') return false;
+        if (filterStatus === 'pending' && s !== 'pending' && s !== 'pending_verification') return false;
+        if (filterStatus === 'refunded' && s !== 'refunded') return false;
+        if (filterStatus === 'failed' && s !== 'failed' && s !== 'rejected') return false;
+      }
+
+      if (filterSemester !== 'all' && String(p.semester) !== filterSemester) return false;
+      const yr = p.academicYear || p.academic_year || '';
+      if (filterYear !== 'all' && yr !== filterYear) return false;
+
+      if (!q) return true;
+
+      const orderRef = (p.legacyReference || p.legacy_reference || p.utr || p.transaction_ref || p.orderId || '').toLowerCase();
+      const sName = (p.student_name || p.studentName || '').toLowerCase();
+      const sEmail = (p.student_email || p.studentEmail || '').toLowerCase();
+      const roll = (p.rollNumber || p.roll_number || '').toLowerCase();
+      const purp = (p.course_title || p.courseTitle || p.purpose || '').toLowerCase();
+      const inv = (p.invoice_number || p.invoiceNumber || '').toLowerCase();
+
+      return (
+        orderRef.includes(q) ||
+        sName.includes(q) ||
+        sEmail.includes(q) ||
+        roll.includes(q) ||
+        purp.includes(q) ||
+        inv.includes(q)
+      );
+    });
+  }, [payments, filterStatus, filterSemester, filterYear, search]);
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [filterStatus, filterSemester, filterYear, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paginatedPayments = React.useMemo(() => {
+    if (pageSize >= 5000) return filtered;
+    const start = (currentPage - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, currentPage, pageSize]);
 
   return (
     <GlobalPageBackground
@@ -189,11 +255,11 @@ export default function AdminPaymentsPage() {
     >
       <PageHeader
         title="Campus Billing & Financial Operations"
-        description="Monitor campus revenue, verify participant course payments, and issue secure refunds."
+        description="Monitor campus revenue, student-wise semester fee ledger, GST tax invoices, and verified access status."
         actions={
           <Badge tone="success" className="flex items-center gap-1.5">
             <ShieldCheck className="size-3.5" />
-            PCI-DSS Verified Transactions
+            PCI-DSS Verified Transactions ({payments.length} Records)
           </Badge>
         }
       />
@@ -212,14 +278,14 @@ export default function AdminPaymentsPage() {
           value={num(summary.successfulTransactions)}
           tone="success"
           icon={<CheckCircle2 className="size-4" />}
-          hint="Cleared through payment gateway"
+          hint="Cleared institutional fee payments"
         />
         <StatCard
           label="Pending Payments"
           value={num(summary.pendingTransactions)}
           tone="amber"
           icon={<Clock className="size-4" />}
-          hint="Awaiting gateway webhook"
+          hint="Awaiting verification"
         />
         <StatCard
           label="Refunded Orders"
@@ -237,29 +303,58 @@ export default function AdminPaymentsPage() {
             <div>
               <CardTitle className="text-base">Campus Transaction Ledger</CardTitle>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Every transaction contains an immutable idempotency key and checksum
+                Every transaction contains a verified semester ledger entry, standardized reference, and tax invoice
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <div className="relative">
                 <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search participant or order…"
+                  placeholder="Search student, roll no, UTR…"
                   className="pl-8 pr-3 py-1.5 text-xs rounded-lg border border-border bg-card text-foreground"
                 />
               </div>
 
+              {/* Semester Filter */}
+              <select
+                value={filterSemester}
+                onChange={(e) => setFilterSemester(e.target.value)}
+                className="px-3 py-1.5 text-xs rounded-lg border border-border bg-card text-foreground font-medium"
+              >
+                <option value="all">All Semesters</option>
+                {uniqueSemesters.map((sem) => (
+                  <option key={sem} value={String(sem)}>
+                    Sem {sem}
+                  </option>
+                ))}
+              </select>
+
+              {/* Academic Year Filter */}
+              <select
+                value={filterYear}
+                onChange={(e) => setFilterYear(e.target.value)}
+                className="px-3 py-1.5 text-xs rounded-lg border border-border bg-card text-foreground font-medium"
+              >
+                <option value="all">All Years</option>
+                {uniqueYears.map((yr) => (
+                  <option key={yr} value={yr}>
+                    {yr}
+                  </option>
+                ))}
+              </select>
+
+              {/* Status Filter */}
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
                 className="px-3 py-1.5 text-xs rounded-lg border border-border bg-card text-foreground font-medium"
               >
                 <option value="all">All Statuses</option>
-                <option value="success">Success</option>
+                <option value="success">Success / Verified</option>
                 <option value="pending">Pending</option>
                 <option value="refunded">Refunded</option>
                 <option value="failed">Failed</option>
@@ -282,8 +377,9 @@ export default function AdminPaymentsPage() {
                 <thead className="bg-slate-50 dark:bg-slate-900 border-b border-border text-muted-foreground uppercase tracking-wider font-semibold">
                   <tr>
                     <th className="px-5 py-3">Txn / UTR</th>
-                    <th className="px-5 py-3">Participant</th>
+                    <th className="px-5 py-3">Participant & Roll No</th>
                     <th className="px-5 py-3">Course / Purpose</th>
+                    <th className="px-5 py-3">Sem & Year</th>
                     <th className="px-5 py-3">Amount</th>
                     <th className="px-5 py-3">Date</th>
                     <th className="px-5 py-3">Status</th>
@@ -291,10 +387,15 @@ export default function AdminPaymentsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filtered.map((p) => {
+                  {paginatedPayments.map((p) => {
                     const st = (p.status || '').toUpperCase();
                     const isPending = st === 'PENDING' || st === 'PENDING_VERIFICATION';
                     const isVerified = st === 'SUCCESS' || st === 'COMPLETED' || st === 'VERIFIED';
+                    const roll = p.rollNumber || p.roll_number;
+                    const yr = p.academicYear || p.academic_year;
+                    const invId = p.invoice_id || p.invoiceId;
+                    const invNum = p.invoice_number || p.invoiceNumber;
+
                     return (
                       <tr key={p.id} className="hover:bg-muted/50">
                         <td className="px-5 py-3.5 font-mono text-muted-foreground font-medium">
@@ -311,18 +412,32 @@ export default function AdminPaymentsPage() {
                         </td>
                         <td className="px-5 py-3.5">
                           <p className="font-semibold text-foreground">{p.student_name || p.studentName}</p>
-                          <p className="text-[11px] text-muted-foreground">{p.student_email || p.studentEmail}</p>
+                          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                            {roll && <span className="font-mono text-indigo-600 dark:text-indigo-400 font-medium">{roll}</span>}
+                            {roll && (p.student_email || p.studentEmail) && <span>•</span>}
+                            <span>{p.student_email || p.studentEmail}</span>
+                          </div>
                         </td>
                         <td className="px-5 py-3.5 text-foreground max-w-xs truncate">
-                          {p.course_title || p.purpose || 'Course Enrollment'}
+                          {p.course_title || p.courseTitle || p.purpose || 'Course Enrollment'}
                         </td>
-                        <td className="px-5 py-3.5 font-bold text-foreground">
+                        <td className="px-5 py-3.5 whitespace-nowrap">
+                          {p.semester ? (
+                            <Badge tone="indigo" className="font-semibold">
+                              Sem {p.semester}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                          {yr && <p className="text-[11px] text-muted-foreground mt-0.5">{yr}</p>}
+                        </td>
+                        <td className="px-5 py-3.5 font-bold text-foreground whitespace-nowrap">
                           ₹{num(p.amount)}
                         </td>
-                        <td className="px-5 py-3.5 text-muted-foreground">
+                        <td className="px-5 py-3.5 text-muted-foreground whitespace-nowrap">
                           {formatDate(p.createdAt || p.created_at || new Date().toISOString())}
                         </td>
-                        <td className="px-5 py-3.5">
+                        <td className="px-5 py-3.5 whitespace-nowrap">
                           <Badge
                             tone={
                               isVerified
@@ -334,10 +449,10 @@ export default function AdminPaymentsPage() {
                                 : 'danger'
                             }
                           >
-                            {st}
+                            {isVerified ? 'VERIFIED' : st}
                           </Badge>
                         </td>
-                        <td className="px-5 py-3.5 text-right">
+                        <td className="px-5 py-3.5 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1.5">
                             {isPending && (
                               <>
@@ -366,14 +481,15 @@ export default function AdminPaymentsPage() {
                               </>
                             )}
 
-                            {p.invoice_id && (
+                            {invId && (
                               <Button
                                 variant="secondary"
                                 size="sm"
-                                className="text-xs h-7 px-2 text-primary hover:bg-primary/10"
-                                onClick={() => handleDownloadInvoice(p.invoice_id!, p.invoice_number || 'invoice')}
+                                className="text-xs h-7 px-2 text-primary hover:bg-primary/10 flex items-center gap-1"
+                                onClick={() => handleDownloadInvoice(invId, invNum || 'invoice')}
                               >
-                                Invoice PDF
+                                <Download className="size-3" />
+                                <span>Invoice</span>
                               </Button>
                             )}
 
@@ -396,6 +512,56 @@ export default function AdminPaymentsPage() {
               </table>
             </div>
           )}
+
+          {/* Pagination Toolbar */}
+          {filtered.length > 0 && (
+            <div className="p-4 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Rows per page:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="px-2 py-1 rounded border border-border bg-background text-foreground"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={5000}>All ({filtered.length})</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-muted-foreground">
+                  Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong> ({filtered.length} total)
+                </span>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={currentPage <= 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className="h-7 px-2"
+                  >
+                    <ChevronLeft className="size-3.5" />
+                    <span className="sr-only">Previous</span>
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    className="h-7 px-2"
+                  >
+                    <ChevronRight className="size-3.5" />
+                    <span className="sr-only">Next</span>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </CardBody>
       </Card>
 
@@ -416,28 +582,26 @@ export default function AdminPaymentsPage() {
                   <strong>Order:</strong> {refundTarget.orderId}
                 </p>
                 <p>
-                  <strong>Participant:</strong> {refundTarget.studentName} ({refundTarget.studentEmail})
+                  <strong>Participant:</strong> {refundTarget.studentName || refundTarget.student_name} ({refundTarget.studentEmail || refundTarget.student_email})
                 </p>
                 <p>
-                  <strong>Refund Amount:</strong> ₹{num(refundTarget.amount)}
+                  <strong>Amount:</strong> ₹{num(refundTarget.amount)}
                 </p>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground">
-                  Reason for Refund
-                </label>
+              <div>
+                <label className="text-xs font-semibold block mb-1">Reason for Refund</label>
                 <input
                   type="text"
                   required
                   value={refundReason}
                   onChange={(e) => setRefundReason(e.target.value)}
-                  placeholder="e.g., Course cancellation, participant request within policy"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-card text-foreground"
+                  placeholder="e.g. Student dropped out, administrative reversal"
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-border bg-background"
                 />
               </div>
 
-              <div className="pt-3 flex justify-end gap-2">
+              <div className="flex justify-end gap-2 pt-2">
                 <Button
                   type="button"
                   variant="secondary"
@@ -452,43 +616,42 @@ export default function AdminPaymentsPage() {
                   size="sm"
                   disabled={refundProcessing}
                 >
-                  {refundProcessing ? 'Reversing Payment…' : 'Confirm Refund'}
+                  {refundProcessing ? 'Processing…' : 'Confirm Refund'}
                 </Button>
               </div>
             </form>
           )}
         </DialogContent>
       </Dialog>
-      {/* Reject Confirmation Dialog */}
+
+      {/* Reject Payment Dialog */}
       <Dialog open={rejectModalOpen} onOpenChange={setRejectModalOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reject Payment</DialogTitle>
+            <DialogTitle>Reject Payment Verification</DialogTitle>
             <DialogDescription>
-              Specify a reason for rejecting this transaction. The student&apos;s account will remain active, but fee verification will be marked as rejected.
+              State the reason for rejecting this transaction. The student will be notified and access denied.
             </DialogDescription>
           </DialogHeader>
+
           <div className="p-6 space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-foreground">
-                Rejection Reason
-              </label>
+            <div>
+              <label className="text-xs font-semibold block mb-1">Reason</label>
               <input
                 type="text"
-                required
                 value={rejectionReason}
                 onChange={(e) => setRejectionReason(e.target.value)}
-                placeholder="e.g., UTR not matching bank statement, transaction failed"
-                className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-card text-foreground"
+                placeholder="e.g. Invalid UTR, amount mismatch"
+                className="w-full px-3 py-1.5 text-xs rounded-lg border border-border bg-background"
               />
             </div>
-            <div className="pt-3 flex justify-end gap-2">
+
+            <div className="flex justify-end gap-2 pt-2">
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
                 onClick={() => setRejectModalOpen(false)}
-                disabled={processingAction}
               >
                 Cancel
               </Button>
@@ -496,10 +659,10 @@ export default function AdminPaymentsPage() {
                 type="button"
                 variant="danger"
                 size="sm"
+                disabled={processingAction}
                 onClick={handleReject}
-                disabled={processingAction || !rejectionReason.trim()}
               >
-                {processingAction ? 'Rejecting…' : 'Confirm Rejection'}
+                {processingAction ? 'Rejecting…' : 'Reject Payment'}
               </Button>
             </div>
           </div>

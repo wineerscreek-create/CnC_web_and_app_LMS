@@ -1350,30 +1350,52 @@ async def super_admin_update_game(game_code: str, payload: dict[str, Any], ctx: 
 
 # --------------------------------------------------------------------------- Payments & Verification Queue
 @router.get("/payments")
-async def super_admin_list_payments(ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+async def super_admin_list_payments(
+    status: str | None = Query(None),
+    search: str | None = Query(None),
+    semester: int | None = Query(None),
+    academic_year: str | None = Query(None, alias="academicYear"),
+    course_id: str | None = Query(None, alias="courseId"),
+    institution_id: str | None = Query(None, alias="institutionId"),
+    limit: int = Query(5000, ge=1, le=10000),
+    offset: int = Query(0, ge=0),
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
     if settings.USE_POSTGRES:
         from app.repositories.payment_repo import PaymentRepository
         pg_payments = await PaymentRepository.list_admin_payments(
-            institution_id=None,
-            status=None,
-            search=None,
-            limit=500,
-            offset=0,
+            institution_id=institution_id,
+            status=status,
+            search=search,
+            limit=limit,
+            offset=offset,
+            semester=semester,
+            academic_year=academic_year,
+            course_id=course_id,
         )
         out = [
             {
                 "id": str(p["id"]),
                 "collegeName": p.get("institution_name") or "Arya College of Engineering and IT",
+                "institutionId": str(p.get("institution_id")) if p.get("institution_id") else None,
                 "studentName": p.get("student_name", "Student"),
                 "studentEmail": p.get("student_email") or "",
+                "rollNumber": p.get("roll_number") or "",
+                "roll_number": p.get("roll_number") or "",
+                "courseId": str(p.get("course_id")) if p.get("course_id") else None,
                 "courseTitle": p.get("course_title", "Course"),
                 "courseMode": "COLLEGE",
+                "semester": p.get("semester"),
+                "academicYear": p.get("academic_year"),
+                "academic_year": p.get("academic_year"),
                 "amount": float(p.get("amount") or 0.0),
                 "currency": p.get("currency", "INR"),
                 "status": "verified" if p.get("status") == "VERIFIED" else ("pending" if p.get("status") == "PENDING" else "failed"),
                 "paymentMethod": p.get("payment_method") or "Official Fee Receipt",
                 "transactionId": p.get("transaction_ref") or str(p["id"]),
                 "utr": p.get("utr"),
+                "originalUtr": p.get("original_utr"),
+                "original_utr": p.get("original_utr"),
                 "legacyReference": p.get("legacy_reference"),
                 "legacy_reference": p.get("legacy_reference"),
                 "verificationSource": p.get("verification_source"),
@@ -1388,7 +1410,7 @@ async def super_admin_list_payments(ctx: ScopeContext = SuperAdminCtx) -> dict[s
             }
             for p in pg_payments
         ]
-        return {"success": True, "data": out}
+        return {"success": True, "data": out, "total": len(out)}
 
     db = get_db()
     payments = await db.payments.find({}).sort("createdAt", -1).limit(200).to_list(200)
@@ -1544,8 +1566,10 @@ async def super_admin_manual_activate_enrollment(
 async def super_admin_list_invoices(
     search: str | None = Query(None),
     institutionId: str | None = Query(None),
+    semester: int | None = Query(None),
+    academicYear: str | None = Query(None),
     page: int = Query(1, ge=1),
-    pageSize: int = Query(25, ge=1, le=100),
+    pageSize: int = Query(50, ge=1, le=5000),
     ctx: ScopeContext = SuperAdminCtx,
 ) -> dict[str, Any]:
     """Super Admin lists all issued invoices globally."""
@@ -1558,14 +1582,20 @@ async def super_admin_list_invoices(
         if inst_uuid:
             params.append(inst_uuid)
             conditions.append(f"i.institution_id = ${len(params)}")
+    if semester is not None:
+        params.append(int(semester))
+        conditions.append(f"i.semester_number = ${len(params)}")
+    if academicYear:
+        params.append(academicYear)
+        conditions.append(f"i.academic_year = ${len(params)}")
     if search:
         params.append(f"%{search.strip()}%")
-        conditions.append(f"(i.invoice_number ILIKE ${len(params)} OR u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)})")
+        conditions.append(f"(i.invoice_number ILIKE ${len(params)} OR u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR sp.roll_number ILIKE ${len(params)} OR p.utr ILIKE ${len(params)})")
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     async with get_pg_connection() as conn:
         total = await conn.fetchval(
-            f"SELECT COUNT(*) FROM invoices i JOIN users u ON i.participant_user_id = u.id {where}",
+            f"SELECT COUNT(*) FROM invoices i JOIN users u ON i.participant_user_id = u.id LEFT JOIN student_profiles sp ON sp.user_id = u.id LEFT JOIN payments p ON i.payment_id = p.id {where}",
             *params,
         ) or 0
         params.append(pageSize)
@@ -1577,11 +1607,13 @@ async def super_admin_list_invoices(
             f"""
             SELECT i.*, 
                    u.name as student_name, u.email as student_email,
+                   sp.roll_number as roll_number,
                    inst.name as institution_name,
                    c.title as course_title,
                    COALESCE(p.utr, p.transaction_ref) as utr
             FROM invoices i
             JOIN users u ON i.participant_user_id = u.id
+            LEFT JOIN student_profiles sp ON sp.user_id = u.id
             JOIN institutions inst ON i.institution_id = inst.id
             JOIN courses c ON i.course_id = c.id
             LEFT JOIN payments p ON i.payment_id = p.id
