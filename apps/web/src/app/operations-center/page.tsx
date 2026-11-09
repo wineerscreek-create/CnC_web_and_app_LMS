@@ -978,7 +978,7 @@ export default function OperationsCenterPage() {
                   <div className="space-y-2 text-slate-300">
                     <p>Primary Provider: <strong className="text-white">{aiHealth?.primaryProvider || 'Google Gemini'}</strong></p>
                     <p>Active Model: <strong className="text-white">{aiHealth?.primaryModel || 'gemini-2.5-flash'}</strong></p>
-                    <p>Average API Latency: <strong className="text-white">{aiHealth?.averageResponseTimeMs || 312} ms</strong></p>
+                    <p>API Latency: <strong className="text-white">{aiHealth?.averageResponseTimeMs ? `${aiHealth.averageResponseTimeMs} ms` : 'MEASURED AT RUNTIME'}</strong></p>
                     <p>Fallback Engine: <strong className="text-emerald-400">Claude / OpenAI Fallback Armed</strong></p>
                   </div>
                 </div>
@@ -999,6 +999,12 @@ export default function OperationsCenterPage() {
                     <p>Service ID: <strong className="text-white">{infra?.serviceId || 'srv-dbj0lhou01pc73e5fhbg'}</strong></p>
                     <p>Region: <strong className="text-white">Oregon (us-west)</strong></p>
                     <p>Frontend Host: <strong className="text-white">{infra?.frontendHost || 'Vercel Edge Network'}</strong></p>
+                    <div className="pt-2 border-t border-slate-800/80 grid grid-cols-2 gap-2 text-[11px]">
+                      <div>CPU Usage: <span className="text-amber-400/90 font-mono font-bold">{infra?.cpuUsagePercent || infra?.cpu || 'NOT CONNECTED'}</span></div>
+                      <div>Memory: <span className="text-amber-400/90 font-mono font-bold">{infra?.memoryUsage || infra?.memory || 'NOT CONNECTED'}</span></div>
+                      <div>Disk Storage: <span className="text-amber-400/90 font-mono font-bold">{infra?.diskUsage || infra?.disk || 'NOT CONNECTED'}</span></div>
+                      <div>Network I/O: <span className="text-amber-400/90 font-mono font-bold">{infra?.networkBandwidth || infra?.network || 'NOT CONNECTED'}</span></div>
+                    </div>
                   </div>
                 </div>
               </div>

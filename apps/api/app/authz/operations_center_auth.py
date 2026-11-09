@@ -42,6 +42,40 @@ OPS_REAUTH_TTL_MINUTES = 5
 # Ephemeral in-memory reauth tokens for high-risk emergency controls
 _reauth_tokens: dict[str, dict[str, Any]] = {}
 
+# Ephemeral in-memory MFA setup sessions for secure enrollment/recovery (10 minute TTL)
+_mfa_setup_sessions: dict[str, dict[str, Any]] = {}
+
+
+def generate_backup_codes(count: int = 8) -> list[str]:
+    """Generate high-entropy 8-character single-use recovery codes."""
+    return [secrets.token_hex(4).upper() for _ in range(count)]
+
+
+def hash_backup_code(code: str) -> str:
+    """Hash recovery code with SHA-256 for secure immutable storage."""
+    return hashlib.sha256(code.strip().upper().encode("utf-8")).hexdigest()
+
+
+def create_mfa_setup_session(admin_id: str, username: str, secret: str, hashed_backup_codes: list[str]) -> str:
+    """Create short-lived MFA setup session valid for 10 minutes."""
+    setup_token = secrets.token_urlsafe(32)
+    _mfa_setup_sessions[setup_token] = {
+        "admin_id": admin_id,
+        "username": username,
+        "secret": secret,
+        "hashed_backup_codes": hashed_backup_codes,
+        "expires_at": time.time() + 600,
+    }
+    return setup_token
+
+
+def pop_mfa_setup_session(setup_token: str) -> dict[str, Any] | None:
+    """Retrieve and consume MFA setup session."""
+    data = _mfa_setup_sessions.pop(setup_token, None)
+    if not data or time.time() > data["expires_at"]:
+        return None
+    return data
+
 
 def hash_password(password: str) -> str:
     """Hash password using Argon2id."""

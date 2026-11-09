@@ -16,10 +16,15 @@ from pydantic import BaseModel, Field
 from app.authz.operations_center_auth import (
     OpsAdminIdentity,
     clear_ops_cookie,
+    create_mfa_setup_session,
     create_ops_session,
+    generate_backup_codes,
+    generate_totp_secret,
     get_current_ops_admin,
+    hash_backup_code,
     hash_password,
     issue_reauth_token,
+    pop_mfa_setup_session,
     revoke_ops_session,
     set_ops_cookie,
     verify_password,
@@ -39,6 +44,16 @@ class OpsLoginRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=64)
     password: str = Field(..., min_length=8)
     mfaCode: str = Field(..., min_length=6, max_length=16)
+
+
+class MfaSetupInitiateRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=64)
+    password: str = Field(..., min_length=8)
+
+
+class MfaSetupConfirmRequest(BaseModel):
+    setupToken: str
+    totpCode: str = Field(..., min_length=6, max_length=6)
 
 
 class OpsReauthRequest(BaseModel):
@@ -126,12 +141,12 @@ async def ops_login(payload: OpsLoginRequest, request: Request, response: Respon
         if admin_row["mfa_enabled"] and secret:
             mfa_valid = verify_totp(secret, payload.mfaCode)
             if not mfa_valid and admin_row["mfa_backup_codes"]:
-                # Check backup codes
-                clean_code = payload.mfaCode.strip()
-                if clean_code in admin_row["mfa_backup_codes"]:
+                clean_code = payload.mfaCode.strip().upper()
+                clean_code_h = hash_backup_code(clean_code)
+                if clean_code in admin_row["mfa_backup_codes"] or clean_code_h in admin_row["mfa_backup_codes"]:
                     mfa_valid = True
                     # Remove consumed backup code
-                    new_codes = [c for c in admin_row["mfa_backup_codes"] if c != clean_code]
+                    new_codes = [c for c in admin_row["mfa_backup_codes"] if c not in (clean_code, clean_code_h)]
                     await conn.execute(
                         "UPDATE operations_center_admins SET mfa_backup_codes = $2 WHERE id = $1",
                         admin_row["id"],
@@ -162,6 +177,172 @@ async def ops_login(payload: OpsLoginRequest, request: Request, response: Respon
                 "status": admin_row["status"],
             },
         }
+
+
+@router.post("/auth/mfa/setup-initiate")
+async def ops_mfa_setup_initiate(payload: MfaSetupInitiateRequest, request: Request) -> dict[str, Any]:
+    """Verify administrator identity and generate fresh RFC 6238 TOTP enrollment secret and backup recovery codes."""
+    username_clean = payload.username.strip().lower()
+    client_ip = request.client.host if request.client else "127.0.0.1"
+
+    async with get_pg_connection() as conn:
+        admin_row = await conn.fetchrow(
+            """
+            SELECT id, username, email, password_hash, status, failed_login_attempts, lockout_until
+            FROM operations_center_admins
+            WHERE LOWER(username) = $1
+            """,
+            username_clean,
+        )
+
+        if not admin_row:
+            log.warning("ops_mfa_setup_init_user_not_found", extra={"username": username_clean, "ip": client_ip})
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid administrator credentials.")
+
+        if admin_row["lockout_until"] and admin_row["lockout_until"] > datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Account temporarily locked due to excessive failed attempts. Try again later.",
+            )
+
+        if admin_row["status"] != "ACTIVE":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is suspended or disabled.")
+
+        is_pw_valid = verify_password(admin_row["password_hash"], payload.password)
+        if not is_pw_valid:
+            failed_count = admin_row["failed_login_attempts"] + 1
+            lockout_time = None
+            if failed_count >= 5:
+                lockout_time = datetime.now(timezone.utc) + timedelta(minutes=15)
+
+            await conn.execute(
+                """
+                UPDATE operations_center_admins
+                SET failed_login_attempts = $2, lockout_until = $3, updated_at = NOW()
+                WHERE id = $1
+                """,
+                admin_row["id"],
+                failed_count,
+                lockout_time,
+            )
+            log.warning("ops_mfa_setup_init_bad_password", extra={"username": username_clean, "fails": failed_count})
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid administrator credentials.")
+
+    # Operator identity verified! Generate fresh cryptographic TOTP secret and recovery codes
+    new_secret = generate_totp_secret()
+    raw_backup_codes = generate_backup_codes(8)
+    hashed_backup_codes = [hash_backup_code(c) for c in raw_backup_codes]
+
+    setup_token = create_mfa_setup_session(
+        admin_id=str(admin_row["id"]),
+        username=admin_row["username"],
+        secret=new_secret,
+        hashed_backup_codes=hashed_backup_codes,
+    )
+
+    import urllib.parse
+    otpauth_url = f"otpauth://totp/WinnersCreek-SOC:{admin_row['username']}?secret={new_secret}&issuer=WinnersCreek-OperationsCenter"
+    qr_code_url = f"https://api.qrserver.com/v1/create-qr-code/?size=220x220&data={urllib.parse.quote(otpauth_url)}"
+
+    secret_formatted = " ".join([new_secret[i:i+4] for i in range(0, len(new_secret), 4)])
+
+    return {
+        "success": True,
+        "setupToken": setup_token,
+        "otpauthUrl": otpauth_url,
+        "qrCodeUrl": qr_code_url,
+        "secret": new_secret,
+        "secretFormatted": secret_formatted,
+        "backupCodes": raw_backup_codes,
+        "expiresInSeconds": 600,
+        "instructions": "Scan the QR code with Google Authenticator or Microsoft Authenticator, or enter the secret key manually, then submit the 6-digit code shown on your app to verify and activate.",
+    }
+
+
+@router.post("/auth/mfa/setup-confirm")
+async def ops_mfa_setup_confirm(payload: MfaSetupConfirmRequest, request: Request, response: Response) -> dict[str, Any]:
+    """Verify first 6-digit TOTP code, enable MFA, store hashed backup codes, revoke prior sessions, and issue fresh session."""
+    session_data = pop_mfa_setup_session(payload.setupToken)
+    if not session_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="MFA setup session has expired or is invalid. Please restart the MFA setup process.",
+        )
+
+    code_clean = payload.totpCode.strip()
+    is_code_valid = verify_totp(session_data["secret"], code_clean)
+    if not is_code_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid 6-digit TOTP verification code. Please ensure your device clock is synchronized and try again.",
+        )
+
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    admin_id = UUID(session_data["admin_id"])
+
+    async with get_pg_connection() as conn:
+        async with conn.transaction():
+            # 1. Update administrator record with new secret and hashed backup codes
+            await conn.execute(
+                """
+                UPDATE operations_center_admins
+                SET mfa_secret = $2,
+                    mfa_enabled = TRUE,
+                    mfa_backup_codes = $3,
+                    failed_login_attempts = 0,
+                    lockout_until = NULL,
+                    updated_at = NOW()
+                WHERE id = $1
+                """,
+                admin_id,
+                session_data["secret"],
+                session_data["hashed_backup_codes"],
+            )
+
+            # 2. Revoke all previous active sessions
+            await conn.execute(
+                """
+                UPDATE operations_center_sessions
+                SET revoked_at = NOW()
+                WHERE admin_id = $1 AND revoked_at IS NULL
+                """,
+                admin_id,
+            )
+
+            # 3. Log audit event
+            await conn.execute(
+                """
+                INSERT INTO operations_center_audit_trail (actor_username, action, target, ip_address, reason, result)
+                VALUES ($1, $2, $3, $4, $5, 'SUCCESS')
+                """,
+                session_data["username"],
+                "MFA_ENROLLED_AND_CONFIRMED",
+                "operations_center_admins",
+                client_ip,
+                "Operator verified first TOTP code and completed MFA enrollment.",
+            )
+
+    # 4. Create fresh session
+    ua = request.headers.get("user-agent") or "Unknown"
+    token, session_id = await create_ops_session(
+        admin_id=admin_id,
+        ip_address=client_ip,
+        user_agent=ua,
+    )
+
+    set_ops_cookie(response, token)
+
+    return {
+        "success": True,
+        "message": "Authenticator MFA successfully enrolled and verified. Access granted to Operations Center.",
+        "sessionToken": token,
+        "admin": {
+            "id": str(admin_id),
+            "username": session_data["username"],
+            "status": "ACTIVE",
+            "mfa_enabled": True,
+        },
+    }
 
 
 @router.get("/auth/me")
@@ -279,15 +460,19 @@ async def get_database_consistency(admin: OpsAdminIdentity = Depends(get_current
 @router.get("/ai/health")
 async def get_ai_health(admin: OpsAdminIdentity = Depends(get_current_ops_admin)) -> dict[str, Any]:
     """Telemetry on AI model availability and fallback status."""
+    has_gemini = bool(getattr(settings, "GEMINI_API_KEY", None))
+    has_openai = bool(getattr(settings, "OPENAI_API_KEY", None))
+    has_claude = bool(getattr(settings, "ANTHROPIC_API_KEY", None))
+
     return {
         "success": True,
         "data": {
-            "primaryProvider": "Google Gemini",
-            "primaryModel": "gemini-2.5-flash",
-            "availability": "100% OPERATIONAL",
-            "averageResponseTimeMs": 312,
-            "fallbackAvailable": True,
-            "fallbackProvider": "OpenAI / Claude",
+            "primaryProvider": "Google Gemini" if has_gemini else "NOT CONFIGURED",
+            "primaryModel": "gemini-2.5-flash" if has_gemini else "N/A",
+            "availability": "OPERATIONAL" if has_gemini else "KEY_NOT_CONFIGURED",
+            "fallbackAvailable": has_openai or has_claude,
+            "fallbackProvider": "OpenAI / Claude" if (has_openai or has_claude) else "NONE",
+            "telemetryStatus": "KEY_VERIFIED" if has_gemini else "NOT CONNECTED",
             "lastChecked": datetime.now(timezone.utc).isoformat(),
         },
     }
@@ -308,7 +493,12 @@ async def get_infrastructure(admin: OpsAdminIdentity = Depends(get_current_ops_a
             "deployStatus": "LIVE",
             "frontendHost": "Vercel Edge Network (cnc-lms.vercel.app)",
             "uptimeSeconds": uptime_secs,
-            "telemetryStatus": "TELEMETRY RESTRICTED (Render API limits host metric polling on current token; container status monitored via HTTP health probes)",
+            "cpu": "NOT CONNECTED",
+            "memory": "NOT CONNECTED",
+            "disk": "NOT CONNECTED",
+            "network": "NOT CONNECTED",
+            "crashCount": "NOT CONNECTED",
+            "telemetryStatus": "CONTAINER_HEALTH_PROBE_ACTIVE",
         },
     }
 
