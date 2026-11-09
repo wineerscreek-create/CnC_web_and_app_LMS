@@ -34,17 +34,29 @@ import {
   Users,
   Wifi,
   XCircle,
+  Network,
+  Radio,
+  FileArchive,
+  History,
+  Workflow,
+  Check,
+  ChevronRight,
+  ExternalLink,
+  Ban,
+  UserX,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 type TabType =
   | 'overview'
-  | 'logins'
-  | 'security'
-  | 'logs'
-  | 'database'
-  | 'ai-infra'
+  | 'security-ops'
+  | 'privileged'
   | 'incidents'
+  | 'database'
+  | 'infrastructure'
+  | 'api-security'
+  | 'backup-dr'
+  | 'logs'
   | 'emergency'
   | 'audit';
 
@@ -58,35 +70,59 @@ export default function OperationsCenterPage() {
   const [telemetry, setTelemetry] = React.useState<any>(null);
   const [loadingTelemetry, setLoadingTelemetry] = React.useState(false);
 
-  // Login Monitor
-  const [logins, setLogins] = React.useState<any[]>([]);
-  const [searchLogins, setSearchLogins] = React.useState('');
+  // Live Unified Event Stream
+  const [eventStream, setEventStream] = React.useState<any[]>([]);
+  const [eventFilter, setEventFilter] = React.useState<string>('ALL');
+  const [loadingStream, setLoadingStream] = React.useState(false);
 
-  // Security Events
-  const [securityEvents, setSecurityEvents] = React.useState<any[]>([]);
+  // Security Operations (Phase 3)
+  const [securityAnalytics, setSecurityAnalytics] = React.useState<any>(null);
+  const [loadingSecurityOps, setLoadingSecurityOps] = React.useState(false);
 
-  // Logs
-  const [logs, setLogs] = React.useState<any[]>([]);
-  const [logLevel, setLogLevel] = React.useState('ALL');
-  const [logSearch, setLogSearch] = React.useState('');
+  // Privileged Access Management (Phase 4)
+  const [privilegedAccess, setPrivilegedAccess] = React.useState<any>(null);
+  const [loadingPrivileged, setLoadingPrivileged] = React.useState(false);
 
-  // Database
+  // Incidents (Phase 5: 7-Stage Lifecycle)
+  const [incidents, setIncidents] = React.useState<any[]>([]);
+  const [loadingIncidents, setLoadingIncidents] = React.useState(false);
+  const [newIncidentModal, setNewIncidentModal] = React.useState(false);
+  const [newIncidentForm, setNewIncidentForm] = React.useState({
+    title: '',
+    severity: 'HIGH',
+    service: 'Authentication Gateway',
+    description: '',
+    sourceIp: '',
+    status: 'DETECTED',
+  });
+  const [selectedIncident, setSelectedIncident] = React.useState<any | null>(null);
+  const [updatingIncidentStatus, setUpdatingIncidentStatus] = React.useState<string>('');
+  const [incidentNotes, setIncidentNotes] = React.useState<string>('');
+
+  // Database Auditor (Phase 6: 12 checks)
   const [dbHealth, setDbHealth] = React.useState<any>(null);
   const [dbAudit, setDbAudit] = React.useState<any>(null);
   const [loadingAudit, setLoadingAudit] = React.useState(false);
 
-  // AI & Infra
-  const [aiHealth, setAiHealth] = React.useState<any>(null);
+  // Infrastructure Telemetry (Phase 7)
   const [infra, setInfra] = React.useState<any>(null);
+  const [loadingInfra, setLoadingInfra] = React.useState(false);
 
-  // Incidents
-  const [incidents, setIncidents] = React.useState<any[]>([]);
+  // API Security Center (Phase 8)
+  const [apiSecurity, setApiSecurity] = React.useState<any>(null);
+  const [loadingApiSec, setLoadingApiSec] = React.useState(false);
 
-  // Emergency State
-  const [emergencyState, setEmergencyState] = React.useState<any>(null);
+  // Backup & Disaster Recovery (Phase 9)
+  const [backupRecovery, setBackupRecovery] = React.useState<any>(null);
+  const [loadingBackup, setLoadingBackup] = React.useState(false);
+
+  // Cryptographic Audit Trail (Phase 10)
   const [auditTrail, setAuditTrail] = React.useState<any[]>([]);
+  const [auditVerification, setAuditVerification] = React.useState<any>(null);
+  const [verifyingAudit, setVerifyingAudit] = React.useState(false);
 
-  // Re-auth & Emergency Action Modal
+  // Emergency Controls (Phase 11)
+  const [emergencyState, setEmergencyState] = React.useState<any>(null);
   const [emergencyModalOpen, setEmergencyModalOpen] = React.useState(false);
   const [pendingAction, setPendingAction] = React.useState<string | null>(null);
   const [actionReason, setActionReason] = React.useState('');
@@ -133,28 +169,40 @@ export default function OperationsCenterPage() {
     checkAuth();
   }, [opsFetch, router]);
 
-  // Load active tab data
+  // Load Tab Data dynamically
   const loadTabData = React.useCallback(async () => {
     try {
       if (activeTab === 'overview') {
         setLoadingTelemetry(true);
-        const res = await opsFetch('/api/v1/operations-center/telemetry/overview');
+        const [telRes, streamRes] = await Promise.all([
+          opsFetch('/api/v1/operations-center/telemetry/overview'),
+          opsFetch(`/api/v1/operations-center/events/stream?limit=30${eventFilter !== 'ALL' ? `&category=${eventFilter}` : ''}`),
+        ]);
+        const telData = await telRes.json();
+        const streamData = await streamRes.json();
+        if (telData.success) setTelemetry(telData.data);
+        if (streamData.success) setEventStream(streamData.data);
+        setLoadingTelemetry(false);
+      } else if (activeTab === 'security-ops') {
+        setLoadingSecurityOps(true);
+        const res = await opsFetch('/api/v1/operations-center/security/analytics');
         const data = await res.json();
-        if (data.success) setTelemetry(data.data);
-      } else if (activeTab === 'logins') {
-        const res = await opsFetch('/api/v1/operations-center/logins?limit=100');
+        if (data.success) setSecurityAnalytics(data.data);
+        setLoadingSecurityOps(false);
+      } else if (activeTab === 'privileged') {
+        setLoadingPrivileged(true);
+        const res = await opsFetch('/api/v1/operations-center/privileged-access');
         const data = await res.json();
-        if (data.success) setLogins(data.data || []);
-      } else if (activeTab === 'security') {
-        const res = await opsFetch('/api/v1/operations-center/security/events?limit=50');
+        if (data.success) setPrivilegedAccess(data.data);
+        setLoadingPrivileged(false);
+      } else if (activeTab === 'incidents') {
+        setLoadingIncidents(true);
+        const res = await opsFetch('/api/v1/operations-center/incidents');
         const data = await res.json();
-        if (data.success) setSecurityEvents(data.data || []);
-      } else if (activeTab === 'logs') {
-        const url = `/api/v1/operations-center/logs?limit=100${logLevel !== 'ALL' ? `&level=${logLevel}` : ''}${logSearch ? `&search=${encodeURIComponent(logSearch)}` : ''}`;
-        const res = await opsFetch(url);
-        const data = await res.json();
-        if (data.success) setLogs(data.data || []);
+        if (data.success) setIncidents(data.data || []);
+        setLoadingIncidents(false);
       } else if (activeTab === 'database') {
+        setLoadingAudit(true);
         const [hRes, cRes] = await Promise.all([
           opsFetch('/api/v1/operations-center/database/health'),
           opsFetch('/api/v1/operations-center/database/consistency'),
@@ -163,1177 +211,1508 @@ export default function OperationsCenterPage() {
         const cData = await cRes.json();
         if (hData.success) setDbHealth(hData.data);
         if (cData.success) setDbAudit(cData.data);
-      } else if (activeTab === 'ai-infra') {
-        const [aRes, iRes] = await Promise.all([
-          opsFetch('/api/v1/operations-center/ai/health'),
-          opsFetch('/api/v1/operations-center/infrastructure'),
-        ]);
-        const aData = await aRes.json();
-        const iData = await iRes.json();
-        if (aData.success) setAiHealth(aData.data);
-        if (iData.success) setInfra(iData.data);
-      } else if (activeTab === 'incidents') {
-        const res = await opsFetch('/api/v1/operations-center/incidents');
+        setLoadingAudit(false);
+      } else if (activeTab === 'infrastructure') {
+        setLoadingInfra(true);
+        const res = await opsFetch('/api/v1/operations-center/infrastructure');
         const data = await res.json();
-        if (data.success) setIncidents(data.data || []);
+        if (data.success) setInfra(data.data);
+        setLoadingInfra(false);
+      } else if (activeTab === 'api-security') {
+        setLoadingApiSec(true);
+        const res = await opsFetch('/api/v1/operations-center/api-security');
+        const data = await res.json();
+        if (data.success) setApiSecurity(data.data);
+        setLoadingApiSec(false);
+      } else if (activeTab === 'backup-dr') {
+        setLoadingBackup(true);
+        const res = await opsFetch('/api/v1/operations-center/backup-recovery');
+        const data = await res.json();
+        if (data.success) setBackupRecovery(data.data);
+        setLoadingBackup(false);
+      } else if (activeTab === 'logs') {
+        const res = await opsFetch('/api/v1/operations-center/events/stream?limit=100');
+        const data = await res.json();
+        if (data.success) setEventStream(data.data);
       } else if (activeTab === 'emergency') {
         const res = await opsFetch('/api/v1/operations-center/emergency/state');
         const data = await res.json();
         if (data.success) setEmergencyState(data.data);
       } else if (activeTab === 'audit') {
-        const res = await opsFetch('/api/v1/operations-center/audit-trail?limit=100');
-        const data = await res.json();
-        if (data.success) setAuditTrail(data.data || []);
+        const [aRes, vRes] = await Promise.all([
+          opsFetch('/api/v1/operations-center/audit-trail?limit=100'),
+          opsFetch('/api/v1/operations-center/audit-trail/verify'),
+        ]);
+        const aData = await aRes.json();
+        const vData = await vRes.json();
+        if (aData.success) setAuditTrail(aData.data || []);
+        if (vData.success) setAuditVerification(vData.verification);
       }
     } catch {
-      // handled in opsFetch
-    } finally {
-      setLoadingTelemetry(false);
+      // Errors handled in opsFetch
     }
-  }, [activeTab, logLevel, logSearch, opsFetch]);
+  }, [activeTab, eventFilter, opsFetch]);
 
   React.useEffect(() => {
     if (!loadingMe && operator) {
       loadTabData();
     }
-  }, [activeTab, loadingMe, operator, loadTabData]);
+  }, [activeTab, eventFilter, loadingMe, operator, loadTabData]);
 
-  // Periodic Telemetry Pulse
-  React.useEffect(() => {
-    if (!operator) return;
-    const interval = setInterval(() => {
-      if (activeTab === 'overview') {
-        loadTabData();
-      }
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [operator, activeTab, loadTabData]);
-
+  // Handle Logout
   const handleLogout = async () => {
     try {
       await opsFetch('/api/v1/operations-center/auth/logout', { method: 'POST' });
-    } catch {
-      // ignore
-    }
+    } catch {}
     sessionStorage.removeItem('ops_session_token');
-    toast.success('Signed out of Operations Center.');
+    toast.success('Operations Center session closed.');
     router.push('/operations-center/login');
   };
 
-  const handleReRunAudit = async () => {
-    setLoadingAudit(true);
+  // Revoke Privileged Session
+  const handleRevokeSession = async (sessionId: string, isOpsSession = false) => {
     try {
-      const res = await opsFetch('/api/v1/operations-center/database/consistency');
+      const res = await opsFetch('/api/v1/operations-center/privileged-access/revoke-session', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId, isOpsSession }),
+      });
       const data = await res.json();
       if (data.success) {
-        setDbAudit(data.data);
-        toast.success('Database consistency audit completed successfully.');
+        toast.success(`Session ${sessionId.slice(0, 8)}... revoked.`);
+        loadTabData();
       }
-    } catch (err: any) {
-      toast.error('Audit failed: ' + err.message);
-    } finally {
-      setLoadingAudit(false);
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to revoke session');
     }
   };
 
-  const initiateEmergencyAction = (action: string) => {
-    setPendingAction(action);
-    setActionReason('');
-    setReauthPassword('');
-    setReauthMfa('');
-    setEmergencyModalOpen(true);
+  // Create Incident
+  const handleCreateIncident = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await opsFetch('/api/v1/operations-center/incidents', {
+        method: 'POST',
+        body: JSON.stringify(newIncidentForm),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`Incident ${data.incidentId} registered.`);
+        setNewIncidentModal(false);
+        setNewIncidentForm({
+          title: '',
+          severity: 'HIGH',
+          service: 'Authentication Gateway',
+          description: '',
+          sourceIp: '',
+          status: 'DETECTED',
+        });
+        loadTabData();
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to create incident');
+    }
   };
 
-  const handleConfirmEmergencyAction = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!pendingAction) return;
-    setExecutingAction(true);
+  // Update Incident Status
+  const handleUpdateIncidentStage = async (incidentId: string, newStatus: string) => {
+    try {
+      const res = await opsFetch(`/api/v1/operations-center/incidents/${incidentId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: newStatus, investigationNotes: incidentNotes || undefined }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`Incident updated to ${newStatus}`);
+        setSelectedIncident(null);
+        setIncidentNotes('');
+        loadTabData();
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to update incident');
+    }
+  };
 
+  // Execute Emergency Action with Re-authentication
+  const handleExecuteEmergencyAction = async () => {
+    if (!pendingAction) return;
+    if (!actionReason || actionReason.length < 5) {
+      toast.error('A clear justification reason is mandatory for emergency actions.');
+      return;
+    }
+    if (!reauthPassword || !reauthMfa) {
+      toast.error('Re-authentication password and 6-digit MFA token required.');
+      return;
+    }
+
+    setExecutingAction(true);
     try {
       // 1. Re-authenticate
       const reauthRes = await opsFetch('/api/v1/operations-center/auth/reauthenticate', {
         method: 'POST',
-        body: JSON.stringify({
-          password: reauthPassword,
-          mfaCode: reauthMfa.trim(),
-        }),
+        body: JSON.stringify({ password: reauthPassword, mfaCode: reauthMfa }),
       });
       const reauthData = await reauthRes.json();
-      if (!reauthRes.ok || !reauthData.reauthToken) {
-        toast.error(reauthData.error?.message || reauthData.detail || 'Re-authentication failed. Incorrect password or MFA.');
-        setExecutingAction(false);
-        return;
+      if (!reauthData.success || !reauthData.reauthToken) {
+        throw new Error('Re-authentication failed');
       }
 
-      // 2. Execute Emergency Action
+      // 2. Execute Action
       const actionRes = await opsFetch('/api/v1/operations-center/emergency/action', {
         method: 'POST',
         body: JSON.stringify({
           action: pendingAction,
-          reason: actionReason.trim(),
+          reason: actionReason,
           reauthToken: reauthData.reauthToken,
         }),
       });
       const actionData = await actionRes.json();
-      if (!actionRes.ok || !actionData.success) {
-        toast.error(actionData.error?.message || actionData.detail || 'Action failed.');
-        setExecutingAction(false);
-        return;
+      if (actionData.success) {
+        toast.success(`Action executed: ${actionData.detail}`);
+        setEmergencyModalOpen(false);
+        setPendingAction(null);
+        setActionReason('');
+        setReauthPassword('');
+        setReauthMfa('');
+        loadTabData();
+      } else {
+        toast.error(actionData.detail || 'Action failed');
       }
-
-      toast.success(`Action executed: ${actionData.detail || pendingAction}`);
-      setEmergencyModalOpen(false);
-      setPendingAction(null);
-      // Refresh state
-      const stateRes = await opsFetch('/api/v1/operations-center/emergency/state');
-      const stateData = await stateRes.json();
-      if (stateData.success) setEmergencyState(stateData.data);
-    } catch (err: any) {
-      toast.error(err.message || 'Execution error.');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to execute emergency control');
     } finally {
       setExecutingAction(false);
     }
   };
 
+  // Re-verify Cryptographic Audit Trail
+  const handleVerifyAuditTrail = async () => {
+    setVerifyingAudit(true);
+    try {
+      const res = await opsFetch('/api/v1/operations-center/audit-trail/verify');
+      const data = await res.json();
+      if (data.success) {
+        setAuditVerification(data.verification);
+        if (data.verification.valid) {
+          toast.success(`Ledger verified: ${data.verification.totalRecordsVerified} records authenticated via SHA-256 chain.`);
+        } else {
+          toast.error(`COMPROMISED: ${data.verification.reason}`);
+        }
+      }
+    } catch (e: any) {
+      toast.error('Verification failed');
+    } finally {
+      setVerifyingAudit(false);
+    }
+  };
+
   if (loadingMe) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-400 flex flex-col items-center justify-center font-mono text-xs gap-3">
-        <Terminal className="size-6 text-indigo-400 animate-spin" />
-        <span>AUTHENTICATING OPERATIONS CENTER PERIMETER…</span>
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center font-mono text-slate-300">
+        <Activity className="size-8 animate-spin text-indigo-400 mb-3" />
+        <p className="text-sm tracking-wider uppercase">Authenticating Operations Center Perimeter...</p>
       </div>
     );
   }
 
-  const threatColor =
-    telemetry?.securityThreatLevel === 'HIGH' || telemetry?.securityThreatLevel === 'SEVERE'
-      ? 'text-rose-400 border-rose-500/30 bg-rose-500/10'
-      : telemetry?.securityThreatLevel === 'ELEVATED'
-      ? 'text-amber-400 border-amber-500/30 bg-amber-500/10'
-      : 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-rose-500 selection:text-white">
-      {/* Top Banner / Isolation Indicator */}
-      <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-50 px-4 py-2.5 flex items-center justify-between">
+      {/* TOP COMMAND HEADER */}
+      <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-4 font-mono">
         <div className="flex items-center gap-3">
-          <div className="size-8 rounded-lg bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
-            <Terminal className="size-4" />
+          <div className="size-9 rounded-lg bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shadow-sm shadow-indigo-500/20">
+            <ShieldAlert className="size-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold tracking-tight text-white font-mono text-sm">OPERATIONS CENTER</span>
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-semibold tracking-wider">
-                ISOLATED CONTROL
+              <span className="text-sm font-bold tracking-tight text-white uppercase">WINNERS CREEK</span>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                RESTRICTED SOC
               </span>
             </div>
-            <p className="text-[10px] text-slate-400 font-mono">Winners Creek LMS Infrastructure Command</p>
+            <p className="text-[11px] text-slate-400">Security Operations & Reliability Command Center</p>
           </div>
         </div>
 
-        {/* Status Indicators */}
-        <div className="flex items-center gap-3">
-          <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-mono font-semibold ${threatColor}`}>
-            <ShieldAlert className="size-3.5" />
-            <span>THREAT: {telemetry?.securityThreatLevel || 'GUARDED'}</span>
-          </div>
-
-          <div className="hidden md:flex items-center gap-2 text-xs font-mono text-slate-400 bg-slate-950 px-3 py-1 rounded-lg border border-slate-800">
-            <Database className="size-3 text-emerald-400" />
-            <span>PostgreSQL 18.6 (Oregon)</span>
-            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          </div>
-
-          <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
-            <span className="text-xs font-mono text-slate-300 hidden sm:inline">
-              @{operator?.username || 'opsadmin'}
-            </span>
-            <button
-              onClick={handleLogout}
-              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-              title="Terminate Operations Session"
+        <div className="flex items-center gap-3 text-xs">
+          {/* Threat Indicator */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-800 bg-slate-900/80">
+            <span className="text-[10px] uppercase text-slate-400 font-semibold">Threat Level:</span>
+            <span
+              className={`font-bold px-2 py-0.5 rounded text-[11px] border ${
+                telemetry?.securityThreatLevel === 'HIGH'
+                  ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
+                  : telemetry?.securityThreatLevel === 'ELEVATED'
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                  : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+              }`}
             >
-              <LogOut className="size-4" />
-            </button>
+              {telemetry?.securityThreatLevel || 'LOW'}
+            </span>
           </div>
+
+          {/* Database Latency Badge */}
+          <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-800 bg-slate-900/80">
+            <Database className="size-3.5 text-indigo-400" />
+            <span className="text-slate-400">Ping:</span>
+            <strong className="text-emerald-400">{telemetry?.metrics?.databasePingLatencyMs ? `${telemetry.metrics.databasePingLatencyMs}ms` : 'MEASURING'}</strong>
+          </div>
+
+          {/* Operator Identity Badge */}
+          <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-800 bg-slate-900/80">
+            <div className="size-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-slate-300 font-semibold">{operator?.username}</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">MFA VERIFIED</span>
+          </div>
+
+          <button
+            onClick={loadTabData}
+            className="p-1.5 rounded-lg border border-slate-800 hover:border-slate-700 bg-slate-900/80 text-slate-300 hover:text-white transition"
+            title="Refresh active tab telemetry"
+          >
+            <RefreshCw className="size-4" />
+          </button>
+
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition text-xs font-semibold"
+          >
+            <LogOut className="size-3.5" />
+            Sign Out
+          </button>
         </div>
       </header>
 
-      {/* Main Layout */}
-      <div className="flex-1 flex flex-col md:flex-row">
-        {/* Isolated Navigation Sidebar */}
-        <aside className="w-full md:w-60 border-r border-slate-800 bg-slate-900/50 p-3 space-y-1 shrink-0 font-mono text-xs">
-          <div className="px-3 py-2 text-[10px] text-slate-500 uppercase tracking-widest font-semibold">
-            Command Modules
-          </div>
+      {/* NAVIGATION BAR (11 OPERATIONAL TABS) */}
+      <nav className="border-b border-slate-800/80 bg-slate-900/40 px-4 sm:px-6 overflow-x-auto no-scrollbar font-mono text-xs">
+        <div className="flex items-center gap-1 min-w-max py-2">
+          {[
+            { id: 'overview', label: 'Command Overview', icon: Activity },
+            { id: 'security-ops', label: 'Security Operations', icon: ShieldAlert },
+            { id: 'privileged', label: 'Privileged Access & MFA', icon: Users },
+            { id: 'incidents', label: 'Incidents & Response', icon: AlertOctagon },
+            { id: 'database', label: 'Database Auditor', icon: Database },
+            { id: 'infrastructure', label: 'Infrastructure & Host', icon: Server },
+            { id: 'api-security', label: 'API Security Center', icon: Radio },
+            { id: 'backup-dr', label: 'Backup & DR Runbook', icon: FileArchive },
+            { id: 'logs', label: 'Event Log Stream', icon: Terminal },
+            { id: 'emergency', label: 'Emergency Controls', icon: Lock },
+            { id: 'audit', label: 'Audit Hash Ledger', icon: History },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as TabType)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium transition ${
+                  isActive
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30 font-bold'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                }`}
+              >
+                <Icon className="size-4" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
 
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors ${
-              activeTab === 'overview'
-                ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-indigo-500/20'
-                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-            }`}
-          >
-            <Activity className="size-4 shrink-0" />
-            <span>Telemetry Overview</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('logins')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors ${
-              activeTab === 'logins'
-                ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-indigo-500/20'
-                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-            }`}
-          >
-            <Users className="size-4 shrink-0" />
-            <span>User Login Monitor</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('security')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors ${
-              activeTab === 'security'
-                ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-indigo-500/20'
-                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-            }`}
-          >
-            <Shield className="size-4 shrink-0" />
-            <span>Request & Payload Security</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('logs')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors ${
-              activeTab === 'logs'
-                ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-indigo-500/20'
-                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-            }`}
-          >
-            <FileCode2 className="size-4 shrink-0" />
-            <span>Backend Log Center</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('database')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors ${
-              activeTab === 'database'
-                ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-indigo-500/20'
-                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-            }`}
-          >
-            <Database className="size-4 shrink-0" />
-            <span>Database & Auditor</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('ai-infra')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors ${
-              activeTab === 'ai-infra'
-                ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-indigo-500/20'
-                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-            }`}
-          >
-            <Cpu className="size-4 shrink-0" />
-            <span>AI & Infrastructure</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('incidents')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors ${
-              activeTab === 'incidents'
-                ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-indigo-500/20'
-                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-            }`}
-          >
-            <AlertOctagon className="size-4 shrink-0" />
-            <span>Incident Response</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('emergency')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors ${
-              activeTab === 'emergency'
-                ? 'bg-rose-600 text-white font-semibold shadow-lg shadow-rose-500/20'
-                : 'text-rose-400 hover:bg-rose-500/10 hover:text-rose-300'
-            }`}
-          >
-            <AlertTriangle className="size-4 shrink-0" />
-            <span>Emergency Controls</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('audit')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors ${
-              activeTab === 'audit'
-                ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-indigo-500/20'
-                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-            }`}
-          >
-            <FileSpreadsheet className="size-4 shrink-0" />
-            <span>Immutable Audit Trail</span>
-          </button>
-        </aside>
-
-        {/* Content Area */}
-        <main className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-6">
-          {/* TAB 1: OVERVIEW */}
-          {activeTab === 'overview' && (
-            <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
-                <div>
-                  <h2 className="text-xl font-bold font-mono text-white flex items-center gap-2">
-                    <Activity className="size-5 text-indigo-400" />
-                    PLATFORM TELEMETRY & HEALTH
-                  </h2>
-                  <p className="text-xs text-slate-400 font-mono mt-0.5">
-                    Real-time cross-subsystem telemetry from production PostgreSQL, Render, and Vercel
-                  </p>
-                </div>
-                <button
-                  onClick={loadTabData}
-                  disabled={loadingTelemetry}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs font-mono flex items-center gap-1.5 text-slate-300 transition-colors w-fit"
-                >
-                  <RefreshCw className={`size-3.5 ${loadingTelemetry ? 'animate-spin' : ''}`} />
-                  <span>Refresh Telemetry</span>
-                </button>
-              </div>
-
-              {/* KPI Cards */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 font-mono space-y-1">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center justify-between">
-                    <span>Active LMS Sessions</span>
-                    <Users className="size-3.5 text-indigo-400" />
-                  </div>
-                  <div className="text-2xl font-bold text-white">
-                    {telemetry?.metrics?.activeSessions ?? '…'}
-                  </div>
-                  <div className="text-[10px] text-emerald-400 flex items-center gap-1">
-                    <CheckCircle2 className="size-3" />
-                    <span>PostgreSQL Refresh Sessions</span>
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 font-mono space-y-1">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center justify-between">
-                    <span>Failed Logins (24h)</span>
-                    <ShieldAlert className="size-3.5 text-amber-400" />
-                  </div>
-                  <div className="text-2xl font-bold text-white">
-                    {telemetry?.metrics?.failedLoginAttempts24h ?? '0'}
-                  </div>
-                  <div className="text-[10px] text-slate-400">Security event logs analyzed</div>
-                </div>
-
-                <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 font-mono space-y-1">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center justify-between">
-                    <span>Database Status</span>
-                    <Database className="size-3.5 text-emerald-400" />
-                  </div>
-                  <div className="text-2xl font-bold text-emerald-400">
-                    {telemetry?.subsystems?.database?.status || 'HEALTHY'}
-                  </div>
-                  <div className="text-[10px] text-slate-400">
-                    Size: {telemetry?.subsystems?.database?.databaseSize || 'N/A'} • {telemetry?.subsystems?.database?.activeConnections || 1} active
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 font-mono space-y-1">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center justify-between">
-                    <span>Server Uptime</span>
-                    <Clock className="size-3.5 text-indigo-400" />
-                  </div>
-                  <div className="text-2xl font-bold text-white">
-                    {telemetry?.metrics?.serverUptimeSeconds ? `${Math.floor(telemetry.metrics.serverUptimeSeconds / 3600)}h ${Math.floor((telemetry.metrics.serverUptimeSeconds % 3600) / 60)}m` : 'Live'}
-                  </div>
-                  <div className="text-[10px] text-slate-400">Render Container Core</div>
-                </div>
-              </div>
-
-              {/* Subsystems Detailed Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/40 space-y-3 font-mono text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-white flex items-center gap-1.5">
-                      <Server className="size-4 text-indigo-400" />
-                      Backend Core Service
-                    </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
-                      OPERATIONAL
-                    </span>
-                  </div>
-                  <div className="space-y-1 text-slate-400 text-[11px]">
-                    <p>Framework: FastAPI (Python 3.13)</p>
-                    <p>Deployment: Render Web Service</p>
-                    <p>Service ID: srv-dbj0lhou01pc73e5fhbg</p>
-                    <p>Region: Oregon (US-West)</p>
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/40 space-y-3 font-mono text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-white flex items-center gap-1.5">
-                      <Database className="size-4 text-emerald-400" />
-                      PostgreSQL Database
-                    </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
-                      HEALTHY
-                    </span>
-                  </div>
-                  <div className="space-y-1 text-slate-400 text-[11px]">
-                    <p>Engine: PostgreSQL 18.6</p>
-                    <p>Host: dpg-dbj0mm8ae00c73ct8660-a</p>
-                    <p>Active Conns: {telemetry?.subsystems?.database?.activeConnections || 1}</p>
-                    <p>Slow Queries: {telemetry?.subsystems?.database?.slowQueries || 0}</p>
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/40 space-y-3 font-mono text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-white flex items-center gap-1.5">
-                      <Sparkles className="size-4 text-amber-400" />
-                      AI Service & Fallbacks
-                    </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
-                      READY
-                    </span>
-                  </div>
-                  <div className="space-y-1 text-slate-400 text-[11px]">
-                    <p>Primary: Google Gemini 2.5 Flash</p>
-                    <p>Fallback: OpenAI / Claude API</p>
-                    <p>Latency: ~312ms</p>
-                    <p>Status: All models responding</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 2: USER LOGIN MONITOR */}
-          {activeTab === 'logins' && (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-                <div>
-                  <h2 className="text-lg font-bold font-mono text-white flex items-center gap-2">
-                    <Users className="size-5 text-indigo-400" />
-                    LIVE PLATFORM USER AUTHENTICATION MONITOR
-                  </h2>
-                  <p className="text-xs text-slate-400 font-mono">
-                    Real-time authentication sessions and login telemetry across students, trainers, and college administrators
-                  </p>
-                </div>
-                <div className="relative w-full sm:w-64">
-                  <Search className="size-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                  <input
-                    type="text"
-                    value={searchLogins}
-                    onChange={(e) => setSearchLogins(e.target.value)}
-                    placeholder="Search name, email, IP…"
-                    className="w-full pl-9 pr-3 py-1.5 text-xs font-mono bg-slate-900 border border-slate-800 rounded-lg text-white"
-                  />
-                </div>
-              </div>
-
-              <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40">
-                <table className="w-full text-left font-mono text-xs">
-                  <thead className="bg-slate-900 border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[10px]">
-                    <tr>
-                      <th className="px-4 py-3">User & Email</th>
-                      <th className="px-4 py-3">Role</th>
-                      <th className="px-4 py-3">Source IP</th>
-                      <th className="px-4 py-3">Device / OS</th>
-                      <th className="px-4 py-3">Session State</th>
-                      <th className="px-4 py-3">Timestamp</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {logins
-                      .filter((l) =>
-                        !searchLogins ||
-                        l.name?.toLowerCase().includes(searchLogins.toLowerCase()) ||
-                        l.email?.toLowerCase().includes(searchLogins.toLowerCase()) ||
-                        l.ipAddress?.includes(searchLogins)
-                      )
-                      .map((l) => (
-                        <tr key={l.sessionId} className="hover:bg-slate-800/30">
-                          <td className="px-4 py-3">
-                            <p className="font-semibold text-white">{l.name || 'User'}</p>
-                            <p className="text-[11px] text-slate-400">{l.email}</p>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="px-2 py-0.5 rounded text-[10px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/30">
-                              {l.role}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-slate-300">{l.ipAddress}</td>
-                          <td className="px-4 py-3 text-slate-400">{l.device} • {l.browser}</td>
-                          <td className="px-4 py-3">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                                l.sessionStatus === 'ACTIVE'
-                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                                  : 'bg-slate-800 text-slate-400'
-                              }`}
-                            >
-                              {l.sessionStatus}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-slate-400 text-[11px]">
-                            {l.timestamp ? new Date(l.timestamp).toLocaleString() : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: SECURITY EVENTS */}
-          {activeTab === 'security' && (
-            <div className="space-y-4">
-              <div className="pb-3 border-b border-slate-800">
-                <h2 className="text-lg font-bold font-mono text-white flex items-center gap-2">
-                  <Shield className="size-5 text-indigo-400" />
-                  REQUEST & PAYLOAD SECURITY TELEMETRY
-                </h2>
-                <p className="text-xs text-slate-400 font-mono">
-                  Real-time detection of SQL injection patterns, XSS indicators, abnormal payload frequencies, and malformed requests
+      {/* MAIN COMMAND WORKSPACE */}
+      <main className="flex-1 p-4 sm:p-6 max-w-7xl w-full mx-auto space-y-6">
+        {/* ========================================================================= */}
+        {/* TAB 1: COMMAND OVERVIEW & LIVE STREAM */}
+        {/* ========================================================================= */}
+        {activeTab === 'overview' && (
+          <div className="space-y-6">
+            {/* Top Metrics Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 font-mono">
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Security Threat</span>
+                <p className={`text-xl font-extrabold ${telemetry?.securityThreatLevel === 'HIGH' ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  {telemetry?.securityThreatLevel || 'LOW'}
                 </p>
+                <p className="text-[10px] text-slate-500">Autonomous threat model</p>
               </div>
 
-              <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40">
-                {securityEvents.length === 0 ? (
-                  <div className="p-8 text-center text-xs font-mono text-slate-400">
-                    <CheckCircle2 className="size-8 text-emerald-400 mx-auto mb-2" />
-                    <p className="text-white font-semibold">Zero Malicious Payloads Detected</p>
-                    <p className="text-slate-500 mt-1">Platform request inspection engine reports healthy telemetry.</p>
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Active Sessions</span>
+                <p className="text-xl font-extrabold text-white">{telemetry?.metrics?.activeSessions ?? '—'}</p>
+                <p className="text-[10px] text-slate-500">Live platform tokens</p>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Failed Logins (24h)</span>
+                <p className="text-xl font-extrabold text-amber-400">{telemetry?.metrics?.failedLoginAttempts24h ?? '—'}</p>
+                <p className="text-[10px] text-slate-500">Monitored sign-in drops</p>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Brute Force IPs</span>
+                <p className={`text-xl font-extrabold ${telemetry?.metrics?.bruteForceActiveIps > 0 ? 'text-rose-400' : 'text-slate-300'}`}>
+                  {telemetry?.metrics?.bruteForceActiveIps ?? 0}
+                </p>
+                <p className="text-[10px] text-slate-500">Active threshold spikes</p>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Open Incidents</span>
+                <p className={`text-xl font-extrabold ${telemetry?.metrics?.openIncidentsCount > 0 ? 'text-amber-400' : 'text-slate-300'}`}>
+                  {telemetry?.metrics?.openIncidentsCount ?? 0}
+                </p>
+                <p className="text-[10px] text-slate-500">Requiring intervention</p>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">DB Ping Latency</span>
+                <p className="text-xl font-extrabold text-emerald-400">
+                  {telemetry?.metrics?.databasePingLatencyMs ? `${telemetry.metrics.databasePingLatencyMs}ms` : 'MEASURING'}
+                </p>
+                <p className="text-[10px] text-slate-500">PostgreSQL 18 query ping</p>
+              </div>
+            </div>
+
+            {/* Subsystems Health Banner */}
+            <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/30 space-y-3 font-mono text-xs">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                <span className="text-slate-300 font-bold uppercase tracking-wider flex items-center gap-2">
+                  <Activity className="size-4 text-indigo-400" />
+                  Subsystems Operational Status
+                </span>
+                <span className="text-[11px] text-slate-400">Environment: Production (Oregon)</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="p-3 rounded-lg border border-slate-800/80 bg-slate-900/60 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 font-semibold">PostgreSQL</span>
+                    <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-bold text-[10px]">
+                      {telemetry?.subsystems?.database?.status || 'HEALTHY'}
+                    </span>
                   </div>
+                  <p className="text-[11px] text-slate-300">
+                    Active Conns: <strong>{telemetry?.subsystems?.database?.activeConnections ?? 1}</strong> • Size: <strong>{telemetry?.subsystems?.database?.databaseSize ?? '—'}</strong>
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-lg border border-slate-800/80 bg-slate-900/60 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 font-semibold">FastAPI Web Service</span>
+                    <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-bold text-[10px]">
+                      {telemetry?.subsystems?.backend?.status || 'HEALTHY'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    Uptime: <strong>{telemetry?.subsystems?.backend?.uptimeSeconds ? `${Math.floor(telemetry.subsystems.backend.uptimeSeconds / 60)}m` : '—'}</strong> • Render Live
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-lg border border-slate-800/80 bg-slate-900/60 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 font-semibold">Authentication</span>
+                    <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-bold text-[10px]">
+                      {telemetry?.subsystems?.authentication?.status || 'HEALTHY'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">Argon2id + TOTP MFA Enforced</p>
+                </div>
+
+                <div className="p-3 rounded-lg border border-slate-800/80 bg-slate-900/60 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 font-semibold">AI Gateway</span>
+                    <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-bold text-[10px]">
+                      {telemetry?.subsystems?.aiService?.status || 'OPERATIONAL'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">Gemini 2.5 Flash • Armed</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Unified Event Stream with Category Filters */}
+            <div className="space-y-3 font-mono">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-800">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Radio className="size-4 text-indigo-400 animate-pulse" />
+                    LIVE UNIFIED SECURITY & SYSTEM EVENT FEED
+                  </h3>
+                  <p className="text-[11px] text-slate-400">Correlated chronological event stream across all subsystems</p>
+                </div>
+                {/* Filter Pills */}
+                <div className="flex items-center gap-1 text-[11px]">
+                  {['ALL', 'AUTH', 'SECURITY', 'DATABASE', 'ADMIN'].map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setEventFilter(cat)}
+                      className={`px-2.5 py-1 rounded-md font-semibold transition ${
+                        eventFilter === cat
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40 text-xs">
+                {eventStream.length === 0 ? (
+                  <div className="p-8 text-center text-slate-400">No events matched the current filter.</div>
                 ) : (
-                  <table className="w-full text-left font-mono text-xs">
-                    <thead className="bg-slate-900 border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[10px]">
-                      <tr>
-                        <th className="px-4 py-3">Event Type</th>
-                        <th className="px-4 py-3">Severity</th>
-                        <th className="px-4 py-3">Classification</th>
-                        <th className="px-4 py-3">Source IP</th>
-                        <th className="px-4 py-3">Endpoint</th>
-                        <th className="px-4 py-3">Timestamp</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60">
-                      {securityEvents.map((ev) => (
-                        <tr key={ev.id} className="hover:bg-slate-800/30">
-                          <td className="px-4 py-3 font-semibold text-white">{ev.eventType}</td>
-                          <td className="px-4 py-3">
+                  <div className="divide-y divide-slate-800/60 max-h-[500px] overflow-y-auto font-mono">
+                    {eventStream.map((ev) => (
+                      <div key={ev.id} className="p-3 hover:bg-slate-800/30 flex items-start justify-between gap-4">
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-center gap-2">
                             <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
                                 ev.severity === 'CRITICAL' || ev.severity === 'HIGH'
                                   ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                  : ev.severity === 'MEDIUM'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                  : 'bg-slate-800 text-slate-300 border border-slate-700'
                               }`}
                             >
-                              {ev.severity}
+                              {ev.category}
                             </span>
-                          </td>
-                          <td className="px-4 py-3 text-slate-300">{ev.classification}</td>
-                          <td className="px-4 py-3 text-slate-400">{ev.sourceIp}</td>
-                          <td className="px-4 py-3 text-slate-400 truncate max-w-xs">{ev.endpoint}</td>
-                          <td className="px-4 py-3 text-slate-400 text-[11px]">
-                            {ev.timestamp ? new Date(ev.timestamp).toLocaleString() : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                            <span className="font-bold text-white text-xs">{ev.title}</span>
+                          </div>
+                          <p className="text-slate-300 text-[11px] truncate">{ev.description}</p>
+                          <div className="flex items-center gap-3 text-[10px] text-slate-500">
+                            <span>Actor: <strong className="text-slate-400">{ev.actor}</strong></span>
+                            <span>Source IP: <strong className="text-slate-400">{ev.sourceIp}</strong></span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-slate-500 shrink-0">
+                          {ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : '—'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* TAB 4: BACKEND LOGS */}
-          {activeTab === 'logs' && (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-                <div>
-                  <h2 className="text-lg font-bold font-mono text-white flex items-center gap-2">
-                    <FileCode2 className="size-5 text-indigo-400" />
-                    LIVE BACKEND STRUCTURED LOG CENTER
-                  </h2>
-                  <p className="text-xs text-slate-400 font-mono">
-                    Streaming audit, security, and exception traces from FastAPI and PostgreSQL core services
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={logLevel}
-                    onChange={(e) => setLogLevel(e.target.value)}
-                    className="px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900 text-xs font-mono text-slate-300"
-                  >
-                    <option value="ALL">All Levels</option>
-                    <option value="SECURITY">SECURITY</option>
-                    <option value="ERROR">ERROR</option>
-                    <option value="WARNING">WARNING</option>
-                    <option value="INFO">INFO</option>
-                  </select>
-                  <input
-                    type="text"
-                    value={logSearch}
-                    onChange={(e) => setLogSearch(e.target.value)}
-                    placeholder="Search logs…"
-                    className="px-3 py-1.5 rounded-lg border border-slate-800 bg-slate-900 text-xs font-mono text-white w-48"
-                  />
-                  <button
-                    onClick={loadTabData}
-                    className="p-1.5 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-300"
-                  >
-                    <RefreshCw className="size-4" />
-                  </button>
-                </div>
+        {/* ========================================================================= */}
+        {/* TAB 2: ADVANCED SECURITY OPERATIONS */}
+        {/* ========================================================================= */}
+        {activeTab === 'security-ops' && (
+          <div className="space-y-6 font-mono text-xs">
+            <div className="pb-3 border-b border-slate-800">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <ShieldAlert className="size-5 text-indigo-400" />
+                ADVANCED THREAT OPERATIONS & FORENSIC ANALYSIS
+              </h2>
+              <p className="text-slate-400 text-xs">
+                Brute-force detection, token reuse investigation, suspicious IP threat scores, and explainable user risk ratings.
+              </p>
+            </div>
+
+            {/* Brute Force Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Ban className="size-4 text-rose-400" />
+                  Detected Brute-Force Sources (Threshold: ≥ 3 Failed Logins / 24h)
+                </h3>
               </div>
-
-              <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950 font-mono text-xs">
+              <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40">
                 <table className="w-full text-left">
-                  <thead className="bg-slate-900 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
+                  <thead className="bg-slate-900/80 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
                     <tr>
-                      <th className="px-4 py-3">Timestamp</th>
-                      <th className="px-4 py-3">Level</th>
-                      <th className="px-4 py-3">Service</th>
-                      <th className="px-4 py-3">Message</th>
-                      <th className="px-4 py-3">Actor</th>
+                      <th className="px-4 py-2.5">Source IP</th>
+                      <th className="px-4 py-2.5">Failed Attempts</th>
+                      <th className="px-4 py-2.5">First / Last Attempt</th>
+                      <th className="px-4 py-2.5">Severity</th>
+                      <th className="px-4 py-2.5">Recommended Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
-                    {logs.map((log) => (
-                      <tr key={log.id} className="hover:bg-slate-900/60">
-                        <td className="px-4 py-2.5 text-slate-400 whitespace-nowrap text-[11px]">
-                          {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '—'}
+                    {securityAnalytics?.bruteForceAttacks?.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                          No active brute force attack thresholds exceeded.
                         </td>
-                        <td className="px-4 py-2.5 whitespace-nowrap">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              log.level === 'SECURITY'
-                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                                : log.level === 'ERROR'
-                                ? 'bg-rose-500/20 text-rose-400'
-                                : log.level === 'WARNING'
-                                ? 'bg-amber-500/20 text-amber-300'
-                                : 'bg-slate-800 text-slate-300'
-                            }`}
-                          >
-                            {log.level}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 text-indigo-400 whitespace-nowrap">{log.service}</td>
-                        <td className="px-4 py-2.5 text-slate-200">{log.message}</td>
-                        <td className="px-4 py-2.5 text-slate-400 whitespace-nowrap">{log.actor}</td>
                       </tr>
-                    ))}
+                    ) : (
+                      securityAnalytics?.bruteForceAttacks?.map((b: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-800/30">
+                          <td className="px-4 py-3 font-bold text-white">{b.ipAddress}</td>
+                          <td className="px-4 py-3 font-bold text-rose-400">{b.failCount} attempts</td>
+                          <td className="px-4 py-3 text-slate-400 text-[11px]">
+                            {b.lastAttempt ? new Date(b.lastAttempt).toLocaleString() : '—'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                              {b.threatSeverity}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-amber-300 font-semibold">{b.recommendedAction}</td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
             </div>
-          )}
 
-          {/* TAB 5: DATABASE HEALTH & CONSISTENCY AUDITOR */}
-          {activeTab === 'database' && (
-            <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-                <div>
-                  <h2 className="text-lg font-bold font-mono text-white flex items-center gap-2">
-                    <Database className="size-5 text-indigo-400" />
-                    POSTGRESQL HEALTH & CONSISTENCY AUDITOR
-                  </h2>
-                  <p className="text-xs text-slate-400 font-mono">
-                    Real-time PostgreSQL engine health and automated 6-point read-only relational integrity audit
-                  </p>
-                </div>
-                <button
-                  onClick={handleReRunAudit}
-                  disabled={loadingAudit}
-                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs flex items-center gap-1.5 transition-colors font-semibold"
-                >
-                  <RefreshCw className={`size-3.5 ${loadingAudit ? 'animate-spin' : ''}`} />
-                  <span>Execute Integrity Audit</span>
-                </button>
-              </div>
-
-              {/* Consistency Audit Summary Banner */}
-              {dbAudit && (
-                <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4 font-mono">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="size-5 text-emerald-400" />
-                      <span className="font-bold text-white text-sm">
-                        Relational Integrity Score: {dbAudit.summary?.overallHealthScore}%
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-300">
-                      {dbAudit.summary?.passedChecks} of {dbAudit.summary?.totalChecks} automated consistency checks passed cleanly. 0 critical violations.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="px-2 py-1 rounded bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/40">
-                      PASSED: {dbAudit.summary?.passedChecks}
-                    </span>
-                    <span className="px-2 py-1 rounded bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/40">
-                      WARNINGS: {dbAudit.summary?.warningCount}
-                    </span>
-                    <span className="px-2 py-1 rounded bg-rose-500/20 text-rose-300 font-semibold border border-rose-500/40">
-                      FAILED: {dbAudit.summary?.failedCount}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Consistency Checks Table */}
+            {/* Token Reuse Investigation */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <AlertOctagon className="size-4 text-amber-400" />
+                Refresh-Token Reuse Forensics (Rotated Token Re-presentation)
+              </h3>
               <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40">
-                <table className="w-full text-left font-mono text-xs">
-                  <thead className="bg-slate-900 border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[10px]">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-900/80 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
                     <tr>
-                      <th className="px-4 py-3">Check ID & Name</th>
-                      <th className="px-4 py-3">Category</th>
-                      <th className="px-4 py-3">Description & Logic</th>
-                      <th className="px-4 py-3">Status</th>
-                      <th className="px-4 py-3 text-right">Violations</th>
+                      <th className="px-4 py-2.5">Affected Account</th>
+                      <th className="px-4 py-2.5">Source IP</th>
+                      <th className="px-4 py-2.5">Security Detail</th>
+                      <th className="px-4 py-2.5">Timestamp</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
-                    {dbAudit?.checks?.map((chk: any) => (
-                      <tr key={chk.id} className="hover:bg-slate-800/30">
+                    {securityAnalytics?.tokenReuseIncidents?.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-6 text-center text-slate-500">
+                          No refresh token reuse events recorded.
+                        </td>
+                      </tr>
+                    ) : (
+                      securityAnalytics?.tokenReuseIncidents?.map((tr: any) => (
+                        <tr key={tr.id} className="hover:bg-slate-800/30">
+                          <td className="px-4 py-3">
+                            <p className="font-bold text-white">{tr.email}</p>
+                            <p className="text-[10px] text-slate-500">{tr.name}</p>
+                          </td>
+                          <td className="px-4 py-3 text-indigo-300">{tr.ipAddress}</td>
+                          <td className="px-4 py-3 text-amber-300 text-[11px]">{tr.detail}</td>
+                          <td className="px-4 py-3 text-slate-400 text-[11px]">
+                            {tr.timestamp ? new Date(tr.timestamp).toLocaleString() : '—'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* User Risk Scoring Grid */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <UserX className="size-4 text-indigo-400" />
+                User Risk Scoring (Explainable Factor Algorithm)
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {securityAnalytics?.userRiskScoring?.map((u: any) => (
+                  <div key={u.userId} className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-white text-sm">{u.email}</p>
+                        <p className="text-[10px] text-slate-400">{u.name} • {u.role} ({u.status})</p>
+                      </div>
+                      <div className="text-right">
+                        <span
+                          className={`px-2 py-0.5 rounded text-xs font-extrabold border ${
+                            u.level === 'CRITICAL'
+                              ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                              : u.level === 'HIGH'
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                          }`}
+                        >
+                          Risk: {u.riskScore}/100
+                        </span>
+                      </div>
+                    </div>
+                    <div className="pt-2 border-t border-slate-800 space-y-1">
+                      <span className="text-[10px] text-slate-400 uppercase font-semibold">Contributing Factors:</span>
+                      <ul className="list-disc list-inside text-[11px] text-slate-300 space-y-0.5">
+                        {u.factors?.map((f: string, i: number) => (
+                          <li key={i}>{f}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 3: PRIVILEGED ACCESS & MFA */}
+        {/* ========================================================================= */}
+        {activeTab === 'privileged' && (
+          <div className="space-y-6 font-mono text-xs">
+            <div className="pb-3 border-b border-slate-800">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Users className="size-5 text-indigo-400" />
+                PRIVILEGED ACCESS & OPERATOR SESSION MANAGEMENT
+              </h2>
+              <p className="text-slate-400 text-xs">
+                Comprehensive inventory of administrative accounts, active privileged sessions, and single-click revocation.
+              </p>
+            </div>
+
+            {/* Privileged Accounts Inventory */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-white">LMS Privileged Accounts (SUPER_ADMIN, ADMIN, HOD)</h3>
+              <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-900/80 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
+                    <tr>
+                      <th className="px-4 py-2.5">User Identity</th>
+                      <th className="px-4 py-2.5">Role</th>
+                      <th className="px-4 py-2.5">Status</th>
+                      <th className="px-4 py-2.5">MFA Mandatory</th>
+                      <th className="px-4 py-2.5">Last Login Time / IP</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {privilegedAccess?.privilegedAccounts?.map((acc: any) => (
+                      <tr key={acc.id} className="hover:bg-slate-800/30">
                         <td className="px-4 py-3">
-                          <p className="font-semibold text-white">{chk.name}</p>
-                          <p className="text-[10px] text-slate-500">{chk.id}</p>
+                          <p className="font-bold text-white">{acc.email}</p>
+                          <p className="text-[10px] text-slate-500">{acc.name}</p>
                         </td>
-                        <td className="px-4 py-3 text-slate-400">{chk.category}</td>
-                        <td className="px-4 py-3 text-slate-300">
-                          <p>{chk.description}</p>
-                          <p className="text-[10px] text-indigo-400 mt-0.5">{chk.queryLogic}</p>
-                        </td>
+                        <td className="px-4 py-3 font-semibold text-indigo-300">{acc.role}</td>
                         <td className="px-4 py-3">
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              chk.status === 'PASSED'
+                              acc.status === 'ACTIVE'
                                 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                                 : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                             }`}
                           >
-                            {chk.status}
+                            {acc.status}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right font-bold text-white">
-                          {chk.violationsCount}
+                        <td className="px-4 py-3 text-slate-300">
+                          {acc.isMfaEnforced ? <span className="text-emerald-400">ENFORCED</span> : <span className="text-slate-500">OPTIONAL</span>}
+                        </td>
+                        <td className="px-4 py-3 text-slate-400 text-[11px]">
+                          {acc.lastLoginAt ? new Date(acc.lastLoginAt).toLocaleString() : 'Never'} ({acc.lastLoginIp})
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-
-              {/* Database Storage Breakdown */}
-              {dbHealth && (
-                <div className="space-y-3 font-mono">
-                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">Top Table Storage Sizes</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {dbHealth.topTables?.slice(0, 6).map((t: any) => (
-                      <div key={t.table} className="p-3 rounded-lg border border-slate-800 bg-slate-900/50 space-y-1 text-xs">
-                        <p className="font-semibold text-white truncate">{t.table}</p>
-                        <p className="text-[11px] text-indigo-400">Total: {t.totalSize}</p>
-                        <p className="text-[10px] text-slate-500">Table: {t.tableSize} • Indexes: {t.indexSize}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
-          )}
 
-          {/* TAB 6: AI & INFRASTRUCTURE */}
-          {activeTab === 'ai-infra' && (
-            <div className="space-y-6">
-              <div className="pb-3 border-b border-slate-800">
-                <h2 className="text-lg font-bold font-mono text-white flex items-center gap-2">
-                  <Cpu className="size-5 text-indigo-400" />
-                  AI SERVICES & HOSTING INFRASTRUCTURE
-                </h2>
-                <p className="text-xs text-slate-400 font-mono">
-                  Health status for LLM integrations, hosting container status, and telemetry disclosures
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-xs">
-                {/* AI Service Card */}
-                <div className="p-5 rounded-xl border border-slate-800 bg-slate-900/50 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-white text-sm flex items-center gap-2">
-                      <Sparkles className="size-4 text-amber-400" />
-                      LLM AI Model Gateway
-                    </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">
-                      {aiHealth?.availability || 'OPERATIONAL'}
-                    </span>
-                  </div>
-                  <div className="space-y-2 text-slate-300">
-                    <p>Primary Provider: <strong className="text-white">{aiHealth?.primaryProvider || 'Google Gemini'}</strong></p>
-                    <p>Active Model: <strong className="text-white">{aiHealth?.primaryModel || 'gemini-2.5-flash'}</strong></p>
-                    <p>API Latency: <strong className="text-white">{aiHealth?.averageResponseTimeMs ? `${aiHealth.averageResponseTimeMs} ms` : 'MEASURED AT RUNTIME'}</strong></p>
-                    <p>Fallback Engine: <strong className="text-emerald-400">Claude / OpenAI Fallback Armed</strong></p>
-                  </div>
-                </div>
-
-                {/* Infrastructure Card */}
-                <div className="p-5 rounded-xl border border-slate-800 bg-slate-900/50 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-white text-sm flex items-center gap-2">
-                      <HardDrive className="size-4 text-indigo-400" />
-                      Render Web Service Host
-                    </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">
-                      {infra?.deployStatus || 'LIVE'}
-                    </span>
-                  </div>
-                  <div className="space-y-2 text-slate-300">
-                    <p>Service Name: <strong className="text-white">{infra?.serviceName || 'cnc-backend'}</strong></p>
-                    <p>Service ID: <strong className="text-white">{infra?.serviceId || 'srv-dbj0lhou01pc73e5fhbg'}</strong></p>
-                    <p>Region: <strong className="text-white">Oregon (us-west)</strong></p>
-                    <p>Frontend Host: <strong className="text-white">{infra?.frontendHost || 'Vercel Edge Network'}</strong></p>
-                    <div className="pt-2 border-t border-slate-800/80 grid grid-cols-2 gap-2 text-[11px]">
-                      <div>CPU Usage: <span className="text-amber-400/90 font-mono font-bold">{infra?.cpuUsagePercent || infra?.cpu || 'NOT CONNECTED'}</span></div>
-                      <div>Memory: <span className="text-amber-400/90 font-mono font-bold">{infra?.memoryUsage || infra?.memory || 'NOT CONNECTED'}</span></div>
-                      <div>Disk Storage: <span className="text-amber-400/90 font-mono font-bold">{infra?.diskUsage || infra?.disk || 'NOT CONNECTED'}</span></div>
-                      <div>Network I/O: <span className="text-amber-400/90 font-mono font-bold">{infra?.networkBandwidth || infra?.network || 'NOT CONNECTED'}</span></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Transparent Disclosures Notice */}
-              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/30 font-mono text-xs space-y-1">
-                <p className="font-semibold text-slate-300 flex items-center gap-1.5">
-                  <Terminal className="size-3.5 text-indigo-400" />
-                  INFRASTRUCTURE METRIC COLLECTION DISCLOSURE:
-                </p>
-                <p className="text-slate-500 text-[11px]">
-                  {infra?.telemetryStatus || 'Hosting provider limits live host metric polling on current token tier; application container monitored continuously via HTTP synthetic health probes.'}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 7: INCIDENTS */}
-          {activeTab === 'incidents' && (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-                <div>
-                  <h2 className="text-lg font-bold font-mono text-white flex items-center gap-2">
-                    <AlertOctagon className="size-5 text-indigo-400" />
-                    SECURITY & OPERATIONAL INCIDENT TRACKER
-                  </h2>
-                  <p className="text-xs text-slate-400 font-mono">
-                    Track anomalous events, investigation progress, and formal resolution timelines
-                  </p>
-                </div>
-              </div>
-
-              <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40 font-mono text-xs">
-                {incidents.length === 0 ? (
-                  <div className="p-10 text-center text-slate-400">
-                    <CheckCircle2 className="size-8 text-emerald-400 mx-auto mb-2" />
-                    <p className="text-white font-semibold">No Open Incidents</p>
-                    <p className="text-slate-500 text-[11px] mt-1">Platform operations running without active anomalies.</p>
-                  </div>
-                ) : (
-                  <table className="w-full text-left">
-                    <thead className="bg-slate-900 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
-                      <tr>
-                        <th className="px-4 py-3">Incident ID</th>
-                        <th className="px-4 py-3">Severity</th>
-                        <th className="px-4 py-3">Service</th>
-                        <th className="px-4 py-3">Title & Description</th>
-                        <th className="px-4 py-3">Status</th>
-                        <th className="px-4 py-3">Timestamp</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60">
-                      {incidents.map((inc) => (
-                        <tr key={inc.id} className="hover:bg-slate-800/30">
-                          <td className="px-4 py-3 font-bold text-white">{inc.id}</td>
-                          <td className="px-4 py-3">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                              {inc.severity}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-indigo-400">{inc.service}</td>
-                          <td className="px-4 py-3">
-                            <p className="font-semibold text-white">{inc.title}</p>
-                            <p className="text-[11px] text-slate-400">{inc.description}</p>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                              {inc.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-slate-400 text-[11px]">
-                            {inc.createdAt ? new Date(inc.createdAt).toLocaleString() : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 8: EMERGENCY CONTROLS */}
-          {activeTab === 'emergency' && (
-            <div className="space-y-6">
-              <div className="pb-3 border-b border-slate-800">
-                <h2 className="text-lg font-bold font-mono text-rose-400 flex items-center gap-2">
-                  <AlertTriangle className="size-5 text-rose-400" />
-                  EMERGENCY CONTROL CENTER
-                </h2>
-                <p className="text-xs text-slate-400 font-mono">
-                  Privileged infrastructure lockdown controls. Execution requires Argon2id password re-authentication and MFA confirmation.
-                </p>
-              </div>
-
-              {/* Status Warning */}
-              <div className="p-4 rounded-xl border border-rose-500/30 bg-rose-500/10 font-mono text-xs text-rose-300 space-y-1">
-                <p className="font-bold flex items-center gap-1.5 text-rose-400">
-                  <ShieldAlert className="size-4" />
-                  RESTRICTED DEFENSE PROTOCOLS:
-                </p>
-                <p className="text-[11px] leading-relaxed">
-                  Actions initiated here alter platform ingress and active user sessions immediately. All commands are permanently recorded in the immutable audit trail.
-                </p>
-              </div>
-
-              {/* Emergency Controls Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-xs">
-                {/* Maintenance Mode */}
-                <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-bold text-white text-sm">Platform Maintenance Mode</p>
-                      <p className="text-[11px] text-slate-400">Renders maintenance splash to ordinary LMS visitors</p>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${emergencyState?.maintenanceMode ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                      {emergencyState?.maintenanceMode ? 'ENABLED' : 'INACTIVE'}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => initiateEmergencyAction(emergencyState?.maintenanceMode ? 'DISABLE_MAINTENANCE_MODE' : 'ENABLE_MAINTENANCE_MODE')}
-                    className="w-full py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-semibold transition-colors"
-                  >
-                    {emergencyState?.maintenanceMode ? 'Deactivate Maintenance Mode' : 'Activate Maintenance Mode'}
-                  </button>
-                </div>
-
-                {/* Database Read-Only Mode */}
-                <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-bold text-white text-sm">Database Application Write Lock</p>
-                      <p className="text-[11px] text-slate-400">Blocks application mutation queries while preserving reads</p>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${emergencyState?.dbReadOnlyMode ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                      {emergencyState?.dbReadOnlyMode ? 'LOCKED' : 'NORMAL'}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => initiateEmergencyAction(emergencyState?.dbReadOnlyMode ? 'DISABLE_DB_READ_ONLY' : 'ENABLE_DB_READ_ONLY')}
-                    className="w-full py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-semibold transition-colors"
-                  >
-                    {emergencyState?.dbReadOnlyMode ? 'Disable DB Write Lock' : 'Enable Application DB Write Lock'}
-                  </button>
-                </div>
-
-                {/* Disable New Logins */}
-                <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-bold text-white text-sm">Disable New User Logins</p>
-                      <p className="text-[11px] text-slate-400">Temporarily suspends authentication endpoint for LMS users</p>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${emergencyState?.disableNewLogins ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                      {emergencyState?.disableNewLogins ? 'SUSPENDED' : 'ENABLED'}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => initiateEmergencyAction(emergencyState?.disableNewLogins ? 'ENABLE_NEW_LOGINS' : 'DISABLE_NEW_LOGINS')}
-                    className="w-full py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-semibold transition-colors"
-                  >
-                    {emergencyState?.disableNewLogins ? 'Re-enable User Logins' : 'Suspend New User Logins'}
-                  </button>
-                </div>
-
-                {/* Emergency Global Session Revocation */}
-                <div className="p-4 rounded-xl border border-rose-500/30 bg-rose-500/5 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-bold text-rose-400 text-sm">Emergency Global Session Revocation</p>
-                      <p className="text-[11px] text-slate-400">Instantly invalidates all active LMS refresh sessions</p>
-                    </div>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
-                      HIGH RISK
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => initiateEmergencyAction('EMERGENCY_GLOBAL_SESSION_REVOCATION')}
-                    className="w-full py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold transition-colors"
-                  >
-                    Revoke All Platform Sessions
-                  </button>
-                </div>
-              </div>
-
-              {/* Master Restore Button */}
-              <div className="p-4 rounded-xl border border-indigo-500/30 bg-indigo-500/10 flex items-center justify-between font-mono text-xs">
-                <div>
-                  <p className="font-bold text-white">Restore Normal Operational State</p>
-                  <p className="text-[11px] text-slate-400">Safely clears all maintenance, write-lock, and login restrictions</p>
-                </div>
-                <button
-                  onClick={() => initiateEmergencyAction('RESTORE_NORMAL_OPERATIONS')}
-                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition-colors"
-                >
-                  Clear All Lockdown Flags
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 9: IMMUTABLE AUDIT TRAIL */}
-          {activeTab === 'audit' && (
-            <div className="space-y-4">
-              <div className="pb-3 border-b border-slate-800">
-                <h2 className="text-lg font-bold font-mono text-white flex items-center gap-2">
-                  <FileSpreadsheet className="size-5 text-indigo-400" />
-                  OPERATIONS CENTER IMMUTABLE AUDIT TRAIL
-                </h2>
-                <p className="text-xs text-slate-400 font-mono">
-                  Permanent, tamper-resistant log of all emergency commands, account mutations, and configuration adjustments
-                </p>
-              </div>
-
-              <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40 font-mono text-xs">
+            {/* Active Privileged Sessions */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-white">Active Privileged Sessions</h3>
+              <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40">
                 <table className="w-full text-left">
-                  <thead className="bg-slate-900 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
+                  <thead className="bg-slate-900/80 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
                     <tr>
-                      <th className="px-4 py-3">Timestamp</th>
-                      <th className="px-4 py-3">Operator</th>
-                      <th className="px-4 py-3">Action</th>
-                      <th className="px-4 py-3">Target</th>
-                      <th className="px-4 py-3">Reason</th>
-                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-2.5">User</th>
+                      <th className="px-4 py-2.5">IP Address</th>
+                      <th className="px-4 py-2.5">User Agent</th>
+                      <th className="px-4 py-2.5">Last Activity</th>
+                      <th className="px-4 py-2.5 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
-                    {auditTrail.map((at) => (
-                      <tr key={at.id} className="hover:bg-slate-800/30">
-                        <td className="px-4 py-3 text-slate-400 text-[11px] whitespace-nowrap">
-                          {at.timestamp ? new Date(at.timestamp).toLocaleString() : '—'}
+                    {privilegedAccess?.activePrivilegedSessions?.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                          No active privileged LMS sessions.
                         </td>
-                        <td className="px-4 py-3 text-indigo-400 font-semibold">{at.actor}</td>
-                        <td className="px-4 py-3 text-white font-semibold">{at.action}</td>
-                        <td className="px-4 py-3 text-slate-400">{at.target}</td>
-                        <td className="px-4 py-3 text-slate-300 max-w-xs truncate">{at.reason}</td>
+                      </tr>
+                    ) : (
+                      privilegedAccess?.activePrivilegedSessions?.map((s: any) => (
+                        <tr key={s.sessionId} className="hover:bg-slate-800/30">
+                          <td className="px-4 py-3">
+                            <p className="font-bold text-white">{s.email}</p>
+                            <p className="text-[10px] text-slate-400">{s.role}</p>
+                          </td>
+                          <td className="px-4 py-3 text-indigo-300">{s.ipAddress}</td>
+                          <td className="px-4 py-3 text-slate-400 text-[11px] truncate max-w-xs">{s.userAgent}</td>
+                          <td className="px-4 py-3 text-slate-400 text-[11px]">
+                            {s.lastUsedAt ? new Date(s.lastUsedAt).toLocaleString() : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              onClick={() => handleRevokeSession(s.sessionId, false)}
+                              className="px-2 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 font-semibold"
+                            >
+                              Revoke
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 4: INCIDENT MANAGEMENT (7-STAGE LIFECYCLE) */}
+        {/* ========================================================================= */}
+        {activeTab === 'incidents' && (
+          <div className="space-y-6 font-mono text-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-800">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <AlertOctagon className="size-5 text-indigo-400" />
+                  INCIDENT RESPONSE CENTER (7-STAGE LIFECYCLE)
+                </h2>
+                <p className="text-slate-400 text-xs">
+                  DETECTED → CLASSIFIED → INVESTIGATING → CONTAINED → REMEDIATING → VERIFIED → CLOSED
+                </p>
+              </div>
+              <button
+                onClick={() => setNewIncidentModal(true)}
+                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition flex items-center gap-1.5 self-start sm:self-auto"
+              >
+                <AlertTriangle className="size-3.5" />
+                Register Incident
+              </button>
+            </div>
+
+            {/* Incidents Table */}
+            <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40">
+              <table className="w-full text-left">
+                <thead className="bg-slate-900/80 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
+                  <tr>
+                    <th className="px-4 py-2.5">Incident ID / Title</th>
+                    <th className="px-4 py-2.5">Severity</th>
+                    <th className="px-4 py-2.5">Service</th>
+                    <th className="px-4 py-2.5">Stage Status</th>
+                    <th className="px-4 py-2.5">Assigned Investigator</th>
+                    <th className="px-4 py-2.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {incidents.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                        No active or historical incidents recorded.
+                      </td>
+                    </tr>
+                  ) : (
+                    incidents.map((inc) => (
+                      <tr key={inc.id} className="hover:bg-slate-800/30">
                         <td className="px-4 py-3">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                            {at.result}
+                          <p className="font-bold text-white">{inc.id}</p>
+                          <p className="text-slate-300 text-[11px] truncate max-w-sm">{inc.title}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              inc.severity === 'CRITICAL'
+                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                : inc.severity === 'HIGH'
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                : 'bg-slate-800 text-slate-300 border border-slate-700'
+                            }`}
+                          >
+                            {inc.severity}
                           </span>
                         </td>
+                        <td className="px-4 py-3 text-slate-300">{inc.service}</td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                              inc.status === 'CLOSED'
+                                ? 'bg-slate-800 text-slate-400 border-slate-700'
+                                : inc.status === 'CONTAINED' || inc.status === 'VERIFIED'
+                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                            }`}
+                          >
+                            {inc.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-400">{inc.assignedTo || 'Unassigned'}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => setSelectedIncident(inc)}
+                            className="px-2.5 py-1 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 font-semibold"
+                          >
+                            Inspect & Advance
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Incident Details & Stage Advancement Modal */}
+            {selectedIncident && (
+              <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl font-mono text-xs">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <div>
+                      <span className="text-[10px] text-slate-400 uppercase font-semibold">Incident Details</span>
+                      <h3 className="text-base font-bold text-white">{selectedIncident.id}: {selectedIncident.title}</h3>
+                    </div>
+                    <button
+                      onClick={() => setSelectedIncident(null)}
+                      className="text-slate-400 hover:text-white"
+                    >
+                      <XCircle className="size-5" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 text-slate-300">
+                    <p><strong className="text-white">Service:</strong> {selectedIncident.service}</p>
+                    <p><strong className="text-white">Current Stage:</strong> <span className="text-indigo-400 font-bold">{selectedIncident.status}</span></p>
+                    <p><strong className="text-white">Description:</strong> {selectedIncident.description}</p>
+                    {selectedIncident.sourceIp && <p><strong className="text-white">Source IP:</strong> {selectedIncident.sourceIp}</p>}
+                    {selectedIncident.affectedUserEmail && <p><strong className="text-white">Affected Account:</strong> {selectedIncident.affectedUserEmail}</p>}
+                  </div>
+
+                  <div className="space-y-2 pt-2 border-t border-slate-800">
+                    <label className="text-[11px] font-semibold text-slate-300">Investigation & Resolution Notes</label>
+                    <textarea
+                      value={incidentNotes}
+                      onChange={(e) => setIncidentNotes(e.target.value)}
+                      placeholder="Add investigation findings, containment actions taken, or closure summary..."
+                      className="w-full h-20 p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  {/* Stage Buttons */}
+                  <div className="pt-2 border-t border-slate-800 space-y-2">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold">Advance Lifecycle Stage:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['CLASSIFIED', 'INVESTIGATING', 'CONTAINED', 'REMEDIATING', 'VERIFIED', 'CLOSED'].map((st) => (
+                        <button
+                          key={st}
+                          onClick={() => handleUpdateIncidentStage(selectedIncident.id, st)}
+                          className={`px-2.5 py-1 rounded border font-bold transition ${
+                            selectedIncident.status === st
+                              ? 'bg-indigo-600 text-white border-indigo-500'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                          }`}
+                        >
+                          → {st}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 5: DATABASE AUDITOR (12 CHECKS) */}
+        {/* ========================================================================= */}
+        {activeTab === 'database' && (
+          <div className="space-y-6 font-mono text-xs">
+            <div className="pb-3 border-b border-slate-800">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Database className="size-5 text-indigo-400" />
+                DATABASE INTEGRITY AUDITOR (12 READ-ONLY CHECKS)
+              </h2>
+              <p className="text-slate-400 text-xs">
+                Foreign key constraints, payment reconciliation, schema integrity, and connection capacity.
+              </p>
+            </div>
+
+            {/* Health Score Summary Card */}
+            {dbAudit && (
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="size-12 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 font-extrabold text-base">
+                    {dbAudit.summary?.overallHealthScore}%
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-sm">Overall Database Integrity Score</h3>
+                    <p className="text-[11px] text-slate-400">
+                      Passed: <strong>{dbAudit.summary?.passedChecks}/{dbAudit.summary?.totalChecks}</strong> checks • Warnings: {dbAudit.summary?.warningCount} • Failures: {dbAudit.summary?.failedCount}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={loadTabData}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition flex items-center gap-1.5"
+                >
+                  <RefreshCw className="size-3.5" />
+                  Rerun 12 Checks
+                </button>
+              </div>
+            )}
+
+            {/* 12 Integrity Checks Table */}
+            <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40">
+              <table className="w-full text-left">
+                <thead className="bg-slate-900/80 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
+                  <tr>
+                    <th className="px-4 py-2.5">Check ID / Category</th>
+                    <th className="px-4 py-2.5">Verification Name & Description</th>
+                    <th className="px-4 py-2.5">Query Logic</th>
+                    <th className="px-4 py-2.5">Status</th>
+                    <th className="px-4 py-2.5 text-right">Violations</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {dbAudit?.checks?.map((chk: any) => (
+                    <tr key={chk.id} className="hover:bg-slate-800/30">
+                      <td className="px-4 py-3">
+                        <span className="font-bold text-white">{chk.id}</span>
+                        <p className="text-[10px] text-slate-500">{chk.category}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="font-bold text-white">{chk.name}</p>
+                        <p className="text-slate-400 text-[11px]">{chk.description}</p>
+                      </td>
+                      <td className="px-4 py-3 text-slate-400 text-[10px] font-mono">{chk.queryLogic}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            chk.status === 'PASSED'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : chk.status === 'WARNING'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                          }`}
+                        >
+                          {chk.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-white">{chk.violationsCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 6: INFRASTRUCTURE & HOSTING TELEMETRY */}
+        {/* ========================================================================= */}
+        {activeTab === 'infrastructure' && (
+          <div className="space-y-6 font-mono text-xs">
+            <div className="pb-3 border-b border-slate-800">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Server className="size-5 text-indigo-400" />
+                INFRASTRUCTURE, CLOUD HOSTING & TELEMETRY
+              </h2>
+              <p className="text-slate-400 text-xs">
+                Real status of Render Backend, Render PostgreSQL, Vercel Edge, and hosting telemetry disclosures.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Web Service Card */}
+              <div className="p-5 rounded-xl border border-slate-800 bg-slate-900/50 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                  <span className="font-bold text-white flex items-center gap-2">
+                    <Cpu className="size-4 text-indigo-400" />
+                    Render Web Service Host
+                  </span>
+                  <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">
+                    {infra?.service?.deployStatus || 'LIVE'}
+                  </span>
+                </div>
+                <div className="space-y-1.5 text-slate-300">
+                  <p>Service Name: <strong className="text-white">{infra?.service?.name || 'CnC_Backend'}</strong></p>
+                  <p>Service ID: <strong className="text-white">{infra?.service?.id || 'srv-dbj0lhou01pc73e5fhbg'}</strong></p>
+                  <p>Branch: <strong className="text-white">{infra?.service?.branch || 'main'}</strong></p>
+                  <p>Region: <strong className="text-white">Oregon (us-west)</strong></p>
+                  <p>Frontend Host: <strong className="text-white">{infra?.frontendHost}</strong></p>
+                </div>
+              </div>
+
+              {/* PostgreSQL Card */}
+              <div className="p-5 rounded-xl border border-slate-800 bg-slate-900/50 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                  <span className="font-bold text-white flex items-center gap-2">
+                    <Database className="size-4 text-emerald-400" />
+                    Render Managed PostgreSQL
+                  </span>
+                  <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">
+                    {infra?.database?.status?.toUpperCase() || 'AVAILABLE'}
+                  </span>
+                </div>
+                <div className="space-y-1.5 text-slate-300">
+                  <p>Database Name: <strong className="text-white">cnc_lms_ixp7</strong></p>
+                  <p>Database ID: <strong className="text-white">{infra?.database?.id || 'dpg-dbj0mm8ae00c73ct8660-a'}</strong></p>
+                  <p>PostgreSQL Engine: <strong className="text-white">v{infra?.database?.version || '18.6'}</strong></p>
+                  <p>Measured Ping Latency: <strong className="text-emerald-400">{infra?.dbLatencyMs ? `${infra.dbLatencyMs}ms` : 'MEASURING'}</strong></p>
+                  <p>Expires At: <strong className="text-slate-400">{infra?.database?.expiresAt || 'Active'}</strong></p>
+                </div>
+              </div>
+            </div>
+
+            {/* Transparent Disclosures Notice */}
+            <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/30 space-y-2">
+              <span className="text-slate-300 font-semibold flex items-center gap-1.5">
+                <Terminal className="size-4 text-indigo-400" />
+                HOST METRIC DISCLOSURE & CONNECTIVITY STATUS:
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-400">
+                <div>Container CPU: <span className="text-amber-300 font-bold">{infra?.disclosures?.containerCpu}</span></div>
+                <div>Container Memory: <span className="text-amber-300 font-bold">{infra?.disclosures?.containerMemory}</span></div>
+                <div>Storage Volume: <span className="text-amber-300 font-bold">{infra?.disclosures?.containerDisk}</span></div>
+                <div>Network I/O: <span className="text-amber-300 font-bold">{infra?.disclosures?.containerNetwork}</span></div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 7: API SECURITY CENTER */}
+        {/* ========================================================================= */}
+        {activeTab === 'api-security' && (
+          <div className="space-y-6 font-mono text-xs">
+            <div className="pb-3 border-b border-slate-800">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Radio className="size-5 text-indigo-400" />
+                API SECURITY & PAYLOAD INSPECTION CENTER
+              </h2>
+              <p className="text-slate-400 text-xs">
+                Endpoint inventory, rate-limit policies, SQLi/XSS anomaly detection, and payload sanitization rules.
+              </p>
+            </div>
+
+            {/* Threat Indicators */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-1">
+                <span className="text-[10px] text-slate-400 uppercase">SQL Injection Patterns</span>
+                <p className="text-xl font-bold text-emerald-400">{apiSecurity?.threatIndicators?.sqlInjectionAttempts ?? 0}</p>
+                <p className="text-[10px] text-slate-500">Zero active exploits</p>
+              </div>
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-1">
+                <span className="text-[10px] text-slate-400 uppercase">XSS Script Signatures</span>
+                <p className="text-xl font-bold text-emerald-400">{apiSecurity?.threatIndicators?.xssAttempts ?? 0}</p>
+                <p className="text-[10px] text-slate-500">Zero script injections</p>
+              </div>
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-1">
+                <span className="text-[10px] text-slate-400 uppercase">Brute Force Events</span>
+                <p className="text-xl font-bold text-amber-400">{apiSecurity?.threatIndicators?.bruteForceEvents ?? 0}</p>
+                <p className="text-[10px] text-slate-500">Throttled via lockout</p>
+              </div>
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-1">
+                <span className="text-[10px] text-slate-400 uppercase">Token Reuses</span>
+                <p className="text-xl font-bold text-rose-400">{apiSecurity?.threatIndicators?.tokenReuses ?? 0}</p>
+                <p className="text-[10px] text-slate-500">Family auto-revoked</p>
+              </div>
+            </div>
+
+            {/* Endpoint Inventory */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-white">Registered API Endpoints Catalog</h3>
+              <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-900/80 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
+                    <tr>
+                      <th className="px-4 py-2.5">Endpoint Path</th>
+                      <th className="px-4 py-2.5">Method</th>
+                      <th className="px-4 py-2.5">Authentication</th>
+                      <th className="px-4 py-2.5">Rate Limited</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {apiSecurity?.endpointInventory?.map((ep: any, i: number) => (
+                      <tr key={i} className="hover:bg-slate-800/30">
+                        <td className="px-4 py-3 font-bold text-white">{ep.path}</td>
+                        <td className="px-4 py-3">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                            {ep.method}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-300">{ep.authRequired ? 'Bearer / Cookie' : 'Public'}</td>
+                        <td className="px-4 py-3 text-slate-300">{ep.rateLimited ? <span className="text-emerald-400 font-bold">YES</span> : 'Default'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             </div>
-          )}
-        </main>
-      </div>
+          </div>
+        )}
 
-      {/* Emergency Action Re-Authentication Modal */}
-      {emergencyModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 font-mono">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-6 space-y-4">
-            <div className="flex items-center gap-2 text-rose-400 font-bold text-sm">
-              <AlertTriangle className="size-5" />
-              <span>CONFIRM CRITICAL EMERGENCY ACTION</span>
+        {/* ========================================================================= */}
+        {/* TAB 8: BACKUP & DISASTER RECOVERY RUNBOOK */}
+        {/* ========================================================================= */}
+        {activeTab === 'backup-dr' && (
+          <div className="space-y-6 font-mono text-xs">
+            <div className="pb-3 border-b border-slate-800">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <FileArchive className="size-5 text-indigo-400" />
+                BACKUP & DISASTER RECOVERY CONTROL CENTER
+              </h2>
+              <p className="text-slate-400 text-xs">
+                Snapshot retention policies, RPO/RTO calculations, restore verification status, and step-by-step restoration procedures.
+              </p>
             </div>
 
-            <p className="text-xs text-slate-300">
-              You are about to execute: <strong className="text-white">{pendingAction}</strong>
-            </p>
-
-            <form onSubmit={handleConfirmEmergencyAction} className="space-y-3">
-              <div>
-                <label className="block text-[11px] text-slate-400 uppercase mb-1">
-                  Mandatory Operational Reason
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={actionReason}
-                  onChange={(e) => setActionReason(e.target.value)}
-                  placeholder="e.g. Incident INC-2026-001 mitigation"
-                  className="w-full px-3 py-1.5 text-xs bg-slate-950 border border-slate-700 rounded-lg text-white"
-                />
+            {/* Backup Status Overview */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-2">
+                <span className="text-[10px] text-slate-400 uppercase font-semibold">Recovery Point Objective (RPO)</span>
+                <p className="text-lg font-bold text-white">{backupRecovery?.rpoTarget}</p>
+                <p className="text-[10px] text-slate-500">Maximum tolerable data loss interval</p>
               </div>
 
-              <div>
-                <label className="block text-[11px] text-slate-400 uppercase mb-1">
-                  Operator Master Password
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={reauthPassword}
-                  onChange={(e) => setReauthPassword(e.target.value)}
-                  placeholder="••••••••••••••••"
-                  className="w-full px-3 py-1.5 text-xs bg-slate-950 border border-slate-700 rounded-lg text-white"
-                />
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-2">
+                <span className="text-[10px] text-slate-400 uppercase font-semibold">Estimated Recovery Time (RTO)</span>
+                <p className="text-lg font-bold text-emerald-400">{backupRecovery?.estimatedRto}</p>
+                <p className="text-[10px] text-slate-500">Expected duration for pg_restore stream</p>
               </div>
 
-              <div>
-                <label className="block text-[11px] text-slate-400 uppercase mb-1">
-                  Live MFA / TOTP Code
-                </label>
-                <input
-                  type="text"
-                  required
-                  maxLength={16}
-                  value={reauthMfa}
-                  onChange={(e) => setReauthMfa(e.target.value)}
-                  placeholder="6-digit code"
-                  className="w-full px-3 py-1.5 text-xs text-center font-bold tracking-widest bg-slate-950 border border-slate-700 rounded-lg text-indigo-300"
-                />
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-2">
+                <span className="text-[10px] text-slate-400 uppercase font-semibold">Restore Verification Status</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 inline-block">
+                  {backupRecovery?.restoreTestStatus}
+                </span>
+                <p className="text-[10px] text-slate-500">Requires isolated staging instance</p>
               </div>
+            </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setEmergencyModalOpen(false)}
-                  disabled={executingAction}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-xs text-slate-300 hover:bg-slate-700"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={executingAction}
-                  className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors disabled:opacity-50"
-                >
-                  {executingAction ? 'EXECUTING ACTION…' : 'CONFIRM & EXECUTE'}
-                </button>
+            {/* Disaster Recovery Runbook */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Workflow className="size-4 text-indigo-400" />
+                Platform Disaster Recovery Runbook (6-Step Procedure)
+              </h3>
+              <div className="space-y-2">
+                {backupRecovery?.disasterRecoveryRunbook?.map((r: any) => (
+                  <div key={r.step} className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/40 flex items-start gap-3">
+                    <span className="size-6 rounded-full bg-indigo-600/20 border border-indigo-500/40 text-indigo-400 flex items-center justify-center font-bold text-xs shrink-0">
+                      {r.step}
+                    </span>
+                    <div className="space-y-0.5">
+                      <p className="font-bold text-white">{r.title}</p>
+                      <p className="text-slate-400 text-[11px]">{r.action}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </form>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 9: BACKEND LOG CENTER */}
+        {/* ========================================================================= */}
+        {activeTab === 'logs' && (
+          <div className="space-y-4 font-mono text-xs">
+            <div className="pb-3 border-b border-slate-800 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Terminal className="size-5 text-indigo-400" />
+                  REAL-TIME PLATFORM EVENT STREAM & AUDIT LOGS
+                </h2>
+                <p className="text-slate-400 text-xs">Chronological forensic capture across all platform entities.</p>
+              </div>
+              <button
+                onClick={loadTabData}
+                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition flex items-center gap-1.5"
+              >
+                <RefreshCw className="size-3.5" />
+                Refresh Logs
+              </button>
+            </div>
+
+            <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40">
+              <div className="divide-y divide-slate-800/60 max-h-[600px] overflow-y-auto font-mono">
+                {eventStream.map((logItem) => (
+                  <div key={logItem.id} className="p-3 hover:bg-slate-800/30 flex items-start justify-between gap-4">
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                          {logItem.category}
+                        </span>
+                        <span className="font-bold text-white">{logItem.title}</span>
+                      </div>
+                      <p className="text-slate-300 text-[11px]">{logItem.description}</p>
+                      <div className="flex items-center gap-3 text-[10px] text-slate-500">
+                        <span>Actor: {logItem.actor}</span>
+                        <span>IP: {logItem.sourceIp}</span>
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-slate-500 shrink-0">
+                      {logItem.timestamp ? new Date(logItem.timestamp).toLocaleString() : '—'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 10: EMERGENCY CONTROLS (RE-AUTH PROTECTED) */}
+        {/* ========================================================================= */}
+        {activeTab === 'emergency' && (
+          <div className="space-y-6 font-mono text-xs">
+            <div className="pb-3 border-b border-slate-800">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Lock className="size-5 text-rose-500" />
+                HIGH-RISK EMERGENCY CONTROL SWITCHES
+              </h2>
+              <p className="text-slate-400 text-xs">
+                All actions require mandatory password + TOTP re-authentication and write directly to the immutable audit trail.
+              </p>
+            </div>
+
+            {/* Current State Summary */}
+            <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-2">
+              <span className="text-[10px] text-slate-400 uppercase font-semibold">Active Lockdown Status:</span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                <div>Maintenance Mode: <strong className={emergencyState?.maintenanceMode ? 'text-rose-400' : 'text-slate-400'}>{emergencyState?.maintenanceMode ? 'ACTIVE' : 'OFF'}</strong></div>
+                <div>DB Write Lock: <strong className={emergencyState?.dbReadOnlyMode ? 'text-rose-400' : 'text-slate-400'}>{emergencyState?.dbReadOnlyMode ? 'ACTIVE' : 'OFF'}</strong></div>
+                <div>API Write Lockdown: <strong className={emergencyState?.apiWriteLockdown ? 'text-rose-400' : 'text-slate-400'}>{emergencyState?.apiWriteLockdown ? 'ACTIVE' : 'OFF'}</strong></div>
+                <div>Disable New Logins: <strong className={emergencyState?.disableNewLogins ? 'text-rose-400' : 'text-slate-400'}>{emergencyState?.disableNewLogins ? 'ACTIVE' : 'OFF'}</strong></div>
+              </div>
+            </div>
+
+            {/* Control Switches Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 space-y-3">
+                <h3 className="font-bold text-white text-sm">Platform Maintenance Mode</h3>
+                <p className="text-slate-400 text-[11px]">Displays maintenance barrier across public and student LMS routes.</p>
+                <button
+                  onClick={() => {
+                    setPendingAction(emergencyState?.maintenanceMode ? 'DISABLE_MAINTENANCE_MODE' : 'ENABLE_MAINTENANCE_MODE');
+                    setEmergencyModalOpen(true);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition ${
+                    emergencyState?.maintenanceMode
+                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                      : 'bg-rose-600 hover:bg-rose-500 text-white'
+                  }`}
+                >
+                  {emergencyState?.maintenanceMode ? 'Disable Maintenance Mode' : 'Enable Maintenance Mode'}
+                </button>
+              </div>
+
+              <div className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 space-y-3">
+                <h3 className="font-bold text-white text-sm">Database Application Write Lock</h3>
+                <p className="text-slate-400 text-[11px]">Rejects all write and mutation queries across API endpoints.</p>
+                <button
+                  onClick={() => {
+                    setPendingAction(emergencyState?.dbReadOnlyMode ? 'DISABLE_DB_READ_ONLY' : 'ENABLE_DB_READ_ONLY');
+                    setEmergencyModalOpen(true);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition ${
+                    emergencyState?.dbReadOnlyMode
+                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                      : 'bg-rose-600 hover:bg-rose-500 text-white'
+                  }`}
+                >
+                  {emergencyState?.dbReadOnlyMode ? 'Disable DB Write Lock' : 'Enable DB Write Lock'}
+                </button>
+              </div>
+
+              <div className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 space-y-3">
+                <h3 className="font-bold text-white text-sm">Emergency Global Session Revocation</h3>
+                <p className="text-slate-400 text-[11px]">Immediately terminates all active refresh tokens across the entire LMS.</p>
+                <button
+                  onClick={() => {
+                    setPendingAction('EMERGENCY_GLOBAL_SESSION_REVOCATION');
+                    setEmergencyModalOpen(true);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold transition"
+                >
+                  Revoke All Active Sessions
+                </button>
+              </div>
+
+              <div className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 space-y-3">
+                <h3 className="font-bold text-white text-sm">Restore Normal Platform Operations</h3>
+                <p className="text-slate-400 text-[11px]">Clears all lockdown flags and restores standard operational state.</p>
+                <button
+                  onClick={() => {
+                    setPendingAction('RESTORE_NORMAL_OPERATIONS');
+                    setEmergencyModalOpen(true);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition"
+                >
+                  Restore Normal Operations
+                </button>
+              </div>
+            </div>
+
+            {/* Re-Auth Confirmation Modal */}
+            {emergencyModalOpen && (
+              <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="bg-slate-900 border border-rose-500/40 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl font-mono text-xs">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <span className="font-bold text-rose-400 flex items-center gap-2">
+                      <Lock className="size-4" />
+                      CRITICAL ACTION AUTHORIZATION
+                    </span>
+                    <button
+                      onClick={() => setEmergencyModalOpen(false)}
+                      className="text-slate-400 hover:text-white"
+                    >
+                      <XCircle className="size-5" />
+                    </button>
+                  </div>
+
+                  <p className="text-slate-300">
+                    Action Target: <strong className="text-white">{pendingAction}</strong>
+                  </p>
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-300 block mb-1">Reason for Action (Mandatory)</label>
+                      <input
+                        type="text"
+                        value={actionReason}
+                        onChange={(e) => setActionReason(e.target.value)}
+                        placeholder="State clear operational reason..."
+                        className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 text-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-300 block mb-1">Administrator Password</label>
+                      <input
+                        type="password"
+                        value={reauthPassword}
+                        onChange={(e) => setReauthPassword(e.target.value)}
+                        placeholder="Enter password..."
+                        className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 text-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-300 block mb-1">6-Digit Authenticator MFA Code</label>
+                      <input
+                        type="text"
+                        maxLength={6}
+                        value={reauthMfa}
+                        onChange={(e) => setReauthMfa(e.target.value)}
+                        placeholder="000000"
+                        className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 text-white text-center font-bold tracking-widest text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
+                    <button
+                      onClick={() => setEmergencyModalOpen(false)}
+                      className="px-3 py-1.5 rounded-lg border border-slate-800 text-slate-300 hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleExecuteEmergencyAction}
+                      disabled={executingAction}
+                      className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold transition disabled:opacity-50"
+                    >
+                      {executingAction ? 'Authorizing...' : 'Authorize & Execute'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 11: CRYPTOGRAPHIC AUDIT HASH LEDGER */}
+        {/* ========================================================================= */}
+        {activeTab === 'audit' && (
+          <div className="space-y-6 font-mono text-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-800">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <History className="size-5 text-indigo-400" />
+                  IMMUTABLE CRYPTOGRAPHIC AUDIT LEDGER
+                </h2>
+                <p className="text-slate-400 text-xs">
+                  Every privileged action is hashed using SHA-256 chain links: Prev_Hash + Record → Current_Hash.
+                </p>
+              </div>
+              <button
+                onClick={handleVerifyAuditTrail}
+                disabled={verifyingAudit}
+                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition flex items-center gap-1.5 self-start sm:self-auto disabled:opacity-50"
+              >
+                <ShieldCheck className="size-3.5" />
+                {verifyingAudit ? 'Verifying Chain...' : 'Verify Cryptographic Chain'}
+              </button>
+            </div>
+
+            {/* Verification Banner */}
+            {auditVerification && (
+              <div
+                className={`p-4 rounded-xl border flex items-center justify-between gap-4 ${
+                  auditVerification.valid
+                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                    : 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <ShieldCheck className="size-6 text-emerald-400" />
+                  <div>
+                    <h3 className="font-bold text-sm text-white">
+                      Status: {auditVerification.status}
+                    </h3>
+                    <p className="text-[11px] text-slate-300">
+                      Total Verified Records: <strong>{auditVerification.totalRecordsVerified}</strong> • Head Hash: <code className="text-indigo-300">{auditVerification.headHash?.slice(0, 16)}...</code>
+                    </p>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 border border-emerald-500/40">
+                  TAMPER-PROOF VERIFIED
+                </span>
+              </div>
+            )}
+
+            {/* Audit Trail Records Table */}
+            <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40">
+              <table className="w-full text-left">
+                <thead className="bg-slate-900/80 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
+                  <tr>
+                    <th className="px-4 py-2.5">Actor / Action</th>
+                    <th className="px-4 py-2.5">Target & Reason</th>
+                    <th className="px-4 py-2.5">Previous Hash Link</th>
+                    <th className="px-4 py-2.5">SHA-256 Record Hash</th>
+                    <th className="px-4 py-2.5 text-right">Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {auditTrail.map((aud) => (
+                    <tr key={aud.id} className="hover:bg-slate-800/30">
+                      <td className="px-4 py-3">
+                        <span className="font-bold text-white">{aud.action}</span>
+                        <p className="text-[10px] text-slate-500">By {aud.actor}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="text-indigo-300 font-semibold">{aud.target}</p>
+                        <p className="text-slate-400 text-[11px] truncate max-w-xs">{aud.reason || '—'}</p>
+                      </td>
+                      <td className="px-4 py-3 text-[10px] text-slate-500 font-mono">
+                        {aud.previousHash ? `${aud.previousHash.slice(0, 12)}...` : 'GENESIS'}
+                      </td>
+                      <td className="px-4 py-3 text-[10px] text-emerald-400 font-mono">
+                        {aud.recordHash ? `${aud.recordHash.slice(0, 16)}...` : 'LEGACY RECORD'}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-400 text-[11px]">
+                        {aud.timestamp ? new Date(aud.timestamp).toLocaleString() : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </main>
     </div>
   );
 }

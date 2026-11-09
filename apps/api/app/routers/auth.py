@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from app.authz.audit import write_audit, write_security_event
 from app.authz.context import ScopeContext
@@ -531,6 +531,21 @@ async def login(payload: LoginRequest, request: Request, response: Response) -> 
         )
     if user.get("status") != "active":
         raise Unauthenticated("This account is not active")
+
+    # Operations Center Emergency Lockdown: enforce disable_new_logins for non-SUPER_ADMIN accounts
+    if str(user.get("role")) != "SUPER_ADMIN":
+        try:
+            from app.services.operations_center_service import OperationsCenterService
+            em_state = await OperationsCenterService.get_emergency_state()
+            if em_state.get("disableNewLogins"):
+                raise HTTPException(
+                    status_code=status.HTTP_423_LOCKED,
+                    detail="Logins are temporarily suspended by the Platform Operations Center due to emergency maintenance.",
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
 
     if settings.EMAIL_VERIFICATION_ENABLED and not user.get("emailVerified"):
         otp = await rate_limit.issue_otp(VERIFY, user["email"])
