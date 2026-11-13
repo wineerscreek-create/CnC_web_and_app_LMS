@@ -33,11 +33,13 @@ env/
 # 4. Environment & Secrets (Never commit credentials)
 .env
 .env.*
+*.env
 !.env.example
 !.env.local.example
 *.pem
 *.key
 *.pfx
+
 
 # 5. Runtime Storage & Ephemeral Uploads
 apps/api/.storage/
