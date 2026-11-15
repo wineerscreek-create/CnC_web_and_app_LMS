@@ -19,8 +19,11 @@ from app.authz.context import ScopeContext
 from app.authz.guards import get_scope_context
 from app.core.config import settings
 from app.core.errors import AppError, ValidationError
+from app.core.logging import get_logger
 from app.db.postgres import get_pg_connection
 from app.services.storage import Keys, get_storage
+
+log = get_logger("app.user_avatar")
 
 router = APIRouter(prefix="/user/avatar", tags=["User Avatar"])
 
@@ -98,12 +101,18 @@ async def upload_user_avatar(
     ext = _validate_avatar_bytes(content, filename, content_type)
     unique_filename = f"{uuid.uuid4().hex[:12]}{ext}"
 
+    avatar_url = None
     if settings.STORAGE_DRIVER == "s3":
-        storage = get_storage()
-        key = Keys.user_avatar(str(user_uuid), unique_filename)
-        await storage.put(key, content, content_type)
-        avatar_url = await storage.signed_download_url(key, ttl=86400 * 7)
-    else:
+        try:
+            storage = get_storage()
+            key = Keys.user_avatar(str(user_uuid), unique_filename)
+            await storage.put(key, content, content_type)
+            avatar_url = await storage.signed_download_url(key, ttl=86400 * 7)
+        except Exception as exc:
+            log.warning(f"S3 storage put failed for user avatar ({exc}), falling back to local storage")
+            avatar_url = None
+
+    if not avatar_url:
         user_folder = os.path.join(AVATAR_UPLOAD_DIR, str(user_uuid))
         os.makedirs(user_folder, exist_ok=True)
         file_path = os.path.join(user_folder, unique_filename)

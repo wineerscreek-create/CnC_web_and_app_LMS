@@ -23,7 +23,7 @@ log = get_logger("app.storage")
 
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 ALLOWED_PREFIXES = ("students/", "assignments/", "reports/", "certificates/", "imports/")
-ALLOWED_PREFIXES = ("students/", "assignments/", "reports/", "certificates/", "imports/", "ebooks/", "banners/")
+ALLOWED_PREFIXES = ("students/", "assignments/", "reports/", "certificates/", "imports/", "ebooks/", "banners/", "avatars/")
 
 
 # --------------------------------------------------------------------------- key builders

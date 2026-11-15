@@ -352,13 +352,22 @@ async def upload_trainer_photo(
 
     filename = f"trainer_{user_id}_{uuid.uuid4().hex[:8]}{ext}"
 
+    photo_url = None
     if settings.STORAGE_DRIVER == "s3":
-        storage = get_storage()
-        content_type = "image/jpeg" if ext in {".jpg", ".jpeg"} else f"image/{ext.lstrip('.')}"
-        key = Keys.user_avatar(str(user_id), filename)
-        await storage.put(key, content, content_type)
-        photo_url = await storage.signed_download_url(key, ttl=86400 * 7)
-    else:
+        try:
+            storage = get_storage()
+            content_type = "image/jpeg" if ext in {".jpg", ".jpeg"} else f"image/{ext.lstrip('.')}"
+            key = Keys.user_avatar(str(user_id), filename)
+            await storage.put(key, content, content_type)
+            photo_url = await storage.signed_download_url(key, ttl=86400 * 7)
+        except Exception as exc:
+            from app.core.logging import get_logger
+            get_logger("app.trainer_profile").warning(
+                f"S3 storage put failed for trainer photo ({exc}), falling back to local storage"
+            )
+            photo_url = None
+
+    if not photo_url:
         filepath = os.path.join(TRAINER_STATIC_DIR, filename)
         with open(filepath, "wb") as f:
             f.write(content)
