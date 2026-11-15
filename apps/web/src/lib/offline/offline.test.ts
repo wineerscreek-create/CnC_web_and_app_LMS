@@ -4,6 +4,8 @@ import {
   isAuthorizationValid,
   calculateStorageUsage,
   purgeUserOfflineData,
+  getCachedQuery,
+  setCachedQuery,
 } from './db';
 import { syncEngine } from './syncEngine';
 
@@ -20,6 +22,7 @@ describe('Offline-First Dexie Database & Business Rules', () => {
       offlineDB.syncOutbox.clear(),
       offlineDB.syncConflicts.clear(),
       offlineDB.syncMetadata.clear(),
+      offlineDB.cachedQueries.clear(),
     ]);
   });
 
@@ -41,7 +44,7 @@ describe('Offline-First Dexie Database & Business Rules', () => {
   });
 
   describe('IndexedDB Tables Initialization', () => {
-    it('initializes all 10 required tables in Dexie schema', () => {
+    it('initializes all 11 required tables in Dexie schema', () => {
       expect(offlineDB.downloadedCourses).toBeDefined();
       expect(offlineDB.downloadedMaterials).toBeDefined();
       expect(offlineDB.downloadedGames).toBeDefined();
@@ -52,6 +55,7 @@ describe('Offline-First Dexie Database & Business Rules', () => {
       expect(offlineDB.syncOutbox).toBeDefined();
       expect(offlineDB.syncConflicts).toBeDefined();
       expect(offlineDB.syncMetadata).toBeDefined();
+      expect(offlineDB.cachedQueries).toBeDefined();
     });
   });
 
@@ -229,6 +233,30 @@ describe('Offline-First Dexie Database & Business Rules', () => {
       const stats = await calculateStorageUsage('userB');
       expect(stats.courseCount).toBe(1);
       expect(stats.totalBytes).toBeGreaterThan(0);
+    });
+
+    it('stores and retrieves cached queries with user isolation and purges on sign out', async () => {
+      // Store query cache for userA
+      await setCachedQuery('userA', '/student/dashboard', null, { enrolledCount: 5 });
+      // Store query cache for userB
+      await setCachedQuery('userB', '/student/dashboard', null, { enrolledCount: 12 });
+
+      const cachedA = await getCachedQuery('userA', '/student/dashboard', null);
+      const cachedB = await getCachedQuery('userB', '/student/dashboard', null);
+
+      expect(cachedA).not.toBeNull();
+      expect(cachedA?.data).toEqual({ enrolledCount: 5 });
+      expect(cachedB).not.toBeNull();
+      expect(cachedB?.data).toEqual({ enrolledCount: 12 });
+
+      // Purge userA
+      await purgeUserOfflineData('userA');
+
+      const purgedA = await getCachedQuery('userA', '/student/dashboard', null);
+      const intactB = await getCachedQuery('userB', '/student/dashboard', null);
+
+      expect(purgedA).toBeNull();
+      expect(intactB?.data).toEqual({ enrolledCount: 12 });
     });
   });
 });

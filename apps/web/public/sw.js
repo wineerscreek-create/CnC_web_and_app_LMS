@@ -88,6 +88,34 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Next.js client-side navigation (RSC payloads): Network-first with cache fallback
+  const isRscRequest =
+    request.headers.get('RSC') === '1' ||
+    url.searchParams.has('_rsc') ||
+    request.headers.get('Accept')?.includes('text/x-component');
+
+  if (isRscRequest) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(async () => {
+          const cached = await caches.match(request);
+          if (cached) return cached;
+          return new Response(JSON.stringify({ error: 'offline_unavailable' }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        })
+    );
+    return;
+  }
+
   // Next.js static bundles and media: Stale-While-Revalidate
   if (
     url.pathname.startsWith('/_next/static/') ||
