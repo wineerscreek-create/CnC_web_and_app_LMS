@@ -1,5 +1,5 @@
 import { Loader2 } from 'lucide-react';
-import { WinnersCreekLogo } from '@/components/ui/WinnersCreekLogo';
+import { SkillSharpLogo } from '@/components/ui/SkillSharpLogo';
 
 export default function Loading() {
   return (
@@ -19,7 +19,7 @@ export default function Loading() {
           <div aria-hidden className="absolute -inset-9 orbital-ring [animation-duration:6s] [animation-direction:reverse] opacity-50" />
           
           <div className="relative z-10 surface-3d rounded-2xl p-4 bg-card/90 shadow-3d-pop border border-line/80 dark:border-white/15 animate-float">
-            <WinnersCreekLogo variant="full" priority className="drop-shadow-lg" />
+            <SkillSharpLogo variant="full" priority className="drop-shadow-lg" />
           </div>
         </div>
 

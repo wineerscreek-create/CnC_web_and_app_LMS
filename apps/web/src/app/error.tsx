@@ -5,7 +5,7 @@ import Link from 'next/link';
 import * as React from 'react';
 
 import { Button } from '@/components/ui/button';
-import { WinnersCreekLogo } from '@/components/ui/WinnersCreekLogo';
+import { SkillSharpLogo } from '@/components/ui/SkillSharpLogo';
 
 /**
  * Route Error Boundary.
@@ -48,7 +48,7 @@ export default function GlobalError({
       <div className="flex min-h-screen items-center justify-center px-5 bg-background">
         <div className="w-full max-w-[460px] rounded-2xl border border-amber-500/30 bg-card p-8 text-center shadow-card">
           <div className="mb-5 flex justify-center">
-            <WinnersCreekLogo variant="full" />
+            <SkillSharpLogo variant="full" />
           </div>
           <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
             <WifiOff className="size-6" aria-hidden />
@@ -84,7 +84,7 @@ export default function GlobalError({
     <div className="flex min-h-screen items-center justify-center px-5 bg-background">
       <div className="w-full max-w-[420px] rounded-2xl border border-border bg-card p-7 text-center shadow-card">
         <div className="mb-5 flex justify-center">
-          <WinnersCreekLogo variant="full" />
+          <SkillSharpLogo variant="full" />
         </div>
         <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-destructive/10 text-destructive">
           <AlertTriangle className="size-5" aria-hidden />
