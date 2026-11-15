@@ -16,6 +16,10 @@ import { useApi } from '@/hooks/useApi';
 import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { duration } from '@/lib/format';
+import { useOffline } from '@/context/OfflineContext';
+import { useAppSelector } from '@/store';
+import { offlineDB, isAuthorizationValid } from '@/lib/offline/db';
+import { syncEngine } from '@/lib/offline/syncEngine';
 
 interface Question {
   id: string;
@@ -26,15 +30,59 @@ interface Question {
 
 export default function AssessmentAttemptPage() {
   const params = useParams<{ quizId: string }>();
+  const user = useAppSelector((state) => state.auth.user);
+  const { isOnline } = useOffline();
   const query = useApi<any>(`/student/assessments/${params.quizId}`);
 
+  const [offlineQuiz, setOfflineQuiz] = React.useState<any>(null);
   const [answers, setAnswers] = React.useState<Record<string, string>>({});
   const [elapsed, setElapsed] = React.useState(0);
   const [submitting, setSubmitting] = React.useState(false);
   const [result, setResult] = React.useState<any>(null);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
 
-  const quiz = query.data;
+  // If query failed or offline, load from local IndexedDB
+  React.useEffect(() => {
+    if (!query.data && user?.id) {
+      const compoundId = `${user.id}_${params.quizId}`;
+      offlineDB.downloadedQuestionSets.get(compoundId).then((cached) => {
+        if (cached && isAuthorizationValid(cached.authorizationExpiresAt)) {
+          setOfflineQuiz({
+            id: cached.quizId,
+            title: cached.title,
+            durationMinutes: cached.durationMinutes,
+            maxScore: cached.maxScore,
+            questions: cached.questions,
+            alreadyAttempted: false,
+          });
+        }
+      });
+      // Restore draft answers if available
+      offlineDB.assessmentDrafts.get(compoundId).then((draft) => {
+        if (draft?.answers) {
+          setAnswers(draft.answers);
+          if (draft.elapsedSeconds) setElapsed(draft.elapsedSeconds);
+        }
+      });
+    }
+  }, [query.data, user?.id, params.quizId]);
+
+  // Save drafts locally as user answers questions
+  React.useEffect(() => {
+    if (user?.id && Object.keys(answers).length > 0 && !result) {
+      const compoundId = `${user.id}_${params.quizId}`;
+      offlineDB.assessmentDrafts.put({
+        id: compoundId,
+        userId: user.id,
+        quizId: params.quizId,
+        answers,
+        elapsedSeconds: elapsed,
+        updatedAt: new Date().toISOString(),
+      }).catch(() => {});
+    }
+  }, [answers, elapsed, user?.id, params.quizId, result]);
+
+  const quiz = query.data || offlineQuiz;
   const questions: Question[] = quiz?.questions ?? [];
   const alreadyDone = Boolean(quiz?.alreadyAttempted);
   const limit = (quiz?.durationMinutes ?? 0) * 60;
@@ -48,6 +96,30 @@ export default function AssessmentAttemptPage() {
 
   const submit = React.useCallback(async () => {
     setSubmitting(true);
+    if (!isOnline) {
+      try {
+        const attemptId = crypto.randomUUID();
+        await syncEngine.recordAssessmentAttemptLocally({
+          attemptId,
+          quizId: params.quizId,
+          answers,
+          durationSeconds: elapsed,
+          eventSequence: [],
+          userId: user?.id || 'anonymous',
+          institutionId: user?.institutionId || null,
+          batchId: null,
+        });
+        setResult({ score: 'Pending Sync', offline: true });
+        toast.success('Assessment attempt saved offline. It will synchronize automatically when online.');
+      } catch (err: any) {
+        toast.error(err?.message || 'Failed to save offline attempt.');
+      } finally {
+        setSubmitting(false);
+        setConfirmOpen(false);
+      }
+      return;
+    }
+
     try {
       const response = await api.post(`/student/assessments/${params.quizId}/attempts`, {
         answers: Object.entries(answers).map(([questionId, optionId]) => ({
@@ -58,13 +130,34 @@ export default function AssessmentAttemptPage() {
       });
       setResult(response.data);
       toast.success(`Submitted — you scored ${response.data.score}/100`);
-    } catch (caught) {
-      toast.error((caught as ApiError).message);
+      // Clean up local draft upon successful online submission
+      if (user?.id) {
+        await offlineDB.assessmentDrafts.delete(`${user.id}_${params.quizId}`);
+      }
+    } catch (caught: any) {
+      if (caught?.status === 0 || caught?.code === 'NETWORK_ERROR') {
+        // Network failed during submission - fallback to local durable outbox
+        const attemptId = crypto.randomUUID();
+        await syncEngine.recordAssessmentAttemptLocally({
+          attemptId,
+          quizId: params.quizId,
+          answers,
+          durationSeconds: elapsed,
+          eventSequence: [],
+          userId: user?.id || 'anonymous',
+          institutionId: user?.institutionId || null,
+          batchId: null,
+        });
+        setResult({ score: 'Pending Sync', offline: true });
+        toast.success('Connection interrupted. Assessment attempt queued in outbox for automatic sync.');
+      } else {
+        toast.error((caught as ApiError).message);
+      }
     } finally {
       setSubmitting(false);
       setConfirmOpen(false);
     }
-  }, [answers, elapsed, params.quizId]);
+  }, [answers, elapsed, params.quizId, isOnline, user?.id, user?.institutionId]);
 
   // Auto-submit when the clock runs out, so an unfinished paper is still recorded.
   React.useEffect(() => {
@@ -72,8 +165,21 @@ export default function AssessmentAttemptPage() {
     if (remaining === 0) void submit();
   }, [remaining, limit, result, alreadyDone, submitting, submit]);
 
+  const effectiveQuery = React.useMemo(() => {
+    if (offlineQuiz) {
+      return {
+        data: offlineQuiz,
+        error: null,
+        loading: false,
+        initialLoading: false,
+        refetch: query.refetch,
+      };
+    }
+    return query;
+  }, [offlineQuiz, query]);
+
   return (
-    <AsyncSection query={query} skeleton="detail">
+    <AsyncSection query={effectiveQuery} skeleton="detail">
       {(data) => (
         <div className="mx-auto max-w-[760px]">
           <PageHeader

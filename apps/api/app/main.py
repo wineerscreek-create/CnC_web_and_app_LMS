@@ -208,6 +208,13 @@ def create_app() -> FastAPI:
         tags=["operations-center"],
     )
 
+    from app.routers import offline_sync
+    app.include_router(
+        offline_sync.router,
+        prefix=f"{prefix}/offline",
+        tags=["offline-sync"],
+    )
+
     from fastapi.staticfiles import StaticFiles
     from app.routers.user_banner import BANNER_UPLOAD_DIR
     app.mount("/static/banners", StaticFiles(directory=BANNER_UPLOAD_DIR), name="banners")

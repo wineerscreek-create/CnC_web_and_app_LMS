@@ -16,6 +16,7 @@ import {
   Sparkles,
   Trash2,
   User,
+  WifiOff,
   X,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -29,6 +30,7 @@ import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { type Role } from '@/lib/roleRoutes';
 import type { SessionUser } from '@/store/authSlice';
+import { useOffline } from '@/context/OfflineContext';
 
 interface ChatTurn {
   id: string;
@@ -101,6 +103,7 @@ const ROLE_QUICK_LINKS: Record<string, { label: string; href: string }[]> = {
 };
 
 export function GlobalAssistant({ user }: { user: SessionUser }) {
+  const { isOnline } = useOffline();
   const [open, setOpen] = React.useState(false);
   const [maximized, setMaximized] = React.useState(false);
   const [query, setQuery] = React.useState('');
@@ -354,6 +357,16 @@ export function GlobalAssistant({ user }: { user: SessionUser }) {
           </div>
         </div>
 
+        {/* Offline Notice */}
+        {!isOnline && (
+          <div className="mx-3 mt-3 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-foreground flex items-center gap-2.5 shrink-0">
+            <WifiOff className="size-4 text-amber-500 shrink-0" />
+            <span className="text-[11px] leading-snug">
+              AI Academic Coach is offline. Inference requires an internet connection. Downloaded materials remain available.
+            </span>
+          </div>
+        )}
+
         {/* Destructive Action Confirmation Modal */}
         {confirmAction && (
           <div className="p-4 bg-destructive/10 border-b border-destructive/20 text-xs shrink-0 animate-enter">
@@ -523,8 +536,13 @@ export function GlobalAssistant({ user }: { user: SessionUser }) {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask about your courses, EEDI scores, schedule…"
-                className="w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring max-h-24 leading-relaxed"
+                disabled={!isOnline}
+                placeholder={
+                  isOnline
+                    ? 'Ask about your courses, EEDI scores, schedule…'
+                    : 'AI assistant is offline. Reconnect to chat.'
+                }
+                className="w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring max-h-24 leading-relaxed disabled:opacity-50"
               />
             </div>
             <Button
@@ -532,7 +550,7 @@ export function GlobalAssistant({ user }: { user: SessionUser }) {
               variant="primary"
               size="sm"
               loading={loading}
-              disabled={!query.trim() || loading}
+              disabled={!query.trim() || loading || !isOnline}
               className="size-8 rounded-xl p-0 flex items-center justify-center shrink-0"
               aria-label="Send message"
             >

@@ -1,0 +1,25 @@
+{
+  "name": "Winners Creek LMS — SkillSharp",
+  "short_name": "Winners Creek",
+  "description": "Campus to Corporate learning platform empowering students with offline-first learning, courses, assessments, and games.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FDFCFA",
+  "theme_color": "#4A5D4E",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48 64x64 128x128 256x256",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/images/winnerscreek.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education", "productivity"]
+}

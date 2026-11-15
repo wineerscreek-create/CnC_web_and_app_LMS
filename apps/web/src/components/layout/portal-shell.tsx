@@ -16,6 +16,7 @@ import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { NotificationMenu, ProfileMenu } from './menus';
 import { Sidebar } from './sidebar';
 import { GlobalAssistant } from './GlobalAssistant';
+import { SyncStatusPill } from './SyncStatusPill';
 
 /**
  * SkillSharp Portal Shell — Ivory / Sage / Gold Theme
@@ -87,6 +88,7 @@ export function PortalShell({
             </form>
 
             <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+              <SyncStatusPill />
               {headerSlot}
               <ThemeToggle />
               <NotificationMenu />

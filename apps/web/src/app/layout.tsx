@@ -5,6 +5,8 @@ import { GlobalBackgroundProvider } from '@/components/ui/GlobalBackgroundLayer'
 import { StoreProvider } from '@/store/provider';
 import { ThemeProvider } from '@/lib/theme/ThemeContext';
 import { BannerProvider } from '@/context/BannerContext';
+import { OfflineProvider } from '@/context/OfflineContext';
+import { PWARegister } from '@/components/pwa/PWARegister';
 import '@/styles/globals.css';
 
 export const metadata: Metadata = {
@@ -16,6 +18,12 @@ export const metadata: Metadata = {
     'SkillSharp — An elite career-readiness and soft-skills platform empowering students to learn, practise, and build essential skills for professional career success.',
   robots: { index: true, follow: true },
   applicationName: 'SkillSharp — Campus to Corporate',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Winners Creek',
+  },
 };
 
 export const viewport: Viewport = {
@@ -56,9 +64,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <ThemeProvider>
             <BannerProvider>
               <GlobalBackgroundProvider>
-                <div className="relative z-10 flex min-h-screen flex-col">
-                  {children}
-                </div>
+                <PWARegister />
+                <OfflineProvider>
+                  <div className="relative z-10 flex min-h-screen flex-col">
+                    {children}
+                  </div>
+                </OfflineProvider>
                 <Toaster
                   position="top-right"
                   toastOptions={{

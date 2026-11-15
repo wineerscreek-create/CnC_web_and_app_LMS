@@ -20,6 +20,7 @@ import { toast } from 'sonner';
 import { RadialScore } from '@/components/charts';
 import { PageHeader } from '@/components/shared/page-header';
 import { AsyncSection } from '@/components/shared/state';
+import { OnlineOnlyNotice } from '@/components/offline/OnlineOnlyNotice';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardSubtitle, CardTitle } from '@/components/ui/card';
@@ -143,6 +144,8 @@ export default function ResumeAnalyzerPage() {
                 </div>
               }
             />
+
+            <OnlineOnlyNotice featureName="AI Resume Analyzer" description="Deep AI resume parsing and ATS role matching require cloud computation. Reconnect to evaluate a new resume." />
 
             {/* Target Role Selector Bar */}
             <Card className="card-interactive bg-card border-border">
