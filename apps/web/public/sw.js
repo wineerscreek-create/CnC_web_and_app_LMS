@@ -1,6 +1,6 @@
 /**
- * Winners Creek LMS — Service Worker
- * Version: 1.0.0
+ * SkillSharp LMS — Service Worker
+ * Version: 2.0.0
  *
  * Cache Strategy:
  * - Shell & Static Assets: Stale-While-Revalidate / Cache-First
@@ -8,14 +8,20 @@
  * - APIs (/api/*): NEVER cached in Cache Storage (enforces zero-leakage of authenticated state).
  */
 
-const CACHE_NAME = 'winners-creek-shell-v1';
+const CACHE_NAME = 'skillsharp-shell-v2';
 
 const STATIC_PRECACHE = [
   '/',
   '/offline',
   '/favicon.ico',
+  '/favicon-32x32.png',
+  '/favicon-16x16.png',
+  '/apple-touch-icon.png',
   '/manifest.webmanifest',
-  '/images/winnerscreek.png',
+  '/manifest.json',
+  '/images/icons/icon-192x192.png',
+  '/images/icons/icon-512x512.png',
+  '/images/icons/icon-maskable-512x512.png',
 ];
 
 self.addEventListener('install', (event) => {
@@ -53,6 +59,26 @@ self.addEventListener('fetch', (event) => {
 
   // STRICT RULE: Never cache API endpoints or auth endpoints in Cache Storage
   if (url.pathname.startsWith('/api/')) {
+    return;
+  }
+
+  // Always fetch manifests and PWA icons fresh or revalidate
+  if (
+    url.pathname === '/manifest.webmanifest' ||
+    url.pathname === '/manifest.json' ||
+    url.pathname.startsWith('/images/icons/')
+  ) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
     return;
   }
 
@@ -138,7 +164,7 @@ self.addEventListener('fetch', (event) => {
           if (offlineFallback) return offlineFallback;
 
           return new Response(
-            '<!DOCTYPE html><html><head><title>Offline - Winners Creek</title></head><body style="font-family:sans-serif;text-align:center;padding:50px;"><h1>You are offline</h1><p>Please check your connection or access downloaded content in your student portal.</p><a href="/student/offline" style="color:#4A5D4E;font-weight:bold;">Go to Downloaded Content</a></body></html>',
+            '<!DOCTYPE html><html><head><title>Offline - SkillSharp</title></head><body style="font-family:sans-serif;text-align:center;padding:50px;background:#050811;color:#fff;"><h1>You are offline</h1><p>Please check your connection or access downloaded content in your student portal.</p><a href="/student/offline" style="color:#60a5fa;font-weight:bold;">Go to Downloaded Content</a></body></html>',
             { headers: { 'Content-Type': 'text/html' } }
           );
         })

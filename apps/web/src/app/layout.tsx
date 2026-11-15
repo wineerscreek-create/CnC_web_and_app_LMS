@@ -17,12 +17,24 @@ export const metadata: Metadata = {
   description:
     'SkillSharp — An elite career-readiness and soft-skills platform empowering students to learn, practise, and build essential skills for professional career success.',
   robots: { index: true, follow: true },
-  applicationName: 'SkillSharp — Campus to Corporate',
+  applicationName: 'SkillSharp',
   manifest: '/manifest.webmanifest',
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/favicon-32x32.png', type: 'image/png', sizes: '32x32' },
+      { url: '/favicon-16x16.png', type: 'image/png', sizes: '16x16' },
+      { url: '/images/icons/icon-192x192.png', type: 'image/png', sizes: '192x192' },
+      { url: '/images/icons/icon-512x512.png', type: 'image/png', sizes: '512x512' },
+    ],
+    apple: [
+      { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+    ],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'Winners Creek',
+    title: 'SkillSharp',
   },
 };
 

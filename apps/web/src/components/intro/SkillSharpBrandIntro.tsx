@@ -21,7 +21,7 @@ export const INTRO_FRAMES: string[] = [
 ];
 
 const STORAGE_KEY = 'skillsharp_intro_viewed';
-const FRAME_DURATION_MS = 750; // 750ms per frame (within 600-900ms requirement)
+const FRAME_DURATION_MS = 700; // 700ms per progressive reveal stage (~8.4s total animation)
 const FADE_OUT_DURATION_MS = 500;
 
 interface SkillSharpBrandIntroProps {
@@ -30,10 +30,10 @@ interface SkillSharpBrandIntroProps {
 }
 
 /**
- * SkillSharp Brand Introduction
- * Smooth video-style animated sequence playing the 12 progressive artwork frames
- * in exact sequence (01 -> 12) with subtle crossfades and zero clutter.
- * Concludes on Frame 12 with an "Explore Now" button.
+ * SkillSharp Continuous Cinematic Brand Introduction
+ * Seamlessly resolves the 12 progressive artwork stages as ONE continuous video-style reveal.
+ * Full viewport 100vw x 100dvh, exact 413:308 native aspect ratio preserved with zero distortion,
+ * zero UI during playback, concluding on Frame 12 with an elegant "Explore Now" button.
  */
 export function SkillSharpBrandIntro({ onComplete, forceShow }: SkillSharpBrandIntroProps) {
   const [mounted, setMounted] = React.useState(false);
@@ -41,6 +41,7 @@ export function SkillSharpBrandIntro({ onComplete, forceShow }: SkillSharpBrandI
   const [currentFrame, setCurrentFrame] = React.useState(0);
   const [isComplete, setIsComplete] = React.useState(false);
   const [isExiting, setIsExiting] = React.useState(false);
+  const [isCinematicDrifting, setIsCinematicDrifting] = React.useState(false);
 
   const playbackTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -69,14 +70,15 @@ export function SkillSharpBrandIntro({ onComplete, forceShow }: SkillSharpBrandI
     }, FADE_OUT_DURATION_MS);
   }, [clearTimers, onComplete]);
 
-  // Start frame-by-frame playback sequence
+  // Start continuous frame-by-frame reveal sequence
   const startPlayback = React.useCallback(() => {
     clearTimers();
     setCurrentFrame(0);
     setIsComplete(false);
     setIsExiting(false);
+    setIsCinematicDrifting(false);
 
-    // Preload all 12 frames into browser cache
+    // Eagerly preload all 12 frames in browser memory
     if (typeof window !== 'undefined') {
       INTRO_FRAMES.forEach((src) => {
         const img = new Image();
@@ -89,11 +91,15 @@ export function SkillSharpBrandIntro({ onComplete, forceShow }: SkillSharpBrandI
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     if (prefersReducedMotion) {
-      // Skip straight to final frame for reduced motion
       setCurrentFrame(INTRO_FRAMES.length - 1);
       setIsComplete(true);
       return;
     }
+
+    // Start subtle cinematic push
+    setTimeout(() => {
+      setIsCinematicDrifting(true);
+    }, 50);
 
     let frame = 0;
     playbackTimerRef.current = setInterval(() => {
@@ -124,7 +130,7 @@ export function SkillSharpBrandIntro({ onComplete, forceShow }: SkillSharpBrandI
       startPlayback();
     }
 
-    // Replay event listener (e.g. from footer or navigation)
+    // Custom replay event listener (e.g. from footer button)
     const handleReplayEvent = () => {
       setIsVisible(true);
       startPlayback();
@@ -167,20 +173,33 @@ export function SkillSharpBrandIntro({ onComplete, forceShow }: SkillSharpBrandI
       role="region"
       aria-label="SkillSharp Brand Introduction"
       className={cn(
-        'fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#070a0f] text-white select-none overflow-hidden transition-opacity duration-500 ease-out',
+        'fixed inset-0 z-[9999] flex flex-col items-center justify-center w-screen h-[100dvh] overflow-hidden select-none transition-opacity duration-600 ease-out',
         isExiting ? 'opacity-0 pointer-events-none' : 'opacity-100'
       )}
+      style={{
+        background: 'radial-gradient(circle at 50% 50%, #06112d 0%, #03081a 60%, #020510 100%)',
+      }}
     >
-      {/* Viewport Frame Container: Centered, 4:3 native ratio preserved, object-contain */}
-      <div className="relative flex flex-1 w-full h-full items-center justify-center p-3 sm:p-6 md:p-8 min-h-0 overflow-hidden">
+      {/* Full-Screen Centered Composition — native 413:308 aspect ratio, zero stretching, zero cropping */}
+      <div className="relative flex flex-1 w-full h-full items-center justify-center min-h-0 overflow-hidden">
         <div
-          className="relative w-full h-full max-w-[1240px] max-h-[88vh] aspect-[413/308] flex items-center justify-center overflow-hidden"
-          style={{ maxWidth: 'min(1240px, 92vw)' }}
+          className={cn(
+            'relative flex items-center justify-center select-none transition-transform duration-[8500ms] ease-out',
+            isCinematicDrifting ? 'scale-[1.025]' : 'scale-100'
+          )}
+          style={{
+            width: 'min(100vw, calc(100dvh * (413 / 308)))',
+            height: 'min(100dvh, calc(100vw * (308 / 413)))',
+            aspectRatio: '413 / 308',
+            maskImage: 'radial-gradient(ellipse at center, rgba(0,0,0,1) 90%, rgba(0,0,0,0) 100%)',
+            WebkitMaskImage: 'radial-gradient(ellipse at center, rgba(0,0,0,1) 90%, rgba(0,0,0,0) 100%)',
+          }}
         >
           {INTRO_FRAMES.map((src, index) => {
-            const isActive = index === currentFrame;
-            const isPrevious = index === currentFrame - 1;
-            const isVisibleFrame = isActive || isPrevious;
+            const isPast = index < currentFrame;
+            const isCurrent = index === currentFrame;
+            const isNext = index === currentFrame + 1;
+            const isRendered = isPast || isCurrent || isNext;
 
             return (
               <img
@@ -191,15 +210,15 @@ export function SkillSharpBrandIntro({ onComplete, forceShow }: SkillSharpBrandI
                 decoding="async"
                 draggable={false}
                 className={cn(
-                  'absolute inset-0 w-full h-full object-contain pointer-events-none select-none transition-opacity duration-300 ease-in-out',
-                  isActive
+                  'absolute inset-0 w-full h-full object-contain pointer-events-none select-none transition-opacity duration-600 ease-in-out',
+                  isCurrent
                     ? 'opacity-100 z-10'
-                    : isPrevious
+                    : isPast
                     ? 'opacity-100 z-0'
-                    : 'opacity-0 pointer-events-none z-0'
+                    : 'opacity-0 z-0 pointer-events-none'
                 )}
                 style={{
-                  display: isVisibleFrame ? 'block' : 'none',
+                  display: isRendered ? 'block' : 'none',
                 }}
               />
             );
@@ -209,12 +228,12 @@ export function SkillSharpBrandIntro({ onComplete, forceShow }: SkillSharpBrandI
 
       {/* Final Action Button: Appears only after Frame 12 completes */}
       {isComplete && (
-        <div className="absolute bottom-6 sm:bottom-10 z-30 flex items-center justify-center animate-enter px-4">
+        <div className="absolute bottom-8 sm:bottom-12 z-30 flex items-center justify-center animate-enter px-4">
           <button
             type="button"
             onClick={dismissIntro}
             aria-label="Explore Now — Enter SkillSharp Website"
-            className="group inline-flex items-center gap-2.5 rounded-full bg-primary px-7 py-3 sm:px-9 sm:py-3.5 text-sm sm:text-base font-bold text-primary-foreground shadow-2xl transition-all duration-300 hover:scale-105 hover:bg-primary/95 active:scale-95 cursor-pointer border border-primary/40 ring-4 ring-primary/20"
+            className="group inline-flex items-center gap-3 rounded-full bg-primary px-8 py-3.5 sm:px-10 sm:py-4 text-sm sm:text-base font-bold text-primary-foreground shadow-[0_0_35px_rgba(74,93,78,0.45)] transition-all duration-300 hover:scale-105 hover:bg-primary/95 hover:shadow-[0_0_50px_rgba(74,93,78,0.7)] active:scale-95 cursor-pointer border border-primary/40 ring-4 ring-primary/20"
           >
             <span>Explore Now</span>
             <ArrowRight className="size-4 sm:size-5 transition-transform duration-200 group-hover:translate-x-1" />
