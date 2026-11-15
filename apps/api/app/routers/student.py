@@ -94,7 +94,7 @@ async def _profile(ctx: ScopeContext) -> dict[str, Any]:
         async with get_pg_connection() as conn:
             row = await conn.fetchrow("""
                 SELECT u.id, u.name, u.email, u.phone, u.institution_id, u.department_id, u.preferences,
-                       sp.roll_number, sp.batch_id, sp.avatar_url,
+                       sp.roll_number, sp.batch_id, COALESCE(u.avatar_url, sp.avatar_url) as avatar_url,
                        d.name as department_name, inst.name as institution_name,
                        b.name as batch_name, b.code as batch_code,
                        COALESCE(e.current_semester, b.semester, 1) as semester,

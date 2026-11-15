@@ -24,6 +24,7 @@ from app.authz.roles import Role
 from app.core.config import settings
 from app.core.errors import Conflict, NotFound, ValidationError
 from app.db.postgres import get_pg_connection
+from app.services.storage import get_storage, Keys
 
 # Upload directory configuration
 TRAINER_STATIC_DIR = os.path.join(
@@ -350,16 +351,27 @@ async def upload_trainer_photo(
         raise ValidationError("Invalid file content. Must be a valid image.")
 
     filename = f"trainer_{user_id}_{uuid.uuid4().hex[:8]}{ext}"
-    filepath = os.path.join(TRAINER_STATIC_DIR, filename)
 
-    with open(filepath, "wb") as f:
-        f.write(content)
-
-    photo_url = f"/static/trainers/{filename}"
+    if settings.STORAGE_DRIVER == "s3":
+        storage = get_storage()
+        content_type = "image/jpeg" if ext in {".jpg", ".jpeg"} else f"image/{ext.lstrip('.')}"
+        key = Keys.user_avatar(str(user_id), filename)
+        await storage.put(key, content, content_type)
+        photo_url = await storage.signed_download_url(key, ttl=86400 * 7)
+    else:
+        filepath = os.path.join(TRAINER_STATIC_DIR, filename)
+        with open(filepath, "wb") as f:
+            f.write(content)
+        photo_url = f"/static/trainers/{filename}"
 
     async with get_pg_connection() as conn:
         await conn.execute(
             "UPDATE trainer_profiles SET profile_photo_url = $1, updated_at = NOW() WHERE user_id = $2",
+            photo_url,
+            user_id,
+        )
+        await conn.execute(
+            "UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2",
             photo_url,
             user_id,
         )
@@ -369,6 +381,7 @@ async def upload_trainer_photo(
         "message": "Profile photo uploaded successfully.",
         "data": {
             "profilePhotoUrl": photo_url,
+            "avatarUrl": photo_url,
         },
     }
 

@@ -41,8 +41,11 @@ import { api, type ApiError } from '@/lib/api';
 import { num } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { useApi } from '@/hooks/useApi';
+import { useAppDispatch } from '@/store';
+import { userUpdated } from '@/store/authSlice';
 
 export default function TrainerProfilePage() {
+  const dispatch = useAppDispatch();
   const query = useApi<any>('/trainer/profile');
   const [activeTab, setActiveTab] = React.useState<'basic' | 'professional' | 'education' | 'social' | 'teaching'>('basic');
   const [saving, setSaving] = React.useState(false);
@@ -133,7 +136,9 @@ export default function TrainerProfilePage() {
     try {
       const res = await api.post<any>('/trainer/profile/photo', formData);
       if (res.success && res.data?.profilePhotoUrl) {
-        setProfilePhotoUrl(res.data.profilePhotoUrl);
+        const photoUrl = res.data.profilePhotoUrl;
+        setProfilePhotoUrl(photoUrl);
+        dispatch(userUpdated({ avatarUrl: photoUrl }));
         toast.success('Profile avatar updated successfully!');
         query.refetch();
       }

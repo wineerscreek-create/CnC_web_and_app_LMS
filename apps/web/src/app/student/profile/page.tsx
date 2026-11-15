@@ -2,6 +2,7 @@
 
 import {
   CalendarDays,
+  Camera,
   FileText,
   Pencil,
   Save,
@@ -29,11 +30,14 @@ import { useApi } from '@/hooks/useApi';
 import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { formatDate, num, pct } from '@/lib/format';
-import { useAppDispatch } from '@/store';
+import { useAppDispatch, useAppSelector } from '@/store';
 import { userUpdated } from '@/store/authSlice';
+import { ProfileAvatarUploadModal } from '@/components/layout/ProfileAvatarUploadModal';
 
 export default function StudentProfilePage() {
   const dispatch = useAppDispatch();
+  const user = useAppSelector((state) => state.auth.user);
+  const [avatarModalOpen, setAvatarModalOpen] = React.useState(false);
   const query = useApi<any>('/student/profile');
 
   const [activeTab, setActiveTab] = React.useState('details');
@@ -143,12 +147,25 @@ export default function StudentProfilePage() {
                 <div className="space-y-5 min-w-0">
                   <Card className="border-border bg-card shadow-card">
                     <CardBody className="p-5 text-center min-w-0">
-                      <Avatar
-                        name={data.profile.name}
-                        color={data.profile.avatarColor}
-                        size={68}
-                        className="mx-auto shadow-xs"
-                      />
+                      <div className="relative mx-auto inline-block">
+                        <Avatar
+                          name={data.profile.name}
+                          color={data.profile.avatarColor}
+                          src={data.profile.avatarUrl || user?.avatarUrl}
+                          size={68}
+                          className="mx-auto shadow-xs"
+                        />
+                        {user && (
+                          <button
+                            type="button"
+                            onClick={() => setAvatarModalOpen(true)}
+                            aria-label="Change profile photo"
+                            className="absolute bottom-0 right-0 flex size-6.5 items-center justify-center rounded-full border-2 border-card bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 transition-transform active:scale-90"
+                          >
+                            <Camera className="size-3.5" />
+                          </button>
+                        )}
+                      </div>
                       <p className="mt-3.5 text-base font-bold font-heading text-heading break-words">{data.profile.name}</p>
                       <p className="text-xs font-mono text-muted-foreground mt-0.5 break-all">{data.profile.rollNumber}</p>
                       <p className="mt-1 text-xs text-muted-foreground break-words">
@@ -633,6 +650,17 @@ export default function StudentProfilePage() {
           );
         }}
       </AsyncSection>
+
+      {user && (
+        <ProfileAvatarUploadModal
+          open={avatarModalOpen}
+          onClose={() => {
+            setAvatarModalOpen(false);
+            query.refetch();
+          }}
+          user={user}
+        />
+      )}
     </div>
   );
 }
