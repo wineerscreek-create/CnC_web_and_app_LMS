@@ -47,7 +47,9 @@ export default function NewEvaluationPage() {
   });
   const { saving, submitting, run } = useEvaluationSave();
 
-  const chosen = (students.data?.items ?? []).find((row: any) => row.userId === studentUserId);
+  const chosen = (students.data?.items ?? []).find(
+    (row: any) => row.userId === studentUserId || row.id === studentUserId,
+  );
   const ready = Boolean(studentUserId && moduleId);
 
   async function save(state: 'draft' | 'submitted') {
@@ -115,11 +117,11 @@ export default function NewEvaluationPage() {
                   <button
                     key={row.id}
                     type="button"
-                    onClick={() => setStudentUserId(row.userId)}
-                    aria-pressed={studentUserId === row.userId}
+                    onClick={() => setStudentUserId(row.userId || row.id)}
+                    aria-pressed={studentUserId === (row.userId || row.id)}
                     className={cn(
                       'flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm',
-                      studentUserId === row.userId
+                      studentUserId === (row.userId || row.id)
                         ? 'bg-primary-50 font-semibold text-primary-600'
                         : 'hover:bg-app',
                     )}

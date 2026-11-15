@@ -260,7 +260,7 @@ export function SnakeAndLadderGame({
         </div>
 
         {/* 10x10 Grid */}
-        <div className="grid grid-cols-10 gap-1 bg-slate-950 p-2 rounded-xl border border-slate-800 aspect-square max-w-[600px] mx-auto">
+        <div className="grid grid-cols-10 gap-0.5 sm:gap-1 bg-slate-950 p-1 sm:p-2 rounded-xl border border-slate-800 aspect-square max-w-[600px] mx-auto w-full">
           {Array.from({ length: 100 }, (_, idx) => {
             const rowFromTop = Math.floor(idx / 10);
             const rowFromBottom = 9 - rowFromTop;
@@ -277,33 +277,33 @@ export function SnakeAndLadderGame({
               <div
                 key={cellNumber}
                 className={cn(
-                  'relative rounded-md flex flex-col items-center justify-between p-1 transition-all text-center select-none',
+                  'relative rounded-sm sm:rounded-md flex flex-col items-center justify-between p-0.5 sm:p-1 transition-all text-center select-none min-w-0 overflow-hidden',
                   (rowFromTop + colInRow) % 2 === 0 ? 'bg-slate-900/80' : 'bg-slate-800/50',
-                  isPlayerHere && 'ring-2 ring-emerald-400 bg-emerald-500/30 font-bold',
+                  isPlayerHere && 'ring-1 sm:ring-2 ring-emerald-400 bg-emerald-500/30 font-bold',
                   isSnakeHead && 'border border-red-500/40 bg-red-950/30',
                   isLadderBase && 'border border-emerald-500/40 bg-emerald-950/30'
                 )}
               >
-                <span className="text-[10px] sm:text-xs font-mono font-bold text-slate-400 self-start leading-none">
+                <span className="text-[8px] sm:text-xs font-mono font-bold text-slate-400 self-start leading-none">
                   {cellNumber}
                 </span>
 
                 {/* Player Token */}
                 {isPlayerHere && (
-                  <div className="size-5 sm:size-6 rounded-full bg-emerald-400 text-slate-950 font-bold flex items-center justify-center text-xs shadow-[0_0_12px_rgba(52,211,153,0.8)] animate-bounce z-10">
+                  <div className="size-3.5 sm:size-6 rounded-full bg-emerald-400 text-slate-950 font-bold flex items-center justify-center text-[9px] sm:text-xs shadow-[0_0_12px_rgba(52,211,153,0.8)] animate-bounce z-10">
                     ★
                   </div>
                 )}
 
                 {/* Snake / Ladder Badge */}
                 {isSnakeHead && !isPlayerHere && (
-                  <span className="text-[10px] text-red-400 font-bold leading-none" title={`Snake to ${SNAKES[cellNumber]}`}>
-                    🐍 {SNAKES[cellNumber]}
+                  <span className="text-[7px] sm:text-[10px] text-red-400 font-bold leading-none truncate max-w-full" title={`Snake to ${SNAKES[cellNumber]}`}>
+                    <span className="hidden sm:inline">🐍 </span>{SNAKES[cellNumber]}
                   </span>
                 )}
                 {isLadderBase && !isPlayerHere && (
-                  <span className="text-[10px] text-emerald-400 font-bold leading-none" title={`Ladder to ${LADDERS[cellNumber]}`}>
-                    🪜 {LADDERS[cellNumber]}
+                  <span className="text-[7px] sm:text-[10px] text-emerald-400 font-bold leading-none truncate max-w-full" title={`Ladder to ${LADDERS[cellNumber]}`}>
+                    <span className="hidden sm:inline">🪜 </span>{LADDERS[cellNumber]}
                   </span>
                 )}
               </div>

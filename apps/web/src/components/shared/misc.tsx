@@ -447,9 +447,9 @@ export function DetailList({
   return (
     <dl className={cn('divide-y divide-dashed divide-line', className)}>
       {rows.map((row) => (
-        <div key={row.label} className="flex items-baseline justify-between gap-4 py-2.5">
-          <dt className="text-base text-ink-2">{row.label}</dt>
-          <dd className="text-right text-base font-semibold text-ink-1">{row.value ?? '—'}</dd>
+        <div key={row.label} className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-4 py-2.5 min-w-0">
+          <dt className="text-base text-ink-2 shrink-0">{row.label}</dt>
+          <dd className="text-left sm:text-right text-base font-semibold text-ink-1 min-w-0 break-words">{row.value ?? '—'}</dd>
         </div>
       ))}
     </dl>

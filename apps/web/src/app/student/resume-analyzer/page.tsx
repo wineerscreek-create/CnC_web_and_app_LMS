@@ -120,7 +120,7 @@ export default function ResumeAnalyzerPage() {
                   <input
                     ref={inputRef}
                     type="file"
-                    accept=".pdf,.doc,.docx,.txt"
+                    accept=".pdf,.doc,.docx,.txt,.md"
                     className="sr-only"
                     id="resume-file"
                     onChange={(event) => {

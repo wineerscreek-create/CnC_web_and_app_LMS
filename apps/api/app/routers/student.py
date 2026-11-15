@@ -3704,6 +3704,25 @@ async def upload_resume(
                 text = "\n".join(page.get_text() for page in doc)
             except Exception:
                 text = ""
+    elif filename.lower().endswith(".doc"):
+        try:
+            import re as _re
+            ascii_strings = _re.findall(rb'[\x20-\x7E\t\n\r]{4,}', data)
+            utf16_strings = _re.findall(rb'(?:[\x20-\x7E\t\n\r]\x00){4,}', data)
+            extracted_parts = []
+            for s in ascii_strings:
+                try:
+                    extracted_parts.append(s.decode('latin-1'))
+                except Exception:
+                    pass
+            for s in utf16_strings:
+                try:
+                    extracted_parts.append(s.decode('utf-16le', errors='ignore'))
+                except Exception:
+                    pass
+            text = "\n".join(extracted_parts)
+        except Exception:
+            text = ""
     elif filename.lower().endswith(".docx"):
         try:
             import zipfile

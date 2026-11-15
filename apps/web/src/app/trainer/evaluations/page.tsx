@@ -161,10 +161,26 @@ function OverrideDialog({
 export default function TrainerEvaluationsPage() {
   const table = useTableState('trainer-evaluations', { pageSize: 20 });
   const evaluations = useApi<any>('/trainer/evaluations', table.params, {
-    select: (raw) => ({ items: raw.items, pagination: raw.pagination }),
+    select: (raw) => ({
+      items: raw.items ?? raw.data ?? [],
+      pagination: raw.pagination ?? {
+        page: raw.page ?? 1,
+        pageSize: raw.pageSize ?? 20,
+        total: raw.total ?? (raw.items?.length || 0),
+        pages: raw.pages ?? 1,
+      },
+    }),
   });
   const aiScores = useApi<any>('/trainer/ai-scores', { pageSize: 20, reviewState: 'all' }, {
-    select: (raw) => ({ items: raw.items ?? raw.data ?? [], pagination: raw.pagination }),
+    select: (raw) => ({
+      items: raw.items ?? raw.data ?? [],
+      pagination: raw.pagination ?? {
+        page: raw.page ?? 1,
+        pageSize: raw.pageSize ?? 20,
+        total: raw.total ?? (raw.items?.length || 0),
+        pages: raw.pages ?? 1,
+      },
+    }),
   });
   const [overriding, setOverriding] = React.useState<any>(null);
 
