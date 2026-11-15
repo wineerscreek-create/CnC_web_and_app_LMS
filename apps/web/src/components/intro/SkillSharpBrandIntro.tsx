@@ -2,13 +2,27 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowRight, RotateCcw, X } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
-export const INTRO_IMAGE_SRC = '/images/c00b9231-d221-4252-9d83-7102eb29b0bb.png';
+export const INTRO_FRAMES: string[] = [
+  '/images/intro-frames/frame-01.png',
+  '/images/intro-frames/frame-02.png',
+  '/images/intro-frames/frame-03.png',
+  '/images/intro-frames/frame-04.png',
+  '/images/intro-frames/frame-05.png',
+  '/images/intro-frames/frame-06.png',
+  '/images/intro-frames/frame-07.png',
+  '/images/intro-frames/frame-08.png',
+  '/images/intro-frames/frame-09.png',
+  '/images/intro-frames/frame-10.png',
+  '/images/intro-frames/frame-11.png',
+  '/images/intro-frames/frame-12.png',
+];
+
 const STORAGE_KEY = 'skillsharp_intro_viewed';
-const PLAYBACK_DURATION_MS = 7000; // 7 seconds (approx 6-8 seconds)
-const FADE_OUT_DURATION_MS = 600;
+const FRAME_DURATION_MS = 750; // 750ms per frame (within 600-900ms requirement)
+const FADE_OUT_DURATION_MS = 500;
 
 interface SkillSharpBrandIntroProps {
   onComplete?: () => void;
@@ -17,33 +31,28 @@ interface SkillSharpBrandIntroProps {
 
 /**
  * SkillSharp Brand Introduction
- * Plays back the complete, unaltered approved artwork as a clean video-style intro
- * with smooth fade transitions, responsive 16:9 container, and Skip / Replay options.
+ * Smooth video-style animated sequence playing the 12 progressive artwork frames
+ * in exact sequence (01 -> 12) with subtle crossfades and zero clutter.
+ * Concludes on Frame 12 with an "Explore Now" button.
  */
 export function SkillSharpBrandIntro({ onComplete, forceShow }: SkillSharpBrandIntroProps) {
   const [mounted, setMounted] = React.useState(false);
   const [isVisible, setIsVisible] = React.useState(false);
-  const [isFadingIn, setIsFadingIn] = React.useState(false);
+  const [currentFrame, setCurrentFrame] = React.useState(0);
+  const [isComplete, setIsComplete] = React.useState(false);
   const [isExiting, setIsExiting] = React.useState(false);
-  const [progress, setProgress] = React.useState(0);
 
-  const playbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const progressIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
-  const startTimeRef = React.useRef<number>(0);
+  const playbackTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Clear all running timers
+  // Clear running timers
   const clearTimers = React.useCallback(() => {
     if (playbackTimerRef.current) {
-      clearTimeout(playbackTimerRef.current);
+      clearInterval(playbackTimerRef.current);
       playbackTimerRef.current = null;
-    }
-    if (progressIntervalRef.current) {
-      clearInterval(progressIntervalRef.current);
-      progressIntervalRef.current = null;
     }
   }, []);
 
-  // Dismiss intro and transition to homepage
+  // Dismiss intro and navigate to homepage
   const dismissIntro = React.useCallback(() => {
     clearTimers();
     setIsExiting(true);
@@ -60,37 +69,47 @@ export function SkillSharpBrandIntro({ onComplete, forceShow }: SkillSharpBrandI
     }, FADE_OUT_DURATION_MS);
   }, [clearTimers, onComplete]);
 
-  // Start the 6-8 second playback sequence
+  // Start frame-by-frame playback sequence
   const startPlayback = React.useCallback(() => {
     clearTimers();
+    setCurrentFrame(0);
+    setIsComplete(false);
     setIsExiting(false);
-    setIsFadingIn(false);
-    setProgress(0);
+
+    // Preload all 12 frames into browser cache
+    if (typeof window !== 'undefined') {
+      INTRO_FRAMES.forEach((src) => {
+        const img = new Image();
+        img.src = src;
+      });
+    }
 
     const prefersReducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    // Small delay for clean initial frame before fade-in
-    setTimeout(() => {
-      setIsFadingIn(true);
-    }, 50);
+    if (prefersReducedMotion) {
+      // Skip straight to final frame for reduced motion
+      setCurrentFrame(INTRO_FRAMES.length - 1);
+      setIsComplete(true);
+      return;
+    }
 
-    const duration = prefersReducedMotion ? 3000 : PLAYBACK_DURATION_MS;
-    startTimeRef.current = Date.now();
-
-    // Progress bar updater
-    progressIntervalRef.current = setInterval(() => {
-      const elapsed = Date.now() - startTimeRef.current;
-      const pct = Math.min(100, (elapsed / duration) * 100);
-      setProgress(pct);
-    }, 50);
-
-    // Auto-transition after playback duration
-    playbackTimerRef.current = setTimeout(() => {
-      dismissIntro();
-    }, duration);
-  }, [clearTimers, dismissIntro]);
+    let frame = 0;
+    playbackTimerRef.current = setInterval(() => {
+      frame += 1;
+      if (frame >= INTRO_FRAMES.length - 1) {
+        setCurrentFrame(INTRO_FRAMES.length - 1);
+        setIsComplete(true);
+        if (playbackTimerRef.current) {
+          clearInterval(playbackTimerRef.current);
+          playbackTimerRef.current = null;
+        }
+      } else {
+        setCurrentFrame(frame);
+      }
+    }, FRAME_DURATION_MS);
+  }, [clearTimers]);
 
   // Initial mount check
   React.useEffect(() => {
@@ -105,7 +124,7 @@ export function SkillSharpBrandIntro({ onComplete, forceShow }: SkillSharpBrandI
       startPlayback();
     }
 
-    // Listen for custom replay event from SiteFooter or other controls
+    // Replay event listener (e.g. from footer or navigation)
     const handleReplayEvent = () => {
       setIsVisible(true);
       startPlayback();
@@ -129,7 +148,7 @@ export function SkillSharpBrandIntro({ onComplete, forceShow }: SkillSharpBrandI
     }
   }, [isVisible]);
 
-  // Escape key listener to skip
+  // Keyboard accessibility: Escape to dismiss
   React.useEffect(() => {
     if (!isVisible) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -141,11 +160,6 @@ export function SkillSharpBrandIntro({ onComplete, forceShow }: SkillSharpBrandI
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isVisible, dismissIntro]);
 
-  // Replay handler
-  const handleReplay = React.useCallback(() => {
-    startPlayback();
-  }, [startPlayback]);
-
   if (!mounted || !isVisible) return null;
 
   const content = (
@@ -153,78 +167,60 @@ export function SkillSharpBrandIntro({ onComplete, forceShow }: SkillSharpBrandI
       role="region"
       aria-label="SkillSharp Brand Introduction"
       className={cn(
-        'fixed inset-0 z-[9999] flex flex-col items-center justify-between bg-[#070a0f] text-white select-none transition-opacity duration-500 ease-out',
+        'fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#070a0f] text-white select-none overflow-hidden transition-opacity duration-500 ease-out',
         isExiting ? 'opacity-0 pointer-events-none' : 'opacity-100'
       )}
     >
-      {/* Top Controls Bar */}
-      <header className="relative z-20 flex w-full items-center justify-between px-4 py-3 sm:px-8 sm:py-5">
-        <div className="flex items-center gap-2">
-          <span className="inline-block size-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-[11px] sm:text-xs font-semibold tracking-wider uppercase text-white/70">
-            SkillSharp Brand Intro
-          </span>
+      {/* Viewport Frame Container: Centered, 4:3 native ratio preserved, object-contain */}
+      <div className="relative flex flex-1 w-full h-full items-center justify-center p-3 sm:p-6 md:p-8 min-h-0 overflow-hidden">
+        <div
+          className="relative w-full h-full max-w-[1240px] max-h-[88vh] aspect-[413/308] flex items-center justify-center overflow-hidden"
+          style={{ maxWidth: 'min(1240px, 92vw)' }}
+        >
+          {INTRO_FRAMES.map((src, index) => {
+            const isActive = index === currentFrame;
+            const isPrevious = index === currentFrame - 1;
+            const isVisibleFrame = isActive || isPrevious;
+
+            return (
+              <img
+                key={src}
+                src={src}
+                alt={`SkillSharp Intro Animation Frame ${index + 1}`}
+                loading="eager"
+                decoding="async"
+                draggable={false}
+                className={cn(
+                  'absolute inset-0 w-full h-full object-contain pointer-events-none select-none transition-opacity duration-300 ease-in-out',
+                  isActive
+                    ? 'opacity-100 z-10'
+                    : isPrevious
+                    ? 'opacity-100 z-0'
+                    : 'opacity-0 pointer-events-none z-0'
+                )}
+                style={{
+                  display: isVisibleFrame ? 'block' : 'none',
+                }}
+              />
+            );
+          })}
         </div>
+      </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleReplay}
-            aria-label="Replay intro"
-            className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-medium text-white/90 backdrop-blur-md transition-all hover:bg-white/20 active:scale-95"
-          >
-            <RotateCcw className="size-3.5" aria-hidden />
-            <span className="hidden sm:inline">Replay</span>
-          </button>
-
+      {/* Final Action Button: Appears only after Frame 12 completes */}
+      {isComplete && (
+        <div className="absolute bottom-6 sm:bottom-10 z-30 flex items-center justify-center animate-enter px-4">
           <button
             type="button"
             onClick={dismissIntro}
-            aria-label="Skip intro and enter website"
-            className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur-md shadow-sm transition-all hover:bg-white/25 active:scale-95"
+            aria-label="Explore Now — Enter SkillSharp Website"
+            className="group inline-flex items-center gap-2.5 rounded-full bg-primary px-7 py-3 sm:px-9 sm:py-3.5 text-sm sm:text-base font-bold text-primary-foreground shadow-2xl transition-all duration-300 hover:scale-105 hover:bg-primary/95 active:scale-95 cursor-pointer border border-primary/40 ring-4 ring-primary/20"
           >
-            <span>Skip Intro</span>
-            <ArrowRight className="size-3.5" aria-hidden />
+            <span>Explore Now</span>
+            <ArrowRight className="size-4 sm:size-5 transition-transform duration-200 group-hover:translate-x-1" />
           </button>
         </div>
-      </header>
-
-      {/* Main Artwork Container - 16:9 preserved, object-contain, centered, zero alteration */}
-      <main className="relative flex flex-1 w-full items-center justify-center p-2 sm:p-6 md:p-8 min-h-0 overflow-hidden">
-        <div
-          className={cn(
-            'relative flex items-center justify-center w-full h-full max-w-[1672px] max-h-full transition-opacity duration-1000 ease-out',
-            isFadingIn ? 'opacity-100' : 'opacity-0'
-          )}
-        >
-          <img
-            src={INTRO_IMAGE_SRC}
-            alt="SkillSharp — Campus to Corporate"
-            loading="eager"
-            decoding="async"
-            draggable={false}
-            className="max-h-full max-w-full w-auto h-auto object-contain aspect-[16/9] shadow-2xl rounded-lg pointer-events-none select-none"
-            style={{
-              maxHeight: 'calc(100vh - 120px)',
-              maxWidth: 'calc(100vw - 16px)',
-            }}
-          />
-        </div>
-      </main>
-
-      {/* Bottom Playback Progress Bar */}
-      <footer className="relative z-20 w-full px-4 py-3 sm:px-8 sm:py-4 flex flex-col gap-2">
-        <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-blue-500 via-amber-400 to-emerald-400 transition-all duration-75 ease-linear"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <div className="flex items-center justify-between text-[10px] text-white/50 px-0.5">
-          <span>Campus to Corporate</span>
-          <span>Press ESC or click Skip Intro to proceed</span>
-        </div>
-      </footer>
+      )}
     </aside>
   );
 
