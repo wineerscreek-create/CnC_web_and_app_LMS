@@ -230,10 +230,10 @@ export default function SuperAdminCoursesPage() {
       </div>
 
       {/* Courses Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+      <div className="grid min-w-0 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
         {filtered.map((course) => (
-          <Card key={course.id} className="group hover:border-indigo transition-all shadow-xs hover:shadow-md flex flex-col justify-between">
-            <CardHeader className="p-5 border-b border-border">
+          <Card key={course.id} className="min-w-0 group hover:border-indigo transition-all shadow-xs hover:shadow-md flex flex-col justify-between">
+            <CardHeader className="p-5 border-b border-border min-w-0">
               <div className="flex items-start justify-between gap-2">
                 <Badge tone={course.courseMode === 'ONLINE' ? 'indigo' : course.courseMode === 'OFFLINE' ? 'teal' : 'purple'}>
                   {course.courseMode === 'BOTH' ? 'ONLINE + OFFLINE' : course.courseMode}
@@ -242,32 +242,32 @@ export default function SuperAdminCoursesPage() {
                   {course.published ? 'Published' : 'Draft'}
                 </Badge>
               </div>
-              <h2 className="text-base font-bold text-foreground mt-2 group-hover:text-primary transition-colors">
+              <h2 className="text-base font-bold text-foreground mt-2 group-hover:text-primary transition-colors line-clamp-2 break-words">
                 {course.title}
               </h2>
-              <p className="text-xs text-muted-foreground font-mono mt-0.5">/{course.slug}</p>
+              <p className="text-xs text-muted-foreground font-mono mt-0.5 truncate">/{course.slug}</p>
             </CardHeader>
-            <CardBody className="p-5 space-y-4">
+            <CardBody className="p-5 space-y-4 min-w-0">
               <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60">
+                <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 min-w-0">
                   <p className="text-[10px] text-muted-foreground font-medium">Fee</p>
-                  <p className="font-bold text-slate-800 dark:text-slate-200">
+                  <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
                     {course.price > 0 ? `₹${num(course.price)}` : 'Free'}
                   </p>
                 </div>
-                <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60">
+                <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 min-w-0">
                   <p className="text-[10px] text-muted-foreground font-medium">Campus</p>
-                  <p className="font-bold text-emerald-600">{num(course.offlineEnrollments)}</p>
+                  <p className="font-bold text-emerald-600 truncate">{num(course.offlineEnrollments)}</p>
                 </div>
-                <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60">
+                <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 min-w-0">
                   <p className="text-[10px] text-muted-foreground font-medium">Online</p>
-                  <p className="font-bold text-indigo">{num(course.onlineEnrollments)}</p>
+                  <p className="font-bold text-indigo truncate">{num(course.onlineEnrollments)}</p>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t border-border">
-                <span>Faculty: <strong>{course.trainerName}</strong></span>
-                <span>{course.category}</span>
+              <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t border-border gap-2">
+                <span className="truncate">Faculty: <strong>{course.trainerName}</strong></span>
+                <span className="shrink-0">{course.category}</span>
               </div>
 
               <Button asChild variant="secondary" size="sm" className="w-full text-xs">

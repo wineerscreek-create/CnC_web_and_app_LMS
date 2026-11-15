@@ -68,11 +68,25 @@ export default function TrainerBatchesPage() {
                     </div>
                   </dl>
 
-                  <ProgressBar
-                    className="mt-3.5"
-                    label="Capacity used"
-                    value={(batch.studentCount / Math.max(1, batch.capacity)) * 100}
-                  />
+                  {batch.capacity && batch.capacity > 0 ? (
+                    <div className="mt-3.5 space-y-1">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Capacity used</span>
+                        <span className="font-semibold text-foreground">
+                          {num(batch.studentCount)} / {num(batch.capacity)} ({Math.min(100, Math.round((batch.studentCount / batch.capacity) * 100))}%)
+                        </span>
+                      </div>
+                      <ProgressBar
+                        label="Capacity used"
+                        value={Math.min(100, Math.max(0, (batch.studentCount / batch.capacity) * 100))}
+                      />
+                    </div>
+                  ) : (
+                    <div className="mt-3.5 flex items-center justify-between rounded-lg bg-muted/40 px-3 py-1.5 text-xs">
+                      <span className="text-muted-foreground">Capacity limit</span>
+                      <span className="font-medium text-muted-foreground">Not Set</span>
+                    </div>
+                  )}
 
                   <div className="mt-4 flex gap-2">
                     <Button asChild variant="primary" size="sm" className="flex-1">

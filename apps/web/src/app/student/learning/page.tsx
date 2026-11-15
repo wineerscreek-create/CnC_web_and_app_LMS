@@ -190,14 +190,14 @@ export default function MyLearningPage() {
       )}
 
       {/* Filter Tabs */}
-      <div className="flex items-center justify-between">
-        <Tabs value={filter} onValueChange={setFilter}>
-          <TabsList className="bg-muted p-1 rounded-2xl border border-border">
+      <div className="flex items-center justify-between w-full overflow-x-auto scroll-thin pb-1">
+        <Tabs value={filter} onValueChange={setFilter} className="w-full sm:w-auto">
+          <TabsList className="bg-muted p-1 rounded-2xl border border-border inline-flex w-auto max-w-full overflow-x-auto">
             {FILTERS.map((item) => (
               <TabsTrigger
                 key={item.value}
                 value={item.value}
-                className="rounded-xl px-3.5 py-1.5 text-xs font-semibold data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs text-muted-foreground"
+                className="rounded-xl px-3.5 py-1.5 text-xs font-semibold whitespace-nowrap shrink-0 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs text-muted-foreground"
               >
                 {item.label}
               </TabsTrigger>
@@ -216,7 +216,7 @@ export default function MyLearningPage() {
           });
 
           return (
-            <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3 min-w-0">
               {filtered.map((course: any) => {
                 const Icon = iconFor(course.category);
                 return (

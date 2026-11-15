@@ -51,7 +51,7 @@ export function CourseCard({
   return (
     <div
       className={cn(
-        'group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-card transition-all duration-300 hover:shadow-card-hover hover:-translate-y-0.5 hover:border-accent/40',
+        'group relative flex flex-col min-w-0 w-full overflow-hidden rounded-2xl border border-border bg-card shadow-card transition-all duration-300 hover:shadow-card-hover hover:-translate-y-0.5 hover:border-accent/40',
         className,
       )}
     >
@@ -93,13 +93,13 @@ export function CourseCard({
       </div>
 
       {/* 2. Content Body */}
-      <div className="flex flex-1 flex-col p-5">
-        <h3 className="font-bold text-base font-heading text-heading line-clamp-1 transition-colors">
+      <div className="flex flex-1 flex-col p-5 min-w-0">
+        <h3 className="font-bold text-base font-heading text-heading line-clamp-2 break-words transition-colors">
           {title}
         </h3>
 
         {description && (
-          <p className="mt-1.5 text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+          <p className="mt-1.5 text-xs text-muted-foreground line-clamp-3 leading-relaxed break-words">
             {description}
           </p>
         )}

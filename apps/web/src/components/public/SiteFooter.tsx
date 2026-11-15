@@ -23,14 +23,14 @@ import { toast } from 'sonner';
 const SOCIAL_LINKS = [
   {
     name: 'LinkedIn',
-    href: 'https://linkedin.com/company/winners-creek-lms',
+    href: 'https://www.linkedin.com/company/winners-creek-lms',
     icon: Linkedin,
     hoverClass: 'hover:text-[#0a66c2]',
     primary: true,
   },
   {
     name: 'YouTube',
-    href: 'https://youtube.com/@winnerscreeklms',
+    href: 'https://www.youtube.com/@winnerscreeklms',
     icon: Youtube,
     hoverClass: 'hover:text-[#ff0000]',
     primary: false,
@@ -76,7 +76,7 @@ export function SiteFooter() {
   };
 
   return (
-    <footer className="relative mt-24 border-t border-slate-800 bg-[#0a0f1d] text-slate-300 overflow-hidden">
+    <footer className="relative z-10 mt-24 border-t border-slate-800 bg-[#0a0f1d] text-slate-300 overflow-hidden">
       {/* Top Specular Brand Accent Line */}
       <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-amber-500/40 to-transparent" />
 

@@ -398,6 +398,26 @@ class UserRepository:
             return dict(row) if row else None
 
     @staticmethod
+    async def get_student_by_roll_number(institution_id: UUID | str, roll_number: str) -> dict[str, Any] | None:
+        inst_uuid = _parse_uuid(institution_id)
+        if not inst_uuid or not roll_number:
+            return None
+        async with get_pg_connection() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT sp.id, sp.user_id, sp.roll_number, sp.institution_id, sp.department_id, u.email, u.name
+                FROM student_profiles sp
+                JOIN users u ON u.id = sp.user_id
+                WHERE sp.institution_id = $1
+                  AND UPPER(TRIM(sp.roll_number)) = UPPER(TRIM($2))
+                  AND u.deleted_at IS NULL
+                """,
+                inst_uuid,
+                roll_number.strip(),
+            )
+            return dict(row) if row else None
+
+    @staticmethod
     async def create_user_with_profile(
         email: str,
         password_hash: str,

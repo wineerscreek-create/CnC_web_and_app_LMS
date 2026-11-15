@@ -1,8 +1,8 @@
 'use client';
 
-import { AlertTriangle, Info } from 'lucide-react';
+import { AlertTriangle, Eye, EyeOff, Info } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import * as React from 'react';
 
 import { PasswordStrength, passwordScore } from '@/components/auth/password-strength';
@@ -41,6 +41,9 @@ const DEFAULT_INSTITUTIONS: Institution[] = [
 
 export default function SignupPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTarget = searchParams.get('redirect') || searchParams.get('next') || searchParams.get('returnUrl');
+
   const institutions = useApi<Institution[]>('/home/institutions');
   const institutionList =
     institutions.data && institutions.data.length > 0
@@ -56,6 +59,8 @@ export default function SignupPage() {
     password: '',
     confirmPassword: '',
   });
+  const [showPassword, setShowPassword] = React.useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
@@ -86,7 +91,8 @@ export default function SignupPage() {
         departmentCode: form.departmentCode || undefined,
         institutionId: form.institutionId.trim() || undefined,
       });
-      router.push(`/verify-email?email=${encodeURIComponent(form.email.trim().toLowerCase())}`);
+      const redirectQuery = redirectTarget && redirectTarget.startsWith('/') ? `&next=${encodeURIComponent(redirectTarget)}` : '';
+      router.push(`/verify-email?email=${encodeURIComponent(form.email.trim().toLowerCase())}${redirectQuery}`);
     } catch (caught) {
       const apiError = caught as ApiError;
       setError(apiError.message);
@@ -193,15 +199,25 @@ export default function SignupPage() {
 
         <div className="grid gap-2.5 sm:grid-cols-2 sm:gap-3">
           <Field label="Password" htmlFor="password" required error={fieldErrors.password}>
-            <Input
-              id="password"
-              type="password"
-              required
-              autoComplete="new-password"
-              value={form.password}
-              onChange={(event) => set('password', event.target.value)}
-              className="rounded-xl text-sm"
-            />
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                required
+                autoComplete="new-password"
+                value={form.password}
+                onChange={(event) => set('password', event.target.value)}
+                className="pr-10 rounded-xl text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showPassword ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+              </button>
+            </div>
           </Field>
 
           <Field
@@ -210,15 +226,25 @@ export default function SignupPage() {
             required
             error={fieldErrors.confirmPassword}
           >
-            <Input
-              id="confirmPassword"
-              type="password"
-              required
-              autoComplete="new-password"
-              value={form.confirmPassword}
-              onChange={(event) => set('confirmPassword', event.target.value)}
-              className="rounded-xl text-sm"
-            />
+            <div className="relative">
+              <Input
+                id="confirmPassword"
+                type={showConfirmPassword ? 'text' : 'password'}
+                required
+                autoComplete="new-password"
+                value={form.confirmPassword}
+                onChange={(event) => set('confirmPassword', event.target.value)}
+                className="pr-10 rounded-xl text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword((prev) => !prev)}
+                aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showConfirmPassword ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+              </button>
+            </div>
           </Field>
         </div>
         <PasswordStrength value={form.password} />
@@ -251,7 +277,10 @@ export default function SignupPage() {
 
       <p className="mt-5 text-center text-xs text-muted-foreground">
         Already have an account?{' '}
-        <Link href="/login" className="font-bold text-foreground hover:underline">
+        <Link
+          href={redirectTarget && redirectTarget.startsWith('/') ? `/login?redirect=${encodeURIComponent(redirectTarget)}` : '/login'}
+          className="font-bold text-foreground hover:underline"
+        >
           Sign in
         </Link>
       </p>

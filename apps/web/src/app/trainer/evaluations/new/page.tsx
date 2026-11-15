@@ -29,7 +29,9 @@ export default function NewEvaluationPage() {
   const router = useRouter();
   const params = useSearchParams();
 
-  const [studentUserId, setStudentUserId] = React.useState(params.get('studentUserId') ?? '');
+  const [studentUserId, setStudentUserId] = React.useState(
+    params.get('studentUserId') ?? params.get('participantId') ?? params.get('studentId') ?? ''
+  );
   const [moduleId, setModuleId] = React.useState('');
   const [semesterId, setSemesterId] = React.useState('');
   const [search, setSearch] = React.useState('');

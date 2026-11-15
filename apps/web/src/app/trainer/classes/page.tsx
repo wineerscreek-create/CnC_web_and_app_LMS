@@ -100,10 +100,25 @@ export default function TrainerClassesPage() {
 
   const handleScheduleClass = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !startsAt || !endsAt) {
-      toast.error('Please fill all required fields');
+    if (!title.trim() || !startsAt || !endsAt) {
+      toast.error('Please enter session title, start time, and end time');
       return;
     }
+    const startDt = new Date(startsAt);
+    const endDt = new Date(endsAt);
+    if (isNaN(startDt.getTime()) || isNaN(endDt.getTime())) {
+      toast.error('Invalid session start or end time');
+      return;
+    }
+    if (endDt <= startDt) {
+      toast.error('Session end time must be strictly after the start time');
+      return;
+    }
+    if (courseMode === 'OFFLINE' && !selectedBatchId) {
+      toast.error('Offline campus sessions require selecting an assigned batch');
+      return;
+    }
+
     const finalMeetingUrl = provider === 'WINNERS_CREEK' ? 'https://meet.winnerscreek.lms/room/' + Math.random().toString(36).substring(7) : meetingUrl;
     if (!finalMeetingUrl) {
       toast.error('Please provide a meeting URL');
@@ -282,7 +297,7 @@ export default function TrainerClassesPage() {
               {assignedCourses.map((c) => (
                 <div
                   key={c.id}
-                  className="p-4 rounded-2xl border border-line bg-card/90 shadow-card backdrop-blur-md border-border bg-card space-y-3"
+                  className="p-5 rounded-2xl border border-border bg-card/90 shadow-card backdrop-blur-md flex flex-col justify-between h-full space-y-3"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
@@ -349,6 +364,7 @@ export default function TrainerClassesPage() {
               {liveClasses.map((c) => {
                 const isLive = c.status === 'LIVE' || c.isLiveNow;
                 const isCompleted = c.status === 'COMPLETED';
+                const hasIncompleteSchedule = !c.startsAt || !c.endsAt || (!c.batchName && c.courseMode === 'OFFLINE');
                 const hostUrl =
                   c.provider === 'WINNERS_CREEK' ? `/live-classes/${c.id}/room` : c.meetingUrl || '#';
 
@@ -356,12 +372,12 @@ export default function TrainerClassesPage() {
                   <GlassCard
                     key={c.id}
                     hover
-                    className={`flex flex-col justify-between ${
+                    className={`flex flex-col justify-between h-full p-5 ${
                       isLive ? 'border-red-500/50 bg-gradient-to-b from-red-950/20 to-slate-900/80 shadow-lg' : ''
                     }`}
                   >
                     <div className="space-y-3.5">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
                         {isLive ? (
                           <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/20 px-2.5 py-1 text-[11px] font-bold text-red-500 dark:text-red-400">
                             <Radio className="size-3 animate-pulse" />
@@ -372,6 +388,11 @@ export default function TrainerClassesPage() {
                             <CheckCircle2 className="size-3" />
                             Concluded
                           </span>
+                        ) : hasIncompleteSchedule ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 px-2.5 py-1 text-[11px] font-semibold text-amber-500">
+                            <Clock className="size-3" />
+                            Schedule Incomplete
+                          </span>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/20 px-2.5 py-1 text-[11px] font-semibold text-blue-600 dark:text-blue-300">
                             <Clock className="size-3" />
@@ -379,7 +400,7 @@ export default function TrainerClassesPage() {
                           </span>
                         )}
 
-                        <span className="rounded-lg border border-line bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-ink-2 border-border bg-muted text-foreground">
+                        <span className="rounded-lg border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-foreground">
                           {c.provider === 'WINNERS_CREEK' ? 'Native Room' : c.provider}
                         </span>
                       </div>
@@ -395,17 +416,19 @@ export default function TrainerClassesPage() {
                         <div className="flex items-center justify-between">
                           <span className="text-ink-3">Batch / Cohort</span>
                           <span className="font-semibold text-ink-1">
-                            {c.batchName || (c.courseMode === 'ONLINE' ? 'Online Cohort' : 'General')}
+                            {c.batchName || (c.courseMode === 'ONLINE' ? 'Online Cohort' : <span className="text-amber-500">Missing Batch</span>)}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-ink-3">Date</span>
-                          <span className="text-ink-1">{formatDate(c.startsAt)}</span>
+                          <span className="text-ink-1">
+                            {c.startsAt ? formatDate(c.startsAt) : <span className="text-amber-500">Not scheduled</span>}
+                          </span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-ink-3">Time</span>
                           <span className="text-ink-1">
-                            {formatTime(c.startsAt)} – {formatTime(c.endsAt)}
+                            {c.startsAt && c.endsAt ? `${formatTime(c.startsAt)} – ${formatTime(c.endsAt)}` : <span className="text-amber-500">Missing timing</span>}
                           </span>
                         </div>
                         {c.meetingUrl && (
@@ -419,16 +442,22 @@ export default function TrainerClassesPage() {
 
                     <div className="mt-5 space-y-2 pt-4 border-t border-line">
                       {!isCompleted && (
-                        <InteractiveArrowButton
-                          href={hostUrl}
-                          target={c.provider === 'WINNERS_CREEK' ? '_self' : '_blank'}
-                          variant={isLive ? 'gradient' : 'glass'}
-                          className={`w-full justify-between ${
-                            isLive ? 'from-red-600 to-indigo-600 shadow-red-500/20' : ''
-                          }`}
-                        >
-                          {isLive ? 'Enter Live Room (Host)' : 'Launch Host Room'}
-                        </InteractiveArrowButton>
+                        hasIncompleteSchedule ? (
+                          <div className="w-full text-center py-2 px-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500 font-semibold">
+                            Cannot Launch (Missing Schedule Information)
+                          </div>
+                        ) : (
+                          <InteractiveArrowButton
+                            href={hostUrl}
+                            target={c.provider === 'WINNERS_CREEK' ? '_self' : '_blank'}
+                            variant={isLive ? 'gradient' : 'glass'}
+                            className={`w-full justify-between ${
+                              isLive ? 'from-red-600 to-indigo-600 shadow-red-500/20' : ''
+                            }`}
+                          >
+                            {isLive ? 'Enter Live Room (Host)' : 'Launch Host Room'}
+                          </InteractiveArrowButton>
+                        )
                       )}
 
                       <button

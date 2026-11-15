@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, CheckCircle2, KeyRound, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Eye, EyeOff, KeyRound, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import * as React from 'react';
@@ -17,6 +17,8 @@ export default function ResetPasswordPage() {
 
   const [password, setPassword] = React.useState('');
   const [confirm, setConfirm] = React.useState('');
+  const [showPassword, setShowPassword] = React.useState(false);
+  const [showConfirm, setShowConfirm] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
@@ -112,29 +114,49 @@ export default function ResetPasswordPage() {
       <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
         <div>
           <Field label="New password" htmlFor="password" required error={fieldErrors.password}>
-            <Input
-              id="password"
-              type="password"
-              required
-              autoComplete="new-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="rounded-xl text-sm"
-            />
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                required
+                autoComplete="new-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="pr-10 rounded-xl text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showPassword ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+              </button>
+            </div>
           </Field>
           <PasswordStrength value={password} />
         </div>
 
         <Field label="Confirm new password" htmlFor="confirm" required error={fieldErrors.confirm}>
-          <Input
-            id="confirm"
-            type="password"
-            required
-            autoComplete="new-password"
-            value={confirm}
-            onChange={(event) => setConfirm(event.target.value)}
-            className="rounded-xl text-sm"
-          />
+          <div className="relative">
+            <Input
+              id="confirm"
+              type={showConfirm ? 'text' : 'password'}
+              required
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(event) => setConfirm(event.target.value)}
+              className="pr-10 rounded-xl text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirm((prev) => !prev)}
+              aria-label={showConfirm ? 'Hide password' : 'Show password'}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showConfirm ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+            </button>
+          </div>
         </Field>
 
         {error && (

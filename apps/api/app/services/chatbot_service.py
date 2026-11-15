@@ -177,28 +177,56 @@ async def answer_ai_query(
     blocker_reason = None
 
     # Check external provider configuration
-    has_api_key = bool(settings.AI_API_KEY and settings.AI_API_KEY.strip())
+    gemini_key = settings.GEMINI_API_KEY or (settings.AI_API_KEY if settings.AI_PROVIDER == "gemini" else None)
+    groq_key = settings.GROQ_API_KEY or (settings.AI_API_KEY if settings.AI_PROVIDER == "groq" else None)
+    has_api_key = bool(
+        (settings.AI_PROVIDER == "gemini" and gemini_key)
+        or (settings.AI_PROVIDER == "groq" and groq_key)
+        or (settings.AI_PROVIDER in ("anthropic", "openai", "huggingface") and settings.AI_API_KEY and settings.AI_API_KEY.strip())
+    )
 
-    if settings.AI_PROVIDER in ("anthropic", "openai", "huggingface") and has_api_key:
+    system_instruction = (
+        "You are the Winners Creek AI Academic Assistant. Answer strictly based on the provided "
+        "verified learning context. Do not invent courses, scores, or facts. If context does not contain "
+        "the answer, state that clearly.\n\n"
+        f"Verified Context:\n{context_text}"
+    )
+
+    if has_api_key:
         try:
             import httpx
             headers: dict[str, str] = {"Content-Type": "application/json"}
             url = settings.AI_BASE_URL
             body: dict[str, Any] = {}
 
-            if settings.AI_PROVIDER == "anthropic":
+            if settings.AI_PROVIDER == "gemini":
+                url = url or f"https://generativelanguage.googleapis.com/v1beta/models/{settings.AI_MODEL}:generateContent"
+                headers["x-goog-api-key"] = gemini_key or ""
+                body = {
+                    "systemInstruction": {"parts": [{"text": system_instruction}]},
+                    "contents": [{"role": "user", "parts": [{"text": query}]}],
+                    "generationConfig": {"temperature": 0.2, "maxOutputTokens": 800},
+                }
+            elif settings.AI_PROVIDER == "groq":
+                url = url or "https://api.groq.com/openai/v1/chat/completions"
+                headers["Authorization"] = f"Bearer {groq_key or ''}"
+                body = {
+                    "model": settings.GROQ_MODEL,
+                    "messages": [
+                        {"role": "system", "content": system_instruction},
+                        {"role": "user", "content": query},
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 800,
+                }
+            elif settings.AI_PROVIDER == "anthropic":
                 url = url or "https://api.anthropic.com/v1/messages"
-                headers["x-api-key"] = settings.AI_API_KEY
+                headers["x-api-key"] = settings.AI_API_KEY or ""
                 headers["anthropic-version"] = "2023-06-01"
                 body = {
                     "model": settings.AI_MODEL,
                     "max_tokens": 800,
-                    "system": (
-                        "You are the Winners Creek AI Academic Assistant. Answer strictly based on the provided "
-                        "verified learning context. Do not invent courses, scores, or facts. If context does not contain "
-                        "the answer, state that clearly.\n\n"
-                        f"Verified Context:\n{context_text}"
-                    ),
+                    "system": system_instruction,
                     "messages": [{"role": "user", "content": query}]
                 }
             else:
@@ -208,19 +236,11 @@ async def answer_ai_query(
                     if settings.AI_PROVIDER == "huggingface"
                     else "https://api.openai.com/v1/chat/completions"
                 )
-                headers["Authorization"] = f"Bearer {settings.AI_API_KEY}"
+                headers["Authorization"] = f"Bearer {settings.AI_API_KEY or ''}"
                 body = {
                     "model": settings.AI_MODEL,
                     "messages": [
-                        {
-                            "role": "system",
-                            "content": (
-                                "You are the Winners Creek AI Academic Assistant. Answer strictly based on the provided "
-                                "verified learning context. Do not invent courses, scores, or facts. If context does not contain "
-                                "the answer, state that clearly.\n\n"
-                                f"Verified Context:\n{context_text}"
-                            )
-                        },
+                        {"role": "system", "content": system_instruction},
                         {"role": "user", "content": query}
                     ],
                     "temperature": 0.2,
@@ -231,7 +251,11 @@ async def answer_ai_query(
                 res = await client.post(url, headers=headers, json=body)
                 if res.status_code == 200:
                     data = res.json()
-                    if settings.AI_PROVIDER == "anthropic":
+                    if settings.AI_PROVIDER == "gemini":
+                        candidates = data.get("candidates") or []
+                        parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+                        ai_response = "".join(p.get("text", "") for p in parts)
+                    elif settings.AI_PROVIDER == "anthropic":
                         ai_response = "".join(b.get("text", "") for b in data.get("content", []))
                     else:
                         ai_response = data["choices"][0]["message"]["content"]

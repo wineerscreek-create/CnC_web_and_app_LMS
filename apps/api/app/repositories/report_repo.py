@@ -182,12 +182,14 @@ class ReportRepository:
 
             rows = await conn.fetch(
                 f"""
-                SELECT id, institution_id, department_id, requested_by, requested_by_role,
-                       report_type, format, status, filters, row_count, storage_key, filename,
-                       error, created_at, updated_at
-                FROM report_jobs
-                WHERE {where_clause}
-                ORDER BY created_at DESC
+                SELECT rj.id, rj.institution_id, rj.department_id, rj.requested_by, rj.requested_by_role,
+                       rj.report_type, rj.format, rj.status, rj.filters, rj.row_count, rj.storage_key, rj.filename,
+                       rj.error, rj.created_at, rj.updated_at,
+                       u.name as requested_by_name, u.email as requested_by_email
+                FROM report_jobs rj
+                LEFT JOIN users u ON u.id = rj.requested_by
+                WHERE {where_clause.replace('institution_id', 'rj.institution_id').replace('department_id', 'rj.department_id').replace('requested_by', 'rj.requested_by')}
+                ORDER BY rj.created_at DESC
                 LIMIT ${limit_idx} OFFSET ${offset_idx}
                 """,
                 *q_params,
@@ -195,6 +197,8 @@ class ReportRepository:
 
         items = []
         for r in rows:
+            req_label = r["requested_by_name"] or ctx.actor_label or "Trainer"
+            is_ready = r["status"] == "ready"
             item = {
                 "id": str(r["id"]),
                 "reportType": r["report_type"],
@@ -205,10 +209,14 @@ class ReportRepository:
                 "storageKey": r["storage_key"],
                 "filename": r["filename"],
                 "error": r["error"],
+                "requestedBy": str(r["requested_by"]) if r["requested_by"] else None,
+                "requestedByLabel": req_label,
+                "requestedAt": r["created_at"].isoformat() if r["created_at"] else None,
                 "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
-                "updatedAt": r["updated_at"].isoformat() if r["updated_at"] else None,
+                "generatedAt": r["updated_at"].isoformat() if (is_ready and r["updated_at"]) else None,
+                "updatedAt": r["updated_at"].isoformat() if (is_ready and r["updated_at"]) else None,
             }
-            if r["status"] == "ready" and r["storage_key"]:
+            if is_ready and r["storage_key"]:
                 item["downloadUrl"] = await signed_url(r["storage_key"], filename=r["filename"])
             items.append(item)
 

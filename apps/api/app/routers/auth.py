@@ -260,6 +260,12 @@ async def signup(payload: SignupRequest, request: Request) -> dict[str, Any]:
     if role in DEPARTMENT_BOUND and role is not Role.STUDENT and not department:
         raise ValidationError("Please select your department to continue")
 
+    roll_number = payload.institutionId.strip().upper() if payload.institutionId else None
+    if roll_number and college and role is Role.STUDENT:
+        existing_roll = await UserRepository.get_student_by_roll_number(college["id"], roll_number)
+        if existing_roll:
+            raise Conflict(f"A student with roll number '{payload.institutionId.strip()}' is already registered at {college.get('name', 'this institution')}.")
+
     avatar_color = f"#{abs(hash(email)) % 0xFFFFFF:06X}"
     pwd_hash = hash_password(payload.password)
 
@@ -273,11 +279,17 @@ async def signup(payload: SignupRequest, request: Request) -> dict[str, Any]:
             department_id=department["id"] if department else None,
             phone=payload.phone,
             avatar_color=avatar_color,
-            roll_number=payload.institutionId,
+            roll_number=roll_number,
             accepted_terms=bool(payload.acceptedTerms),
         )
     except Exception as exc:
-        raise Conflict("An account with these details already exists") from exc
+        err_msg = str(exc).lower()
+        if "users_email" in err_msg:
+            raise Conflict("An account with this email already exists. Try signing in instead.") from exc
+        if "uq_student_roll" in err_msg or "roll_number" in err_msg:
+            raise Conflict("A student with this roll number is already registered at this institution.") from exc
+        logger.error(f"Error creating user {email}: {exc}", exc_info=True)
+        raise ValidationError(f"Registration could not be completed: {str(exc)}") from exc
 
     try:
         from app.db.mongo import get_db
@@ -314,7 +326,6 @@ async def signup(payload: SignupRequest, request: Request) -> dict[str, Any]:
     except Exception:
         pass
 
-    user_id_str = str(user_record["id"])
     user_id_str = str(user_record["id"])
     otp = await rate_limit.issue_otp(VERIFY, email)
     link_token = create_purpose_token(

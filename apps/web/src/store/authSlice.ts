@@ -59,13 +59,20 @@ export const signIn = createAsyncThunk(
       if (!response.success) {
         return rejectWithValue({
           message: response.message || 'Sign-in failed',
+          verificationRequired: response.data?.verificationRequired,
+          email: response.data?.email,
         });
       }
       setAccessToken(response.data.accessToken);
       return response.data.user as SessionUser;
     } catch (error) {
       const apiError = error as ApiError;
-      return rejectWithValue({ message: apiError.message, code: apiError.code });
+      return rejectWithValue({
+        message: apiError.message,
+        code: apiError.code,
+        verificationRequired: (apiError as any).data?.verificationRequired,
+        email: (apiError as any).data?.email,
+      });
     }
   },
 );

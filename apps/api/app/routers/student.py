@@ -1169,6 +1169,18 @@ async def update_progress(
     }
 
 
+@router.post("/courses/{course_id}/lessons/{lesson_id}/complete")
+async def complete_lesson(
+    course_id: str, lesson_id: str, ctx: ScopeContext = StudentCtx
+) -> dict[str, Any]:
+    """Explicit lesson completion handler satisfying course progress pipelines."""
+    return await update_progress(
+        course_id,
+        ProgressUpdate(lessonId=lesson_id, percent=100.0, minutesSpent=5),
+        ctx=ctx,
+    )
+
+
 # --------------------------------------------------------------------------- XP helper
 async def _award_xp(
     ctx: ScopeContext, *, amount: int, source: str, label: str | None = None
@@ -3662,10 +3674,12 @@ async def upload_resume(
         "application/pdf",
         "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/plain",
+        "text/markdown",
     )
     content_type = (file.content_type or "").split(";")[0]
-    if content_type not in allowed and not file.filename.endswith((".pdf", ".doc", ".docx")):
-        raise ValidationError("Upload your resume as a PDF or Word document")
+    if content_type not in allowed and not file.filename.lower().endswith((".pdf", ".doc", ".docx", ".txt", ".md")):
+        raise ValidationError("Upload your resume as a PDF, Word document, or TXT file")
     data = await file.read()
     if not data:
         raise ValidationError("That file is empty")

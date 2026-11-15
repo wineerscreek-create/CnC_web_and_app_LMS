@@ -44,6 +44,14 @@ export function HeroBanner({
   const [modalOpen, setModalOpen] = React.useState(false);
 
   const hasImage = Boolean(banner.hasCustomBanner && banner.bannerUrl);
+  const isDarkOverlay = banner.overlayType === 'dark';
+  const isDarkText = banner.textColor === '#1E293B' || banner.textColor === '#0B0F19';
+  const resolvedTextColor = hasImage
+    ? (isDarkOverlay && isDarkText ? '#FFFFFF' : banner.textColor)
+    : undefined;
+  const isLightText = hasImage
+    ? (resolvedTextColor === '#FFFFFF' || resolvedTextColor === '#F8F9FA')
+    : false;
 
   return (
     <>
@@ -92,13 +100,13 @@ export function HeroBanner({
                   ? 'p-4 rounded-xl bg-black/40 backdrop-blur-md border border-white/10'
                   : 'p-4 rounded-xl bg-white/60 backdrop-blur-md border border-black/10'),
             )}
-            style={{ color: hasImage ? banner.textColor : undefined }}
+            style={{ color: resolvedTextColor }}
           >
             <div className="flex items-center gap-2 mb-1.5">
               <span
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase',
-                  hasImage && banner.textColor === '#FFFFFF'
+                  isLightText
                     ? 'bg-white/15 text-white border border-white/20'
                     : 'bg-primary/10 text-primary border border-primary/20',
                 )}
@@ -115,7 +123,7 @@ export function HeroBanner({
             <p
               className={cn(
                 'mt-1 text-xs sm:text-sm leading-relaxed max-w-xl',
-                hasImage && banner.textColor === '#FFFFFF' ? 'text-white/80' : 'text-muted-foreground',
+                isLightText ? 'text-white/90 font-medium' : 'text-muted-foreground',
               )}
             >
               Track your readiness index, master core soft-skills competencies, and achieve your

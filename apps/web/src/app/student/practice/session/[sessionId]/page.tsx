@@ -118,6 +118,7 @@ export default function PracticeSessionPage() {
       setUploaded(true);
       setAnswered((current) => new Set(current).add(index));
       toast.success('Recording saved privately');
+      query.refetch();
     } catch (caught) {
       toast.error((caught as ApiError).message);
     } finally {

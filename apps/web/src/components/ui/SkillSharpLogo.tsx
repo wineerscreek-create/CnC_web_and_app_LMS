@@ -63,14 +63,14 @@ export function SkillSharpLogo({
 
       {/* Brand Typography */}
       {!isCompact && (
-        <div className="flex flex-col leading-none">
+        <div className="flex flex-col leading-none shrink-0 whitespace-nowrap min-w-0">
           <div className="flex items-baseline gap-1">
             <span className="font-heading text-[17px] font-extrabold tracking-tight text-heading">
               SkillSharp
             </span>
-            <span className="size-1.5 rounded-full bg-accent" />
+            <span className="size-1.5 rounded-full bg-accent shrink-0" />
           </div>
-          <span className="mt-0.5 text-[9px] font-bold tracking-[0.18em] uppercase text-muted-foreground">
+          <span className="mt-0.5 text-[9px] font-bold tracking-[0.18em] uppercase text-muted-foreground whitespace-nowrap">
             Campus to Corporate
           </span>
         </div>

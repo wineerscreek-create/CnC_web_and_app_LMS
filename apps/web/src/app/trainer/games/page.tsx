@@ -319,11 +319,11 @@ export default function TrainerGamesPage() {
       />
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-border">
+      <div className="flex items-center gap-2 border-b border-border overflow-x-auto scroll-thin pb-px">
         <button
           onClick={() => setActiveTab('catalog')}
           className={cn(
-            'px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors',
+            'px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap shrink-0',
             activeTab === 'catalog'
               ? 'border-accent text-accent-foreground font-semibold'
               : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -334,7 +334,7 @@ export default function TrainerGamesPage() {
         <button
           onClick={() => setActiveTab('insights')}
           className={cn(
-            'px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors',
+            'px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap shrink-0',
             activeTab === 'insights'
               ? 'border-accent text-accent-foreground font-semibold'
               : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -346,24 +346,24 @@ export default function TrainerGamesPage() {
 
       {/* Catalog Tab */}
       {activeTab === 'catalog' && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 min-w-0">
           {games.map((g) => (
-            <Card key={g.code} className="flex flex-col justify-between hover:border-primary/50 transition-colors">
-              <CardHeader className="p-5 pb-3">
+            <Card key={g.code} className="flex flex-col justify-between hover:border-primary/50 transition-colors min-w-0 w-full overflow-hidden">
+              <CardHeader className="p-5 pb-3 min-w-0">
                 <div className="flex items-start justify-between gap-3">
                   <div className="size-10 rounded-xl bg-muted flex items-center justify-center text-primary border border-border shrink-0">
                     <Gamepad2 className="size-5" />
                   </div>
-                  <Badge tone={g.active ? 'success' : 'neutral'}>
+                  <Badge tone={g.active ? 'success' : 'neutral'} className="shrink-0">
                     {g.active ? 'Ready & Active' : 'No Question Set'}
                   </Badge>
                 </div>
-                <h3 className="font-bold text-base mt-3 text-heading line-clamp-1">
+                <h3 className="font-bold text-base mt-3 text-heading break-words line-clamp-2">
                   {g.title}
                 </h3>
-                <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{g.description}</p>
+                <p className="text-xs text-muted-foreground break-words line-clamp-3 mt-1">{g.description}</p>
               </CardHeader>
-              <CardBody className="p-5 pt-0 space-y-4">
+              <CardBody className="p-5 pt-0 space-y-4 min-w-0">
                 <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border">
                   {g.skillsTrained?.map((s) => (
                     <Badge key={s} tone="neutral" className="text-2xs">
@@ -371,12 +371,12 @@ export default function TrainerGamesPage() {
                     </Badge>
                   ))}
                 </div>
-                <div className="pt-2 flex items-center justify-between">
-                  <span className="text-2xs font-mono text-muted-foreground uppercase">{g.category}</span>
+                <div className="pt-2 flex items-center justify-between gap-2">
+                  <span className="text-2xs font-mono text-muted-foreground uppercase truncate">{g.category}</span>
                   <Button
                     variant="secondary"
                     size="sm"
-                    className="text-xs"
+                    className="text-xs shrink-0 touch-manipulation min-h-[36px]"
                     onClick={() => openAssignModal(g.code)}
                   >
                     Assign to Batch

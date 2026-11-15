@@ -213,31 +213,31 @@ export default function StudentProfilePage() {
 
                 {/* ----------------------------------------------------------- detail */}
                 <div>
-                  <Tabs defaultValue="details">
-                    <div className="mb-5">
-                      <TabsList className="bg-muted p-1 rounded-2xl border border-border">
+                  <Tabs defaultValue="details" className="min-w-0 w-full">
+                    <div className="mb-5 overflow-x-auto scroll-thin pb-1">
+                      <TabsList className="bg-muted p-1 rounded-2xl border border-border inline-flex w-auto max-w-full">
                         <TabsTrigger
                           value="details"
-                          className="rounded-xl px-4 py-1.5 text-xs font-semibold data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs text-muted-foreground"
+                          className="rounded-xl px-4 py-1.5 text-xs font-semibold whitespace-nowrap shrink-0 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs text-muted-foreground"
                         >
                           Personal Details
                         </TabsTrigger>
                         <TabsTrigger
                           value="plan"
-                          className="rounded-xl px-4 py-1.5 text-xs font-semibold data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs text-muted-foreground"
+                          className="rounded-xl px-4 py-1.5 text-xs font-semibold whitespace-nowrap shrink-0 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs text-muted-foreground"
                         >
                           Career Roadmap
                         </TabsTrigger>
                         <TabsTrigger
                           value="week"
-                          className="rounded-xl px-4 py-1.5 text-xs font-semibold data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs text-muted-foreground"
+                          className="rounded-xl px-4 py-1.5 text-xs font-semibold whitespace-nowrap shrink-0 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs text-muted-foreground"
                         >
                           Week Schedule
                         </TabsTrigger>
                       </TabsList>
                     </div>
 
-                    <TabsContent value="details" className="space-y-5">
+                    <TabsContent value="details" className="space-y-5 min-w-0">
                       <Card className="border-border bg-card shadow-card">
                         <CardHeader className="pb-3 border-b border-border">
                           <div>

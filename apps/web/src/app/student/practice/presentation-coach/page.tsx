@@ -111,7 +111,36 @@ export default function PresentationCoachPage() {
 
     const baseName = file.name.replace(/\.[^/.]+$/, '');
     setUploadedFileName(file.name);
-    setTitle(baseName.replace(/[-_]/g, ' '));
+    const cleanTitle = baseName.replace(/[-_]/g, ' ');
+    setTitle(cleanTitle);
+
+    // If text or markdown file, parse actual content lines into slides
+    if (file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const text = (event.target?.result as string) || '';
+        const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+        if (lines.length > 0) {
+          const parsedSlides: typeof DEFAULT_SLIDES = [];
+          const chunkSize = Math.max(3, Math.ceil(lines.length / 5));
+          for (let i = 0; i < lines.length && parsedSlides.length < 5; i += chunkSize) {
+            const chunk = lines.slice(i, i + chunkSize);
+            const heading = chunk[0].replace(/^[#*-\s]+/, '') || `Slide ${parsedSlides.length + 1}`;
+            parsedSlides.push({
+              title: heading.toUpperCase(),
+              subtitle: chunk[1] || `${cleanTitle} Presentation`,
+              tagline: `Slide ${parsedSlides.length + 1} of ${file.name}`,
+              points: chunk.slice(2).filter((p) => p.length > 5).slice(0, 4),
+            });
+          }
+          if (parsedSlides.length > 0) {
+            setSlides(parsedSlides);
+            return;
+          }
+        }
+      };
+      reader.readAsText(file);
+    }
 
     const customSlides = [
       {

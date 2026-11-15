@@ -122,6 +122,16 @@ export default function HodParticipantsPage() {
           searchPlaceholder="Search name or roll number…"
           filters={[
             {
+              name: 'year',
+              label: 'Academic Year',
+              allLabel: 'All Academic Years',
+              options: [
+                { value: '2nd Year', label: '2nd Year (Sem 3-4)' },
+                { value: '3rd Year', label: '3rd Year (Sem 5-6)' },
+                { value: '4th Year', label: '4th Year (Sem 7-8)' },
+              ],
+            },
+            {
               name: 'batchId',
               label: 'Batch',
               allLabel: 'All batches',

@@ -641,65 +641,65 @@ export default function LiveClassRoomPage() {
       </div>
 
       {/* 4. Bottom Controls Bar */}
-      <footer className="flex h-20 shrink-0 items-center justify-between border-t border-border bg-card/80 px-6 backdrop-blur-md">
+      <footer className="flex min-h-[4.5rem] shrink-0 items-center justify-between border-t border-border bg-card/90 px-3 sm:px-6 py-2 pb-[max(0.625rem,env(safe-area-inset-bottom))] backdrop-blur-md overflow-x-auto gap-2">
         {/* Left: Device indicators */}
-        <div className="hidden items-center gap-2.5 sm:flex">
+        <div className="hidden items-center gap-2.5 sm:flex shrink-0">
           <WinnersCreekLogo variant="compact" />
-          <span className="text-xs text-muted-foreground font-medium">Live Classroom</span>
+          <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">Live Classroom</span>
         </div>
 
         {/* Center: Essential Meeting Controls */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 mx-auto">
           {/* Mic */}
           <button
             onClick={micActive ? stopMic : startMic}
-            className={`flex size-11 items-center justify-center rounded-2xl transition shadow-md ${
+            className={`flex size-9 sm:size-11 items-center justify-center rounded-xl sm:rounded-2xl transition shadow-md touch-manipulation ${
               micActive
                 ? 'bg-muted text-foreground hover:bg-muted/80'
                 : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
             }`}
             title={micActive ? 'Mute Mic' : 'Unmute Mic'}
           >
-            {micActive ? <Mic className="size-5" /> : <MicOff className="size-5" />}
+            {micActive ? <Mic className="size-4 sm:size-5" /> : <MicOff className="size-4 sm:size-5" />}
           </button>
 
           {/* Camera */}
           <button
             onClick={videoActive ? stopCamera : startCamera}
-            className={`flex size-11 items-center justify-center rounded-2xl transition shadow-md ${
+            className={`flex size-9 sm:size-11 items-center justify-center rounded-xl sm:rounded-2xl transition shadow-md touch-manipulation ${
               videoActive
                 ? 'bg-muted text-foreground hover:bg-muted/80'
                 : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
             }`}
             title={videoActive ? 'Turn Camera Off' : 'Turn Camera On'}
           >
-            {videoActive ? <VideoIcon className="size-5" /> : <VideoOff className="size-5" />}
+            {videoActive ? <VideoIcon className="size-4 sm:size-5" /> : <VideoOff className="size-4 sm:size-5" />}
           </button>
 
           {/* Screen Share */}
           <button
             onClick={toggleScreenShare}
-            className={`flex size-11 items-center justify-center rounded-2xl transition shadow-md ${
+            className={`flex size-9 sm:size-11 items-center justify-center rounded-xl sm:rounded-2xl transition shadow-md touch-manipulation ${
               screenActive
                 ? 'bg-primary text-primary-foreground shadow-sm'
                 : 'bg-muted text-foreground hover:bg-muted/80'
             }`}
             title="Share Screen"
           >
-            {screenActive ? <StopCircle className="size-5" /> : <ScreenShare className="size-5" />}
+            {screenActive ? <StopCircle className="size-4 sm:size-5" /> : <ScreenShare className="size-4 sm:size-5" />}
           </button>
 
           {/* Raise Hand */}
           <button
             onClick={toggleHandRaise}
-            className={`flex size-11 items-center justify-center rounded-2xl transition shadow-md ${
+            className={`flex size-9 sm:size-11 items-center justify-center rounded-xl sm:rounded-2xl transition shadow-md touch-manipulation ${
               handRaised
                 ? 'bg-accent text-accent-foreground shadow-xs'
                 : 'bg-muted text-foreground hover:bg-muted/80'
             }`}
             title="Raise Hand"
           >
-            <Hand className="size-5" />
+            <Hand className="size-4 sm:size-5" />
           </button>
 
           {/* Chat Drawer Toggle */}
@@ -708,16 +708,16 @@ export default function LiveClassRoomPage() {
               setActiveDrawer(activeDrawer === 'chat' ? null : 'chat');
               setUnreadChatCount(0);
             }}
-            className={`relative flex size-11 items-center justify-center rounded-2xl transition shadow-md ${
+            className={`relative flex size-9 sm:size-11 items-center justify-center rounded-xl sm:rounded-2xl transition shadow-md touch-manipulation ${
               activeDrawer === 'chat'
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-muted text-foreground hover:bg-muted/80'
             }`}
             title="Toggle Chat"
           >
-            <MessageSquare className="size-5" />
+            <MessageSquare className="size-4 sm:size-5" />
             {unreadChatCount > 0 && (
-              <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground shadow-sm">
+              <span className="absolute -top-1 -right-1 flex size-4 sm:size-5 items-center justify-center rounded-full bg-destructive text-[9px] sm:text-[10px] font-bold text-destructive-foreground shadow-sm">
                 {unreadChatCount}
               </span>
             )}
@@ -726,34 +726,35 @@ export default function LiveClassRoomPage() {
           {/* Participants Drawer Toggle */}
           <button
             onClick={() => setActiveDrawer(activeDrawer === 'participants' ? null : 'participants')}
-            className={`flex size-11 items-center justify-center rounded-2xl transition shadow-md ${
+            className={`flex size-9 sm:size-11 items-center justify-center rounded-xl sm:rounded-2xl transition shadow-md touch-manipulation ${
               activeDrawer === 'participants'
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-muted text-foreground hover:bg-muted/80'
             }`}
             title="Toggle Participants"
           >
-            <Users className="size-5" />
+            <Users className="size-4 sm:size-5" />
           </button>
         </div>
 
         {/* Right: Leave / End Actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {isHost ? (
             <button
               onClick={handleEndClass}
-              className="flex items-center gap-2 rounded-xl bg-destructive px-4 py-2.5 text-xs font-semibold text-destructive-foreground shadow-sm transition hover:bg-destructive/90"
+              className="flex items-center gap-1.5 sm:gap-2 rounded-xl bg-destructive px-3 sm:px-4 py-2 sm:py-2.5 text-xs font-semibold text-destructive-foreground shadow-sm transition hover:bg-destructive/90 touch-manipulation"
             >
-              <LogOut className="size-4" />
-              End Class
+              <LogOut className="size-3.5 sm:size-4" />
+              <span className="hidden sm:inline">End Class</span>
+              <span className="sm:hidden">End</span>
             </button>
           ) : (
             <button
               onClick={handleLeaveClass}
-              className="flex items-center gap-2 rounded-xl bg-muted px-4 py-2.5 text-xs font-semibold text-foreground transition hover:bg-destructive hover:text-destructive-foreground hover:text-destructive-foreground"
+              className="flex items-center gap-1.5 sm:gap-2 rounded-xl bg-muted px-3 sm:px-4 py-2 sm:py-2.5 text-xs font-semibold text-foreground transition hover:bg-destructive hover:text-destructive-foreground touch-manipulation"
             >
-              <LogOut className="size-4" />
-              Leave
+              <LogOut className="size-3.5 sm:size-4" />
+              <span>Leave</span>
             </button>
           )}
         </div>

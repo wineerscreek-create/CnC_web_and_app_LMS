@@ -24,7 +24,7 @@ export default function LoginPage() {
   const [reveal, setReveal] = React.useState(false);
 
   const hintedRole = params.get('role') as Role | null;
-  const next = params.get('next');
+  const next = params.get('next') || params.get('redirect') || params.get('returnUrl');
 
   // Already signed in (or just signed in): go where this role belongs.
   React.useEffect(() => {
@@ -37,9 +37,18 @@ export default function LoginPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    await dispatch(
+    const result = await dispatch(
       signIn({ identifier: identifier.trim(), password, rememberMe: remember }),
     );
+    if (signIn.rejected.match(result)) {
+      const payload = result.payload as any;
+      if (payload?.verificationRequired) {
+        const dest = next && next.startsWith('/') ? `&next=${encodeURIComponent(next)}` : '';
+        router.push(
+          `/verify-email?email=${encodeURIComponent(payload.email || identifier.trim())}${dest}`
+        );
+      }
+    }
   }
 
   return (
@@ -113,7 +122,10 @@ export default function LoginPage() {
 
       <p className="mt-5 text-center text-xs text-muted-foreground">
         Don’t have an account?{' '}
-        <Link href="/signup" className="font-bold text-foreground hover:underline">
+        <Link
+          href={next && next.startsWith('/') ? `/signup?redirect=${encodeURIComponent(next)}` : '/signup'}
+          className="font-bold text-foreground hover:underline"
+        >
           Create one
         </Link>
       </p>

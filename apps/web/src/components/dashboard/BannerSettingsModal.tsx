@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import {
+  AlertTriangle,
   Camera,
   Check,
   Eye,
@@ -190,13 +191,6 @@ export function BannerSettingsModal({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            <X className="size-4" />
-          </button>
         </DialogHeader>
 
         <div className="p-6 space-y-6">
@@ -245,11 +239,12 @@ export function BannerSettingsModal({
               {/* Background Image with transform */}
               {bannerUrl && (
                 <div
-                  className="absolute inset-0 bg-cover bg-no-repeat transition-all duration-150"
+                  className="absolute inset-0 bg-cover bg-no-repeat transition-all duration-75"
                   style={{
                     backgroundImage: `url(${bannerUrl})`,
                     backgroundPosition: `${posX}% ${posY}%`,
                     transform: `scale(${scale})`,
+                    transformOrigin: `${posX}% ${posY}%`,
                   }}
                 />
               )}
@@ -257,7 +252,7 @@ export function BannerSettingsModal({
               {/* Smart Overlay */}
               <div
                 className={cn(
-                  'absolute inset-0 transition-opacity',
+                  'absolute inset-0 transition-opacity duration-150',
                   overlayType === 'dark'
                     ? 'bg-gradient-to-t from-black via-black/40 to-transparent'
                     : 'bg-gradient-to-t from-white via-white/50 to-transparent',
@@ -306,12 +301,14 @@ export function BannerSettingsModal({
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('position')}
+              disabled={!bannerUrl}
+              onClick={() => bannerUrl && setActiveTab('position')}
               className={cn(
                 'flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all',
                 activeTab === 'position'
                   ? 'border-primary text-primary'
                   : 'border-transparent text-muted-foreground hover:text-foreground',
+                !bannerUrl && 'opacity-40 cursor-not-allowed hover:text-muted-foreground',
               )}
             >
               <Move className="size-3.5" />
@@ -391,51 +388,60 @@ export function BannerSettingsModal({
           {/* TAB 2: POSITION & CROP */}
           {activeTab === 'position' && (
             <div className="space-y-4">
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-heading">Horizontal Position (X)</span>
-                  <span className="text-muted-foreground">{posX}%</span>
+              {!bannerUrl ? (
+                <div className="p-6 text-center rounded-xl bg-muted/40 border border-dashed border-border text-xs text-muted-foreground">
+                  <p className="font-semibold text-heading">No Custom Banner Uploaded</p>
+                  <p className="mt-1">Please select and upload an image in Tab 1 before adjusting position and scale.</p>
                 </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={posX}
-                  onChange={(e) => setPosX(Number(e.target.value))}
-                  className="w-full accent-primary h-2 bg-muted rounded-lg cursor-pointer"
-                />
-              </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="font-semibold text-heading">Horizontal Position (X)</span>
+                      <span className="text-muted-foreground font-mono">{posX}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={posX}
+                      onChange={(e) => setPosX(Number(e.target.value))}
+                      className="w-full accent-primary h-2 bg-muted rounded-lg cursor-pointer"
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-heading">Vertical Position (Y)</span>
-                  <span className="text-muted-foreground">{posY}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={posY}
-                  onChange={(e) => setPosY(Number(e.target.value))}
-                  className="w-full accent-primary h-2 bg-muted rounded-lg cursor-pointer"
-                />
-              </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="font-semibold text-heading">Vertical Position (Y)</span>
+                      <span className="text-muted-foreground font-mono">{posY}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={posY}
+                      onChange={(e) => setPosY(Number(e.target.value))}
+                      className="w-full accent-primary h-2 bg-muted rounded-lg cursor-pointer"
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-heading">Image Zoom / Scale</span>
-                  <span className="text-muted-foreground">{scale.toFixed(1)}x</span>
-                </div>
-                <input
-                  type="range"
-                  min="1.0"
-                  max="2.5"
-                  step="0.1"
-                  value={scale}
-                  onChange={(e) => setScale(Number(e.target.value))}
-                  className="w-full accent-primary h-2 bg-muted rounded-lg cursor-pointer"
-                />
-              </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="font-semibold text-heading">Image Zoom / Scale</span>
+                      <span className="text-muted-foreground font-mono">{scale.toFixed(2)}x</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1.0"
+                      max="2.5"
+                      step="0.05"
+                      value={scale}
+                      onChange={(e) => setScale(Number(e.target.value))}
+                      className="w-full accent-primary h-2 bg-muted rounded-lg cursor-pointer"
+                    />
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -468,6 +474,18 @@ export function BannerSettingsModal({
                 </div>
               </div>
 
+              {/* Accessible Contrast Guard Warning */}
+              {((overlayType === 'dark' && (textColor === '#1E293B' || textColor === '#0B0F19')) ||
+                (overlayType === 'light' && (textColor === '#FFFFFF' || textColor === '#F8F9FA'))) && (
+                <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-500 text-xs">
+                  <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                  <span>
+                    Low contrast detected between text and overlay. For WCAG AA accessibility (min 4.5:1 ratio), select{' '}
+                    <strong>{overlayType === 'dark' ? 'White or Soft White' : 'Charcoal or Black'}</strong>.
+                  </span>
+                </div>
+              )}
+
               {/* Overlay type & intensity */}
               <div className="space-y-3">
                 <label className="text-xs font-semibold text-heading block">
@@ -476,7 +494,12 @@ export function BannerSettingsModal({
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={() => setOverlayType('dark')}
+                    onClick={() => {
+                      setOverlayType('dark');
+                      if (textColor === '#1E293B' || textColor === '#0B0F19') {
+                        setTextColor('#FFFFFF');
+                      }
+                    }}
                     className={cn(
                       'p-3 rounded-xl border text-xs font-bold text-center transition-all',
                       overlayType === 'dark'
@@ -488,7 +511,12 @@ export function BannerSettingsModal({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setOverlayType('light')}
+                    onClick={() => {
+                      setOverlayType('light');
+                      if (textColor === '#FFFFFF' || textColor === '#F8F9FA') {
+                        setTextColor('#1E293B');
+                      }
+                    }}
                     className={cn(
                       'p-3 rounded-xl border text-xs font-bold text-center transition-all',
                       overlayType === 'light'
@@ -503,7 +531,7 @@ export function BannerSettingsModal({
                 <div className="space-y-2 pt-2">
                   <div className="flex justify-between text-xs">
                     <span className="font-semibold text-heading">Overlay Opacity / Intensity</span>
-                    <span className="text-muted-foreground">{overlayOpacity}%</span>
+                    <span className="text-muted-foreground font-mono">{overlayOpacity}%</span>
                   </div>
                   <input
                     type="range"

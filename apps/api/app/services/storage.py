@@ -184,6 +184,180 @@ class LocalStorageDriver(StorageDriver):
         return verify_signed_payload(token)
 
 
+# --------------------------------------------------------------------------- Supabase driver
+class SupabaseStorageDriver(StorageDriver):
+    """Private Supabase Storage driver using the REST API with service role key.
+
+    Target bucket defaults to 'cnc-lms-files'. All objects are stored privately and
+    accessed via time-limited signed download URLs.
+    """
+
+    def __init__(self) -> None:
+        self._base_url = (settings.SUPABASE_URL or "").strip().rstrip("/")
+        self._key = (settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_ANON_KEY or "").strip()
+        self._bucket = (settings.SUPABASE_STORAGE_BUCKET or "cnc-lms-files").strip()
+        if not self._base_url or not self._key:
+            raise ValidationError("Supabase storage requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY")
+
+    @property
+    def name(self) -> str:
+        return "supabase"
+
+    def _headers(self, content_type: str | None = None) -> dict[str, str]:
+        headers = {
+            "Authorization": f"Bearer {self._key}",
+            "apikey": self._key,
+        }
+        if content_type:
+            headers["Content-Type"] = content_type
+        return headers
+
+    async def put(self, key: str, data: bytes, content_type: str) -> StoredObject:
+        import httpx
+
+        if len(data) > MAX_UPLOAD_BYTES:
+            raise ValidationError("File exceeds the maximum upload size")
+        _validate_key(key)
+        checksum = hashlib.sha256(data).hexdigest()
+
+        url = f"{self._base_url}/storage/v1/object/{self._bucket}/{key}"
+        headers = self._headers(content_type)
+        headers["x-upsert"] = "true"
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                response = await client.post(url, headers=headers, content=data)
+                if response.status_code in (400, 409):
+                    response = await client.put(url, headers=headers, content=data)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                log.error("supabase_storage_put_failed", extra={"status": exc.response.status_code, "key": key})
+                raise ServiceUnavailable(f"Supabase storage upload failed: HTTP {exc.response.status_code}")
+            except Exception as exc:
+                log.error("supabase_storage_put_error", extra={"error": str(exc), "key": key})
+                raise ServiceUnavailable(f"Supabase storage connection error: {str(exc)[:100]}")
+
+        return StoredObject(key=key, bytes=len(data), checksum=checksum, content_type=content_type)
+
+    async def get(self, key: str) -> bytes:
+        import httpx
+
+        _validate_key(key)
+        url = f"{self._base_url}/storage/v1/object/authenticated/{self._bucket}/{key}"
+        headers = self._headers()
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                response = await client.get(url, headers=headers)
+                if response.status_code == 404:
+                    raise ServiceUnavailable("Stored file is no longer available")
+                response.raise_for_status()
+                return response.content
+            except ServiceUnavailable:
+                raise
+            except Exception as exc:
+                log.error("supabase_storage_get_error", extra={"error": str(exc), "key": key})
+                raise ServiceUnavailable("Stored file could not be retrieved")
+
+    async def exists(self, key: str) -> bool:
+        import httpx
+
+        _validate_key(key)
+        url = f"{self._base_url}/storage/v1/object/info/authenticated/{self._bucket}/{key}"
+        headers = self._headers()
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            try:
+                response = await client.get(url, headers=headers)
+                if response.status_code == 200:
+                    return True
+                head_resp = await client.head(f"{self._base_url}/storage/v1/object/authenticated/{self._bucket}/{key}", headers=headers)
+                return head_resp.status_code == 200
+            except Exception:
+                return False
+
+    async def delete(self, key: str) -> None:
+        import httpx
+
+        _validate_key(key)
+        url = f"{self._base_url}/storage/v1/object/{self._bucket}/{key}"
+        headers = self._headers()
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            try:
+                res = await client.delete(url, headers=headers)
+                if res.status_code in (404, 405):
+                    await client.request(
+                        "DELETE",
+                        f"{self._base_url}/storage/v1/object/{self._bucket}",
+                        headers=self._headers("application/json"),
+                        json={"prefixes": [key]},
+                    )
+            except Exception as exc:
+                log.warning("supabase_storage_delete_warning", extra={"error": str(exc), "key": key})
+
+    async def signed_download_url(self, key: str, *, ttl: int, filename: str | None = None) -> str:
+        import httpx
+
+        _validate_key(key)
+        url = f"{self._base_url}/storage/v1/object/sign/{self._bucket}/{key}"
+        headers = self._headers("application/json")
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            try:
+                response = await client.post(url, headers=headers, json={"expiresIn": ttl})
+                response.raise_for_status()
+                data = response.json()
+                signed_path = data.get("signedURL") or ""
+                if signed_path.startswith("/storage/v1"):
+                    full_url = f"{self._base_url}{signed_path}"
+                elif signed_path.startswith("/"):
+                    full_url = f"{self._base_url}/storage/v1{signed_path}"
+                else:
+                    full_url = f"{self._base_url}/storage/v1/{signed_path}"
+                if filename:
+                    sep = "&" if "?" in full_url else "?"
+                    full_url = f"{full_url}{sep}download={filename}"
+                return full_url
+            except Exception as exc:
+                log.error("supabase_signed_url_error", extra={"error": str(exc), "key": key})
+                if not settings.is_production:
+                    token = sign_payload(_validate_key(key), ttl)
+                    suffix = f"&filename={filename}" if filename else ""
+                    return f"{settings.API_V1_PREFIX}/files/signed?token={token}{suffix}"
+                raise ServiceUnavailable("Could not generate signed download URL")
+
+    async def signed_upload(self, key: str, *, ttl: int, content_type: str) -> dict:
+        import httpx
+
+        _validate_key(key)
+        url = f"{self._base_url}/storage/v1/object/upload/sign/{self._bucket}/{key}"
+        headers = self._headers("application/json")
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            try:
+                response = await client.post(url, headers=headers)
+                if response.status_code == 200:
+                    data = response.json()
+                    signed_path = data.get("url") or data.get("signedURL") or ""
+                    full_url = f"{self._base_url}/storage/v1{signed_path}" if signed_path.startswith("/") else signed_path
+                    return {
+                        "strategy": "supabase-signed-upload",
+                        "url": full_url,
+                        "token": data.get("token"),
+                        "expiresIn": ttl,
+                    }
+            except Exception:
+                pass
+
+        return {
+            "strategy": "direct",
+            "url": f"{settings.API_V1_PREFIX}/student/practice/upload",
+            "fields": {"key": key, "contentType": content_type},
+            "expiresIn": ttl,
+        }
+
+
 # --------------------------------------------------------------------------- S3 driver
 class S3StorageDriver(StorageDriver):
     """Private-bucket S3. Objects are server-side encrypted and only ever served pre-signed."""
@@ -281,7 +455,16 @@ _driver: StorageDriver | None = None
 def get_storage() -> StorageDriver:
     global _driver
     if _driver is None:
-        if settings.STORAGE_DRIVER == "s3":
+        if settings.STORAGE_DRIVER == "supabase":
+            try:
+                _driver = SupabaseStorageDriver()
+                log.info("storage_driver_ready", extra={"driver": "supabase", "bucket": settings.SUPABASE_STORAGE_BUCKET})
+            except Exception as exc:
+                if settings.is_production:
+                    raise
+                log.warning("supabase_storage_unavailable_using_local", extra={"error": str(exc)})
+                _driver = LocalStorageDriver(settings.LOCAL_STORAGE_ROOT)
+        elif settings.STORAGE_DRIVER == "s3":
             try:
                 _driver = S3StorageDriver()
                 log.info("storage_driver_ready", extra={"driver": "s3", "bucket": settings.S3_BUCKET})
