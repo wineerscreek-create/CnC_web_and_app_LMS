@@ -767,11 +767,11 @@ def build_evaluation_from_json(
 
 # --------------------------------------------------------------------------- Gemini provider
 class GeminiEvaluationProvider(EvaluationProvider):
-    """Google Gemini AI provider (default model: gemini-2.0-flash)."""
+    """Google Gemini AI provider (default model: gemini-3.5-flash)."""
 
     def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
         self._api_key = (api_key or settings.GEMINI_API_KEY or settings.AI_API_KEY or "").strip()
-        self._model = (model or settings.AI_MODEL or "gemini-2.0-flash").strip()
+        self._model = (model or settings.AI_MODEL or "gemini-3.5-flash").strip()
         self._base_url = "https://generativelanguage.googleapis.com/v1beta"
 
     @property
@@ -878,11 +878,11 @@ class GeminiEvaluationProvider(EvaluationProvider):
 
 # --------------------------------------------------------------------------- Groq provider
 class GroqEvaluationProvider(EvaluationProvider):
-    """Groq AI provider (default model: llama-3.3-70b-versatile)."""
+    """Groq AI provider (default model: qwen/qwen3.8-27b)."""
 
     def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
         self._api_key = (api_key or settings.GROQ_API_KEY or settings.AI_API_KEY or "").strip()
-        self._model = (model or settings.GROQ_MODEL or "llama-3.3-70b-versatile").strip()
+        self._model = (model or settings.GROQ_MODEL or "qwen/qwen3.8-27b").strip()
         self._endpoint = "https://api.groq.com/openai/v1/chat/completions"
 
     @property
@@ -898,6 +898,7 @@ class GroqEvaluationProvider(EvaluationProvider):
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "content-type": "application/json",
+            "User-Agent": "CNC-LMS-Backend/1.0",
         }
         payload = {
             "model": self._model,
@@ -1240,7 +1241,10 @@ class GroqSpeechToTextProvider(SpeechToTextProvider):
             ext = "ogg"
 
         filename = f"audio.{ext}"
-        headers = {"Authorization": f"Bearer {self._api_key}"}
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "User-Agent": "CNC-LMS-Backend/1.0",
+        }
 
         try:
             async with httpx.AsyncClient(timeout=settings.AI_TIMEOUT_SECONDS) as client:
@@ -1339,13 +1343,13 @@ def get_evaluation_provider() -> EvaluationProvider:
     global _evaluator
     if _evaluator is None:
         if settings.AI_PROVIDER == "gemini":
-            if settings.GEMINI_API_KEY or settings.AI_API_KEY:
+            if settings.GEMINI_API_KEY or settings.GROQ_API_KEY or settings.AI_API_KEY:
                 _evaluator = UnifiedEvaluationProvider(primary="gemini")
             else:
                 log.warning("gemini_key_missing_using_mock_provider")
                 _evaluator = MockEvaluationProvider()
         elif settings.AI_PROVIDER == "groq":
-            if settings.GROQ_API_KEY or settings.AI_API_KEY:
+            if settings.GROQ_API_KEY or settings.GEMINI_API_KEY or settings.AI_API_KEY:
                 _evaluator = UnifiedEvaluationProvider(primary="groq")
             else:
                 log.warning("groq_key_missing_using_mock_provider")

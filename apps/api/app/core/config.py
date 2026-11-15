@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     OTP_MAX_SENDS_PER_HOUR: int = 5
 
     # ---------- storage (Supabase / S3 / Local) ----------
-    STORAGE_DRIVER: Literal["supabase", "s3", "local"] = "local"
+    STORAGE_DRIVER: Literal["supabase", "s3", "local"] = "s3"
     SUPABASE_URL: str | None = None
     SUPABASE_ANON_KEY: str | None = None
     SUPABASE_SERVICE_ROLE_KEY: str | None = None
@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     LOCAL_STORAGE_ROOT: str = "./.storage"
 
     # ---------- AI & Speech-to-Text ----------
-    AI_PROVIDER: Literal["gemini", "groq", "anthropic", "openai", "huggingface", "mock"] = "mock"
+    AI_PROVIDER: Literal["gemini", "groq", "anthropic", "openai", "huggingface", "mock"] = "gemini"
     AI_API_KEY: str | None = None
     AI_MODEL: str = "gemini-3.5-flash"
     GEMINI_API_KEY: str | None = None
@@ -103,7 +103,7 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = "qwen/qwen3.8-27b"
     AI_BASE_URL: str | None = None
     AI_TIMEOUT_SECONDS: int = 45
-    STT_PROVIDER: Literal["groq", "whisper", "deepgram", "mock"] = "mock"
+    STT_PROVIDER: Literal["groq", "whisper", "deepgram", "mock"] = "groq"
     STT_API_KEY: str | None = None
     STT_MODEL: str = "whisper-large-v3-turbo"
     AI_REQUIRE_EVIDENCE: bool = True

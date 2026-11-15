@@ -262,6 +262,35 @@ async def answer_ai_query(
                     execution_mode = "REAL_PROVIDER_RESPONSE"
                     provider_status = "ACTIVE"
                     blocker_reason = None
+                elif settings.AI_PROVIDER == "gemini" and groq_key:
+                    # Fallback to Groq when Gemini fails
+                    log.warning("gemini_chatbot_failed_falling_back_to_groq", extra={"status": res.status_code})
+                    groq_url = "https://api.groq.com/openai/v1/chat/completions"
+                    groq_headers = {
+                        "Authorization": f"Bearer {groq_key}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "CNC-LMS-Backend/1.0",
+                    }
+                    groq_body = {
+                        "model": settings.GROQ_MODEL,
+                        "messages": [
+                            {"role": "system", "content": system_instruction},
+                            {"role": "user", "content": query},
+                        ],
+                        "temperature": 0.2,
+                        "max_tokens": 800,
+                    }
+                    groq_res = await client.post(groq_url, headers=groq_headers, json=groq_body)
+                    if groq_res.status_code == 200:
+                        groq_data = groq_res.json()
+                        ai_response = groq_data["choices"][0]["message"]["content"]
+                        used_provider = "groq"
+                        execution_mode = "REAL_PROVIDER_RESPONSE"
+                        provider_status = "ACTIVE"
+                        blocker_reason = None
+                    else:
+                        provider_status = "ERROR"
+                        blocker_reason = f"Gemini failed (HTTP {res.status_code}) and Groq fallback failed (HTTP {groq_res.status_code})"
                 elif res.status_code == 402:
                     provider_status = "CREDITS_EXHAUSTED"
                     blocker_reason = "External AI provider returned HTTP 402: Payment Required (No remaining credits)"
