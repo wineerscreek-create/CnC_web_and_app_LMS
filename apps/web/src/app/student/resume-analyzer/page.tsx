@@ -41,7 +41,7 @@ const DEFAULT_ROLES = [
 
 export default function ResumeAnalyzerPage() {
   const query = useApi<any>('/student/resume/analysis', undefined, {
-    select: (raw) => ({ latest: raw.data, history: raw.meta?.history ?? [] }),
+    select: (raw) => ({ latest: raw?.data ?? null, history: raw?.meta?.history ?? [] }),
   });
 
   const rolesQuery = useApi<any>('/ai/roles');
@@ -106,6 +106,8 @@ export default function ResumeAnalyzerPage() {
         const missingSkills: string[] = Array.isArray(analysis?.missingSkills) ? analysis.missingSkills : [];
         const actionableCritique: string[] = Array.isArray(analysis?.actionableCritique)
           ? analysis.actionableCritique
+          : Array.isArray(analysis?.actionItems)
+          ? analysis.actionItems
           : Array.isArray(analysis?.gaps)
           ? analysis.gaps
           : [];

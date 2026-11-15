@@ -7,6 +7,7 @@ scoring happens in the background so the upload response is immediate.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -3771,10 +3772,15 @@ async def upload_resume(
     if settings.USE_POSTGRES:
         from app.db.postgres import get_pg_connection
         import uuid as _uuid
+        try:
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+        except Exception:
+            raise ValidationError("Invalid user session identifier")
+
         doc_record = {
             "id": str(_uuid.uuid4()),
             "_id": str(_uuid.uuid4()),
-            "studentUserId": str(ctx.user_id),
+            "studentUserId": str(u_uuid),
             "filename": filename,
             "storageKey": stored.key,
             "bytes": stored.bytes,
@@ -3787,11 +3793,15 @@ async def upload_resume(
         }
         async with get_pg_connection() as conn:
             async with conn.transaction():
-                user_row = await conn.fetchrow("SELECT preferences FROM users WHERE id = $1::uuid FOR UPDATE", _uuid.UUID(str(ctx.user_id)))
+                user_row = await conn.fetchrow("SELECT preferences FROM users WHERE id = $1::uuid FOR UPDATE", u_uuid)
+                if not user_row:
+                    raise NotFound("User account not found")
                 prefs = user_row["preferences"] if user_row and user_row.get("preferences") else {}
                 if isinstance(prefs, str):
-                    try: prefs = json.loads(prefs)
-                    except Exception: prefs = {}
+                    try:
+                        prefs = json.loads(prefs)
+                    except Exception:
+                        prefs = {}
                 if not isinstance(prefs, dict):
                     prefs = {}
                 history = prefs.get("resume_documents") or []
@@ -3799,8 +3809,8 @@ async def upload_resume(
                 prefs["resume_documents"] = history[:10]
                 await conn.execute(
                     "UPDATE users SET preferences = $1::jsonb WHERE id = $2::uuid",
-                    json.dumps(prefs),
-                    _uuid.UUID(str(ctx.user_id)),
+                    json.dumps(prefs, default=str),
+                    u_uuid,
                 )
         return {
             "success": True,
@@ -3897,7 +3907,7 @@ def _analyse_resume(text: str) -> dict[str, Any]:
         "actionVerbCount": verb_hits,
         "quantifiedClaims": quantified,
         "gaps": gaps[:6],
-        "analysedAt": _now(),
+        "analysedAt": _now().isoformat(),
         "basis": "structural analysis of the extracted resume text",
     }
 
@@ -3917,10 +3927,14 @@ async def resume_analysis(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
                 "SELECT preferences FROM users WHERE id = $1::uuid",
                 u_uuid,
             )
-            prefs = user_row["preferences"] if user_row and user_row.get("preferences") else {}
+            if not user_row:
+                return {"success": True, "data": None, "meta": {"history": []}}
+            prefs = user_row["preferences"] if user_row.get("preferences") else {}
             if isinstance(prefs, str):
-                try: prefs = json.loads(prefs)
-                except Exception: prefs = {}
+                try:
+                    prefs = json.loads(prefs)
+                except Exception:
+                    prefs = {}
             if not isinstance(prefs, dict):
                 prefs = {}
             docs = prefs.get("resume_documents") or []
