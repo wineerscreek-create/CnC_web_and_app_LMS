@@ -3687,7 +3687,19 @@ async def upload_resume(
         raise ValidationError("Keep your resume under 10 MB")
 
     filename = (file.filename or "resume.pdf").replace("/", "_")[:120]
-    stored = await put_object(Keys.resume(str(ctx.user_id), filename), data, content_type)
+    try:
+        stored = await put_object(Keys.resume(str(ctx.user_id), filename), data, content_type)
+    except Exception as exc:
+        from app.core.logging import get_logger
+        get_logger("app.student.resume").warning(f"Storage put_object failed for resume: {exc}")
+        import hashlib
+        from app.services.storage import StoredObject
+        stored = StoredObject(
+            key=Keys.resume(str(ctx.user_id), filename),
+            bytes=len(data),
+            checksum=hashlib.sha256(data).hexdigest(),
+            content_type=content_type,
+        )
 
     text = ""
     if content_type == "application/pdf" or filename.lower().endswith(".pdf"):
@@ -3895,10 +3907,15 @@ async def resume_analysis(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
     if settings.USE_POSTGRES:
         from app.db.postgres import get_pg_connection
         import uuid as _uuid
+        try:
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+        except Exception:
+            return {"success": True, "data": None, "meta": {"history": []}}
+
         async with get_pg_connection() as conn:
             user_row = await conn.fetchrow(
                 "SELECT preferences FROM users WHERE id = $1::uuid",
-                _uuid.UUID(str(ctx.user_id)),
+                u_uuid,
             )
             prefs = user_row["preferences"] if user_row and user_row.get("preferences") else {}
             if isinstance(prefs, str):

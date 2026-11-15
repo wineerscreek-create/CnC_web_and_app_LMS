@@ -103,7 +103,35 @@ async def gather_participant_rag_context(ctx: ScopeContext) -> dict[str, Any]:
             pass
 
         # 3. Latest Resume Analysis (PostgreSQL-safe)
-        resume_analysis = {}
+        try:
+            async with pool.acquire() as conn:
+                user_row = await conn.fetchrow("SELECT preferences FROM users WHERE id = $1", user_uuid)
+                if user_row and user_row.get("preferences"):
+                    prefs = user_row["preferences"]
+                    if isinstance(prefs, str):
+                        import json
+                        try:
+                            prefs = json.loads(prefs)
+                        except Exception:
+                            prefs = {}
+                    if isinstance(prefs, dict):
+                        docs = prefs.get("resume_documents") or []
+                        if docs:
+                            latest_doc = docs[0]
+                            analysis = latest_doc.get("analysis") or {}
+                            resume_analysis = {
+                                "overallScore": analysis.get("overallScore") or analysis.get("score") or 0,
+                                "targetRoleTitle": analysis.get("targetRoleTitle") or "Target Role",
+                                "matchedSkills": analysis.get("matchedSkills") or [],
+                                "missingSkills": analysis.get("missingSkills") or [],
+                            }
+                            context_chunks.append(
+                                f"ATS Resume Analysis: Overall Score {resume_analysis['overallScore']}/100 for {resume_analysis['targetRoleTitle']}. "
+                                f"Matched: {', '.join(resume_analysis['matchedSkills'][:5])}. "
+                                f"Missing gaps: {', '.join(resume_analysis['missingSkills'][:5])}."
+                            )
+        except Exception:
+            pass
 
     elif ctx.role == Role.TRAINER:
         # Trainer: Assigned batches and course scope
@@ -139,6 +167,22 @@ async def gather_participant_rag_context(ctx: ScopeContext) -> dict[str, Any]:
 
     else:
         # Admin / Super Admin
+        try:
+            async with pool.acquire() as conn:
+                counts = await conn.fetchrow("""
+                    SELECT 
+                        (SELECT COUNT(*) FROM users WHERE deleted_at IS NULL) as total_users,
+                        (SELECT COUNT(*) FROM courses WHERE deleted_at IS NULL) as total_courses,
+                        (SELECT COUNT(*) FROM batches WHERE deleted_at IS NULL) as total_batches
+                """)
+                if counts:
+                    context_chunks.append(
+                        f"System Overview: {counts['total_users']} total users, "
+                        f"{counts['total_courses']} courses in catalog, "
+                        f"{counts['total_batches']} active cohorts."
+                    )
+        except Exception:
+            pass
         context_chunks.append("Administrative Scope: Institution-wide course catalog, user management, and platform analytics.")
 
     # Master curriculum reference
@@ -316,20 +360,31 @@ async def answer_ai_query(
         execution_mode = "RULE_BASED_FALLBACK"
         used_provider = "deterministic-rag-engine"
 
-    # Persist message history in MongoDB
-    db = get_db()
-    turn_record = {
-        "studentUserId": str(ctx.user_id),
-        "role": str(ctx.role),
-        "query": query,
-        "response": ai_response,
-        "executionMode": execution_mode,
-        "provider": used_provider,
-        "providerStatus": provider_status,
-        "blocker": blocker_reason,
-        "createdAt": datetime.now(timezone.utc),
-    }
-    await db.ai_chat_conversations.insert_one(turn_record)
+    # Persist message history
+    try:
+        if settings.USE_POSTGRES:
+            pool = await connect_to_postgres()
+            async with pool.acquire() as conn:
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS ai_chat_conversations (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        user_id UUID NOT NULL,
+                        role VARCHAR(50) NOT NULL,
+                        query TEXT NOT NULL,
+                        response TEXT NOT NULL,
+                        execution_mode VARCHAR(50),
+                        provider VARCHAR(50),
+                        provider_status VARCHAR(50),
+                        blocker TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+                await conn.execute("""
+                    INSERT INTO ai_chat_conversations (user_id, role, query, response, execution_mode, provider, provider_status, blocker, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                """, user_uuid, str(ctx.role), query, ai_response, execution_mode, used_provider, provider_status, blocker_reason)
+    except Exception:
+        pass
 
     return {
         "success": True,
@@ -430,3 +485,67 @@ def _synthesize_deterministic_rag_answer(query: str, rag_data: dict[str, Any]) -
         f"3. **Career & ATS Readiness**: Analyzing resume skill matches and missing keywords for your target role.\n"
         f"4. **Practice Coaching**: Guiding your speech, presentation, and technical interview rehearsal."
     )
+
+
+async def get_user_chat_history(ctx: ScopeContext, limit: int = 30) -> list[dict[str, Any]]:
+    """Retrieve recent conversation turns for the authenticated user."""
+    try:
+        user_uuid = UUID(str(ctx.user_id)) if isinstance(ctx.user_id, str) else ctx.user_id
+    except Exception:
+        return []
+    if settings.USE_POSTGRES:
+        try:
+            pool = await connect_to_postgres()
+            async with pool.acquire() as conn:
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS ai_chat_conversations (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        user_id UUID NOT NULL,
+                        role VARCHAR(50) NOT NULL,
+                        query TEXT NOT NULL,
+                        response TEXT NOT NULL,
+                        execution_mode VARCHAR(50),
+                        provider VARCHAR(50),
+                        provider_status VARCHAR(50),
+                        blocker TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+                rows = await conn.fetch("""
+                    SELECT id, query, response, execution_mode, provider, provider_status, blocker, created_at
+                    FROM ai_chat_conversations
+                    WHERE user_id = $1
+                    ORDER BY created_at ASC
+                    LIMIT $2
+                """, user_uuid, limit)
+                return [
+                    {
+                        "id": str(r["id"]),
+                        "question": r["query"],
+                        "answer": r["response"],
+                        "executionMode": r["execution_mode"],
+                        "provider": r["provider"],
+                        "providerStatus": r["provider_status"],
+                        "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
+                    }
+                    for r in rows
+                ]
+        except Exception:
+            return []
+    return []
+
+
+async def clear_user_chat_history(ctx: ScopeContext) -> None:
+    """Clear conversation history for the authenticated user."""
+    try:
+        user_uuid = UUID(str(ctx.user_id)) if isinstance(ctx.user_id, str) else ctx.user_id
+    except Exception:
+        return
+    if settings.USE_POSTGRES:
+        try:
+            pool = await connect_to_postgres()
+            async with pool.acquire() as conn:
+                await conn.execute("DELETE FROM ai_chat_conversations WHERE user_id = $1", user_uuid)
+        except Exception:
+            pass
+

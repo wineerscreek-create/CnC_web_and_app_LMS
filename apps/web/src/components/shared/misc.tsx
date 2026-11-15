@@ -445,11 +445,11 @@ export function DetailList({
   className?: string;
 }) {
   return (
-    <dl className={cn('divide-y divide-dashed divide-line', className)}>
+    <dl className={cn('divide-y divide-dashed divide-border/60', className)}>
       {rows.map((row) => (
         <div key={row.label} className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-4 py-2.5 min-w-0">
-          <dt className="text-base text-ink-2 shrink-0">{row.label}</dt>
-          <dd className="text-left sm:text-right text-base font-semibold text-ink-1 min-w-0 break-words">{row.value ?? '—'}</dd>
+          <dt className="text-xs sm:text-sm text-muted-foreground shrink-0">{row.label}</dt>
+          <dd className="text-left sm:text-right text-xs sm:text-sm font-semibold text-heading min-w-0 break-words [overflow-wrap:anywhere]">{row.value ?? '—'}</dd>
         </div>
       ))}
     </dl>

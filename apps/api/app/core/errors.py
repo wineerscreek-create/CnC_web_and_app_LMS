@@ -155,12 +155,17 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     # Never expose stack traces, DB internals or secrets to the client (§20).
     from app.core.logging import get_logger
 
+    req_id = _request_id(request)
     get_logger("app.unhandled").exception(
-        "unhandled_exception", extra={"request_id": _request_id(request), "path": request.url.path}
+        "unhandled_exception", extra={"request_id": req_id, "path": request.url.path}
     )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content=error_body("INTERNAL_ERROR", "Something went wrong", _request_id(request)),
+        content=error_body(
+            "INTERNAL_ERROR",
+            f"An unexpected server error occurred [Ref: {req_id}]. Please retry or contact support.",
+            req_id,
+        ),
     )
 
 

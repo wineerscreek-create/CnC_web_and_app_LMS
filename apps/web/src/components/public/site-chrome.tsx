@@ -8,6 +8,7 @@ import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { CNCLogo } from '@/components/ui/CNCLogo';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { getRoleHome } from '@/lib/roleRoutes';
 import { cn } from '@/lib/cn';
 import { useAppSelector } from '@/store';
 
@@ -102,7 +103,7 @@ export function SiteHeader() {
               size="sm"
               className="rounded-xl shadow-xs font-bold text-xs"
             >
-              <Link href={user.home || '/'}>
+              <Link href={getRoleHome(user)}>
                 Go to Portal
                 <ArrowRight className="size-3.5 ml-1" />
               </Link>

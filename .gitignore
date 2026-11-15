@@ -64,6 +64,8 @@ reports/
 *_BLOCKERS.md
 !README.md
 !**/README.md
+!CNC_LMS_UNIVERSAL_MOBILE_RESPONSIVENESS_REPORT.md
+!CNC_LMS_GLOBAL_AI_AND_ERROR_REPAIR_REPORT.md
 
 # 7. Scratch & Temporary Development Directories
 scratch/
@@ -94,6 +96,7 @@ apps/web/e2e/
 **/*.spec.tsx
 apps/web/src/test/
 apps/web/vitest.config.ts
+.vite/
 
 # 10. Game Test Scripts, Test Assets & Agent Files
 apps/game/winners-creek/scripts/test-*.ts

@@ -82,13 +82,59 @@ async function readBody(response: Response): Promise<any> {
 }
 
 function toApiError(status: number, body: any): ApiError {
-  const error: ApiErrorBody = body?.error ?? {
-    code: status === 0 ? 'NETWORK_ERROR' : 'UNKNOWN',
-    message:
-      body?.raw ||
-      (status === 0
-        ? "We couldn't reach the server. Check your connection and try again."
-        : 'Something went wrong'),
+  let message = '';
+  let code = status === 0 ? 'NETWORK_ERROR' : `HTTP_${status}`;
+
+  if (body?.error) {
+    if (typeof body.error === 'string') {
+      message = body.error;
+    } else if (typeof body.error === 'object') {
+      code = body.error.code || code;
+      message = body.error.message || '';
+    }
+  }
+
+  if (!message && body?.detail) {
+    message = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+  }
+
+  if (!message && body?.message) {
+    message = typeof body.message === 'string' ? body.message : '';
+  }
+
+  if (!message && body?.raw) {
+    message = typeof body.raw === 'string' ? body.raw : '';
+  }
+
+  if (!message || message.trim() === 'Something went wrong') {
+    if (status === 0) {
+      message = "We couldn't reach the server. Please check your network connection and try again.";
+    } else if (status === 400) {
+      message = 'The request could not be processed due to invalid parameters (400 Bad Request).';
+    } else if (status === 401) {
+      message = 'Your session has expired or requires authentication (401 Unauthorized).';
+    } else if (status === 403) {
+      message = 'You do not have permission to perform this action (403 Forbidden).';
+    } else if (status === 404) {
+      message = 'The requested resource was not found (404 Not Found).';
+    } else if (status === 409) {
+      message = 'A conflicting resource already exists (409 Conflict).';
+    } else if (status === 422) {
+      message = 'The submitted data could not be processed (422 Unprocessable Entity).';
+    } else if (status === 429) {
+      message = 'Too many requests. Please wait a moment and try again (429 Rate Limited).';
+    } else if (status >= 500) {
+      message = `Server error [${code}]. The system encountered an issue processing your request. Please try again or contact support.`;
+    } else {
+      message = `Operation failed with status ${status} [${code}].`;
+    }
+  }
+
+  const error: ApiErrorBody = {
+    code,
+    message,
+    details: body?.error?.details || body?.details,
+    requestId: body?.error?.requestId || body?.requestId,
   };
   return new ApiError(status, error);
 }

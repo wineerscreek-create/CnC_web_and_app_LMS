@@ -87,7 +87,8 @@ export default function ResumeAnalyzerPage() {
       toast.success(response.message ?? 'Resume analysed against target role');
       query.refetch();
     } catch (caught) {
-      toast.error((caught as ApiError).message);
+      const err = caught as ApiError;
+      toast.error(err.message || 'Resume upload failed. Please verify file format and try again.');
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = '';
