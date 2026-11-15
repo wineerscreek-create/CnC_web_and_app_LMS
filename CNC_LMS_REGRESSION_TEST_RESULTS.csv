@@ -1,0 +1,26 @@
+Test_ID,Category,Suite_or_Path,Target_Feature,Expected_Result,Actual_Result,Status,Duration
+REG-FE-001,Frontend,apps/web,tsc --noEmit,0 TypeScript compiler errors across all routes,0 errors found,PASS,12.0s
+REG-FE-002,Frontend,apps/web,vitest run (PasswordStrength),Password strength meter mirrors all complexity rules,Passed 5/5 assertions,PASS,151ms
+REG-FE-003,Frontend,apps/web,vitest run (DialogComponent),Dialog renders overlay and modal body,Passed 4/4 assertions,PASS,311ms
+REG-FE-004,Frontend,apps/web,vitest run (HomeAssistant),Floating assistant opens and handles prompts,Passed 7/7 assertions,PASS,681ms
+REG-FE-005,Frontend,apps/web,vitest run (DetailList),DetailList wraps long emails and labels on mobile,Passed with min-w-0 and break-words,PASS,35ms
+REG-FE-006,Frontend,apps/web,vitest run (StudentPayments),Student payments displays enrolled state and disables purchase,Passed 1/1 assertions,PASS,231ms
+REG-FE-007,Frontend,apps/web,vitest run (Sidebar),Sidebar handles collapses and navigation active states,Passed 4/4 assertions,PASS,240ms
+REG-FE-008,Frontend,apps/web,vitest run (RouteGuard),Route guard routes unauthenticated visitors to login with destination,Passed 5/5 assertions,PASS,111ms
+REG-BE-001,Backend,test_smoke.py,FastAPI API health & endpoints,Returns HTTP 200 and schema responses,11/11 passed,PASS,9.53s
+REG-BE-002,Backend,test_units.py,Core unit tests,Validates business logic and token hashing,41/41 passed,PASS,10.65s
+REG-BE-003,Backend,test_live_classes.py,Live classroom endpoints & sessions,Verifies room creation join and attendance recording,4/4 passed,PASS,8.00s
+REG-BE-004,Backend,test_game_engine.py,Game engine attempt tracking & EEDI scores,Validates questions scoring accuracy and difficulty levels,6/6 passed,PASS,9.21s
+REG-BE-005,Backend,test_final_rbac_and_modes.py,RBAC scopes & practice modes,Enforces student isolation and practice modes,5/5 passed,PASS,17.26s
+REG-BE-006,Backend,test_tenant_isolation.py,Multi-tenant institution isolation,Prevents cross-tenant data queries,39 passed 1 skipped,PASS,84.87s
+REG-BE-007,Backend,test_admin_portal.py,Admin portal student batch & trainer management,Scoper operations by institution_id,42 passed 5 skipped,PASS,70.55s
+REG-BE-008,Backend,test_hod_portal.py,HOD department scoping & academic cohorts,Scopes participants to department and academic years,36 passed 1 skipped,PASS,159.80s
+REG-BE-009,Backend,test_student_access_control.py,Student profile & data authorization,Rejects ID tampering and verifies ownership,4/4 passed,PASS,7.18s
+REG-BE-010,Backend,test_trainer_workflows.py,Trainer batch evaluations & grading,Scopes students to assigned batches via batch_trainers,29/29 passed,PASS,76.96s
+REG-BE-011,Backend,test_student_journey.py,Student learning practice & lessons,Verifies lesson progress and audio recordings persistence,35/35 passed,PASS,82.09s
+REG-BE-012,Backend,test_auth.py,Authentication JWT & password management,Verifies roll number uniqueness and password hashes,36/36 passed,PASS,59.35s
+REG-BE-013,Backend,test_resume_doc_parsing.py,Word .doc resume extraction,Extracts binary strings and scores technical keywords,1/1 passed,PASS,4.30s
+REG-AI-001,AI,UnifiedEvaluationProvider,Gemini structured JSON evaluation,Evaluates transcript with grounded evidence,overall: 94/100 HTTP 200,PASS,2.15s
+REG-AI-002,AI,GroqEvaluationProvider,Groq qwen3.8-27b fallback evaluation,Evaluates presentation transcript with User-Agent header,overall: 91/100 HTTP 200,PASS,1.85s
+REG-AI-003,AI,GroqSpeechToTextProvider,Groq Whisper STT transcription,Transcribes speech audio payload into transcript segments,Transcribed HTTP 200,PASS,1.40s
+REG-STO-001,Storage,S3StorageDriver,AWS S3 exclusive production driver,Preserves STORAGE_DRIVER=s3 without Supabase production dependency,Driver verified active,PASS,0.05s
