@@ -59,7 +59,7 @@ class UserRepository:
                 SELECT u.id, u.email, u.password_hash, u.name, u.role, u.institution_id, u.department_id,
                        u.phone, u.status, u.last_login_at, u.created_at, u.email_verified,
                        u.activation_token, u.activation_token_expires_at, u.must_change_password,
-                       u.avatar_color, u.preferences,
+                       u.avatar_color, u.avatar_url, u.preferences,
                        u.reset_password_token_hash, u.reset_password_token_expires_at,
                        i.name as college_name, d.name as department_name
                 FROM users u
@@ -79,7 +79,7 @@ class UserRepository:
                 SELECT u.id, u.email, u.password_hash, u.name, u.role, u.institution_id, u.department_id,
                        u.phone, u.status, u.last_login_at, u.created_at, u.email_verified,
                        u.activation_token, u.activation_token_expires_at, u.must_change_password,
-                       u.avatar_color, u.preferences,
+                       u.avatar_color, u.avatar_url, u.preferences,
                        u.reset_password_token_hash, u.reset_password_token_expires_at,
                        i.name as college_name, d.name as department_name
                 FROM users u
@@ -101,7 +101,7 @@ class UserRepository:
                 SELECT u.id, u.email, u.password_hash, u.name, u.role, u.institution_id, u.department_id,
                        u.phone, u.status, u.last_login_at, u.created_at, u.email_verified,
                        u.activation_token, u.activation_token_expires_at, u.must_change_password,
-                       u.avatar_color, u.preferences,
+                       u.avatar_color, u.avatar_url, u.preferences,
                        u.reset_password_token_hash, u.reset_password_token_expires_at,
                        sp.roll_number,
                        i.name as college_name, d.name as department_name

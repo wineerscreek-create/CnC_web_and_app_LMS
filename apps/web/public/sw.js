@@ -56,8 +56,33 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cross-origin requests: leave to browser default
+  // Cross-origin requests: cache S3 avatars and media assets for offline resilience
   if (url.origin !== self.location.origin) {
+    const isS3OrMedia =
+      url.hostname.includes('amazonaws.com') ||
+      url.pathname.includes('/avatars/') ||
+      url.pathname.match(/\.(png|jpg|jpeg|webp|gif|svg)$/i);
+
+    if (isS3OrMedia) {
+      event.respondWith(
+        caches.match(request).then((cachedResponse) => {
+          const fetchPromise = fetch(request, { mode: 'cors' })
+            .then((networkResponse) => {
+              if (
+                networkResponse &&
+                (networkResponse.status === 200 || networkResponse.type === 'opaque')
+              ) {
+                const copy = networkResponse.clone();
+                caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+              }
+              return networkResponse;
+            })
+            .catch(() => cachedResponse);
+
+          return cachedResponse || fetchPromise;
+        })
+      );
+    }
     return;
   }
 

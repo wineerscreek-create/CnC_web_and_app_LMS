@@ -49,6 +49,7 @@ import {
 } from '@/components/3d';
 import { HomepageTestimonials } from '@/components/feedback/HomepageTestimonials';
 import { PublicFeedbackModal } from '@/components/feedback/PublicFeedbackModal';
+import { SkillSharpBrandIntro } from '@/components/intro/SkillSharpBrandIntro';
 import { MessageSquareHeart } from 'lucide-react';
 
 interface Overview {
@@ -217,7 +218,9 @@ export default function HomePage() {
       : DEFAULT_COURSES;
 
   return (
-    <div className="relative space-y-20 sm:space-y-24 pb-24 overflow-x-hidden">
+    <>
+      <SkillSharpBrandIntro />
+      <div className="relative space-y-20 sm:space-y-24 pb-24 overflow-x-hidden">
       {/* ------------------------------------------------------------------ 1. CLEAN HERO SECTION */}
       <section className="relative px-6 pt-8 sm:pt-14 lg:pt-20">
         <div className="mx-auto max-w-[1240px]">
@@ -1074,5 +1077,6 @@ export default function HomePage() {
         onClose={() => setFeedbackModalOpen(false)}
       />
     </div>
+    </>
   );
 }

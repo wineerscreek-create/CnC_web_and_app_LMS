@@ -52,6 +52,7 @@ export interface SessionUser {
   emailVerified: boolean;
   status: string;
   avatarColor?: string | null;
+  avatarUrl?: string | null;
   mustChangePassword: boolean;
   home: string;
   preferences?: Record<string, boolean>;

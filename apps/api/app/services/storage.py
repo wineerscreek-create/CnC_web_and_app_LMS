@@ -35,6 +35,10 @@ class Keys:
         return f"banners/{user_id}/{filename}"
 
     @staticmethod
+    def user_avatar(user_id: str, filename: str) -> str:
+        return f"avatars/{user_id}/{filename}"
+
+    @staticmethod
     def practice_audio(student_id: str, session_id: str) -> str:
         return f"students/{student_id}/practice/{session_id}/audio"
 

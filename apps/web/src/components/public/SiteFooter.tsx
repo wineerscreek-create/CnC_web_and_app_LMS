@@ -13,6 +13,7 @@ import {
   Building2,
   Mail,
   Send,
+  RotateCcw,
 } from 'lucide-react';
 import { CNCLogo } from '@/components/ui/CNCLogo';
 import { Button } from '@/components/ui/button';
@@ -151,6 +152,23 @@ export function SiteFooter() {
                   FAQs
                 </Link>
               </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof window !== 'undefined') {
+                      try {
+                        sessionStorage.removeItem('skillsharp_intro_viewed');
+                      } catch {}
+                      window.dispatchEvent(new CustomEvent('skillsharp:replay-intro'));
+                    }
+                  }}
+                  className="hover:text-amber-400 transition-colors text-left flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RotateCcw className="size-3 text-amber-400" />
+                  <span>Replay Brand Intro</span>
+                </button>
+              </li>
             </ul>
           </div>
 
@@ -255,7 +273,23 @@ export function SiteFooter() {
       <div className="border-t border-slate-800/80 bg-[#070b16] px-6 py-5">
         <div className="mx-auto flex max-w-[1240px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between text-xs text-slate-400">
           <p>© 2026 Winners Creek. All rights reserved.</p>
-          <div className="flex items-center gap-4 text-xs">
+          <div className="flex flex-wrap items-center gap-4 text-xs">
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  try {
+                    sessionStorage.removeItem('skillsharp_intro_viewed');
+                  } catch {}
+                  window.dispatchEvent(new CustomEvent('skillsharp:replay-intro'));
+                }
+              }}
+              className="inline-flex items-center gap-1.5 text-amber-400/90 hover:text-amber-300 transition-colors cursor-pointer"
+            >
+              <RotateCcw className="size-3" />
+              <span>Replay Intro</span>
+            </button>
+            <span className="text-slate-700">·</span>
             <Link href="/privacy" className="hover:text-white transition-colors">
               Privacy Policy
             </Link>

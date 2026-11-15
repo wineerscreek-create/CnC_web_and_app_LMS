@@ -234,8 +234,11 @@ export async function request<T = any>(path: string, options: RequestOptions = {
     if (token) {
       return request<T>(path, { ...options, _retried: true });
     }
-    accessToken = null;
-    onUnauthenticated?.();
+    const isDeviceOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+    if (!isDeviceOffline) {
+      accessToken = null;
+      onUnauthenticated?.();
+    }
   }
 
   if (response.status === 204) return undefined as T;

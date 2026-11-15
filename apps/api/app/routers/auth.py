@@ -117,6 +117,7 @@ def _public_user(user: dict[str, Any]) -> dict[str, Any]:
         "emailVerified": bool(user.get("emailVerified") if user.get("emailVerified") is not None else user.get("email_verified", True)),
         "status": str(user.get("status", "active")).lower(),
         "avatarColor": user.get("avatarColor") or user.get("avatar_color") or "#6366f1",
+        "avatarUrl": user.get("avatarUrl") or user.get("avatar_url") or None,
         "mustChangePassword": bool(user.get("mustChangePassword") if user.get("mustChangePassword") is not None else user.get("must_change_password", False)),
         "home": ROLE_HOME.get(role, "/"),
         "preferences": user.get("preferences") or {},
@@ -873,6 +874,7 @@ async def me(ctx: CurrentUser) -> dict[str, Any]:
         "status": str(user["status"]).lower(),
         "emailVerified": bool(user.get("email_verified", True)),
         "avatarColor": user.get("avatar_color") or "#6366f1",
+        "avatarUrl": user.get("avatar_url") or None,
         "mustChangePassword": bool(user.get("must_change_password", False)),
         "preferences": user.get("preferences") or {},
     }

@@ -325,7 +325,39 @@ export async function setCachedQuery(
       lastSyncedAt: now,
       schemaVersion: 1,
     });
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.name === 'QuotaExceededError' || err?.message?.includes?.('quota')) {
+      try {
+        const total = await offlineDB.cachedQueries.count();
+        if (total > 15) {
+          const oldest = await offlineDB.cachedQueries.orderBy('cachedAt').limit(15).keys();
+          await offlineDB.cachedQueries.bulkDelete(oldest as string[]);
+          const now = new Date().toISOString();
+          const meta: ActiveSessionMeta =
+            typeof metaOrUserId === 'object' && metaOrUserId !== null
+              ? metaOrUserId
+              : typeof metaOrUserId === 'string'
+                ? { userId: metaOrUserId, institutionId: null, role: 'STUDENT' }
+                : getActiveSessionMeta();
+          const key = makeQueryCacheKey(meta, path, params);
+          await offlineDB.cachedQueries.put({
+            id: key,
+            userId: meta.userId,
+            institutionId: meta.institutionId,
+            role: meta.role,
+            path,
+            paramsKey: JSON.stringify(params ?? {}),
+            data,
+            cachedAt: now,
+            lastSyncedAt: now,
+            schemaVersion: 1,
+          });
+          return;
+        }
+      } catch (pruneErr) {
+        console.warn('[OfflineDB] Quota recovery failed:', pruneErr);
+      }
+    }
     console.warn('[OfflineDB] Failed to cache query:', err);
   }
 }

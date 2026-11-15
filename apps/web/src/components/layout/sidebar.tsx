@@ -190,7 +190,7 @@ export function Sidebar({
               collapsed && 'justify-center p-2',
             )}
           >
-            <Avatar name={user.name} size={collapsed ? 28 : 32} />
+            <Avatar name={user.name} color={user.avatarColor} src={user.avatarUrl} size={collapsed ? 28 : 32} />
             {!collapsed && (
               <div className="min-w-0 flex-1">
                 <span className="block truncate text-xs font-bold text-foreground">
