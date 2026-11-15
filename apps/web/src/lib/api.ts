@@ -201,15 +201,31 @@ export async function request<T = any>(path: string, options: RequestOptions = {
     requestHeaders.set('Content-Type', 'application/json');
   }
 
+  const method = (rest.method || 'GET').toUpperCase();
+  const isGet = method === 'GET';
+
   let response: Response;
   try {
     response = await fetch(buildUrl(path, params), {
       ...rest,
+      method,
       credentials: 'include',
       headers: requestHeaders,
       body: isRaw ? (body as BodyInit) : body !== undefined ? JSON.stringify(body) : undefined,
     });
-  } catch {
+  } catch (caught) {
+    // If this is a GET request and network is down, attempt fallback to Dexie query cache
+    if (isGet) {
+      try {
+        const { getCachedQuery } = await import('@/lib/offline/db');
+        const cached = await getCachedQuery(null, path, params);
+        if (cached) {
+          return cached.data as T;
+        }
+      } catch {
+        // Fall through to throw ApiError
+      }
+    }
     throw toApiError(0, null);
   }
 
@@ -226,6 +242,17 @@ export async function request<T = any>(path: string, options: RequestOptions = {
 
   const payload = await readBody(response);
   if (!response.ok) throw toApiError(response.status, payload);
+
+  // When a GET request succeeds, persist it to Dexie query cache for offline availability
+  if (isGet && payload !== null && payload !== undefined && !path.startsWith('/auth/')) {
+    try {
+      const { setCachedQuery } = await import('@/lib/offline/db');
+      setCachedQuery(null, path, params, payload).catch(() => {});
+    } catch {
+      // Ignore background caching errors
+    }
+  }
+
   return payload as T;
 }
 

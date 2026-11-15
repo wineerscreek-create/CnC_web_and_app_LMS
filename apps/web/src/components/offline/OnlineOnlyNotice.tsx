@@ -32,11 +32,11 @@ export function OnlineOnlyNotice({
 
         <div className="space-y-1 flex-1">
           <h3 className="font-heading font-semibold text-base text-heading">
-            {featureName} Requires Active Internet Connectivity
+            {featureName ? `${featureName} — Offline Mode` : 'Offline Mode'}
           </h3>
           <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
             {description ||
-              `Real-time cloud computation, live streaming, payment gateways, and AI inference are unavailable offline. Reconnect to resume ${featureName}.`}
+              "You're currently offline. This feature requires an active internet connection. Please reconnect and try again."}
           </p>
         </div>
 

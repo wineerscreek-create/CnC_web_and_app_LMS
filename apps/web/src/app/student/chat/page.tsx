@@ -16,6 +16,7 @@ import {
 import * as React from 'react';
 
 import { PageHeader } from '@/components/shared/page-header';
+import { OnlineOnlyNotice } from '@/components/offline/OnlineOnlyNotice';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
@@ -328,6 +329,8 @@ export default function StudentChatPage() {
           </div>
         }
       />
+
+      <OnlineOnlyNotice featureName="AI Chat & Messaging" />
 
       {activeMainMode === 'ai' ? (
         /* ==================== AI ACADEMIC COACH VIEW ==================== */

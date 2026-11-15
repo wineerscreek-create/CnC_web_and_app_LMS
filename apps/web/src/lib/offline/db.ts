@@ -153,13 +153,23 @@ export interface SyncMetadataRecord {
   deviceRevision: number;
 }
 
-export interface CachedQueryRecord {
-  id: string; // compound: `${userId}::${path}::${paramsKey}`
+export interface ActiveSessionMeta {
   userId: string;
+  institutionId: string | null;
+  role: string;
+}
+
+export interface CachedQueryRecord {
+  id: string; // compound: `${userId}::${institutionId || 'global'}::${role}::${path}::${paramsKey}`
+  userId: string;
+  institutionId: string | null;
+  role: string;
   path: string;
   paramsKey: string;
   data: any;
   cachedAt: string;
+  lastSyncedAt: string;
+  schemaVersion: number;
 }
 
 // --------------------------------------------------------------------------- Dexie Class
@@ -193,9 +203,9 @@ export class SkillSharpOfflineDB extends Dexie {
       syncMetadata: 'key, userId',
     });
 
-    // Schema Version 2 — Visited Page / Route Query Cache
+    // Schema Version 2 — Multi-Role Visited Page & Route Query Cache
     this.version(2).stores({
-      cachedQueries: 'id, userId, path, cachedAt',
+      cachedQueries: 'id, userId, institutionId, role, path, cachedAt',
     });
   }
 }
@@ -204,47 +214,82 @@ export class SkillSharpOfflineDB extends Dexie {
 export const offlineDB = new SkillSharpOfflineDB();
 
 // --------------------------------------------------------------------------- User & Query Cache Tracking
-let currentActiveUserId: string | null = null;
+let currentActiveUserMeta: ActiveSessionMeta | null = null;
 
-export function setCurrentActiveUserId(id: string | null) {
-  currentActiveUserId = id;
+export function setActiveSessionMeta(meta: ActiveSessionMeta | null) {
+  currentActiveUserMeta = meta;
 }
 
-export function getCurrentActiveUserId(): string | null {
-  if (currentActiveUserId) return currentActiveUserId;
+export function setCurrentActiveUserId(id: string | null) {
+  if (id) {
+    if (currentActiveUserMeta) {
+      currentActiveUserMeta.userId = id;
+    } else {
+      currentActiveUserMeta = { userId: id, institutionId: null, role: 'STUDENT' };
+    }
+  } else {
+    currentActiveUserMeta = null;
+  }
+}
+
+export function getActiveSessionMeta(): ActiveSessionMeta {
+  if (currentActiveUserMeta) return currentActiveUserMeta;
   if (typeof window !== 'undefined') {
     try {
       const stored = localStorage.getItem('winners_creek_cached_session');
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed?.id) {
-          currentActiveUserId = parsed.id;
-          return parsed.id;
+          currentActiveUserMeta = {
+            userId: parsed.id,
+            institutionId: parsed.institutionId || parsed.collegeId || null,
+            role: parsed.role || 'STUDENT',
+          };
+          return currentActiveUserMeta;
         }
       }
     } catch {
       // Ignore parse error
     }
   }
-  return null;
+  return { userId: 'anonymous', institutionId: null, role: 'PUBLIC' };
 }
 
-export function makeQueryCacheKey(userId: string | null | undefined, path: string, params?: any): string {
-  const u = userId || getCurrentActiveUserId() || 'anonymous';
+export function getCurrentActiveUserId(): string | null {
+  const meta = getActiveSessionMeta();
+  return meta.userId !== 'anonymous' ? meta.userId : null;
+}
+
+export function makeQueryCacheKey(
+  metaOrUserId: ActiveSessionMeta | string | null | undefined,
+  path: string,
+  params?: any,
+): string {
+  const meta: ActiveSessionMeta =
+    typeof metaOrUserId === 'object' && metaOrUserId !== null
+      ? metaOrUserId
+      : typeof metaOrUserId === 'string'
+        ? { userId: metaOrUserId, institutionId: null, role: 'STUDENT' }
+        : getActiveSessionMeta();
+
   const p = params ? JSON.stringify(params) : '{}';
-  return `${u}::${path}::${p}`;
+  return `${meta.userId}::${meta.institutionId || 'global'}::${meta.role}::${path}::${p}`;
 }
 
 export async function getCachedQuery<T = any>(
-  userId: string | null | undefined,
+  metaOrUserId: ActiveSessionMeta | string | null | undefined,
   path: string,
   params?: any,
-): Promise<{ data: T; cachedAt: string } | null> {
+): Promise<{ data: T; cachedAt: string; lastSyncedAt: string } | null> {
   try {
-    const key = makeQueryCacheKey(userId, path, params);
+    const key = makeQueryCacheKey(metaOrUserId, path, params);
     const record = await offlineDB.cachedQueries.get(key);
     if (!record) return null;
-    return { data: record.data, cachedAt: record.cachedAt };
+    return {
+      data: record.data,
+      cachedAt: record.cachedAt,
+      lastSyncedAt: record.lastSyncedAt || record.cachedAt,
+    };
   } catch (err) {
     console.warn('[OfflineDB] Failed to read cached query:', err);
     return null;
@@ -252,25 +297,47 @@ export async function getCachedQuery<T = any>(
 }
 
 export async function setCachedQuery(
-  userId: string | null | undefined,
+  metaOrUserId: ActiveSessionMeta | string | null | undefined,
   path: string,
   params: any,
   data: any,
 ): Promise<void> {
   try {
     if (!path || data === undefined || data === null) return;
-    const resolvedUserId = userId || getCurrentActiveUserId() || 'anonymous';
-    const key = makeQueryCacheKey(resolvedUserId, path, params);
+    const meta: ActiveSessionMeta =
+      typeof metaOrUserId === 'object' && metaOrUserId !== null
+        ? metaOrUserId
+        : typeof metaOrUserId === 'string'
+          ? { userId: metaOrUserId, institutionId: null, role: 'STUDENT' }
+          : getActiveSessionMeta();
+
+    const key = makeQueryCacheKey(meta, path, params);
+    const now = new Date().toISOString();
     await offlineDB.cachedQueries.put({
       id: key,
-      userId: resolvedUserId,
+      userId: meta.userId,
+      institutionId: meta.institutionId,
+      role: meta.role,
       path,
       paramsKey: JSON.stringify(params ?? {}),
       data,
-      cachedAt: new Date().toISOString(),
+      cachedAt: now,
+      lastSyncedAt: now,
+      schemaVersion: 1,
     });
   } catch (err) {
     console.warn('[OfflineDB] Failed to cache query:', err);
+  }
+}
+
+export async function purgeAllOfflinePageCaches(): Promise<void> {
+  try {
+    await offlineDB.cachedQueries.clear();
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'PURGE_USER_CACHE' });
+    }
+  } catch (err) {
+    console.warn('[OfflineDB] Failed to purge all offline page caches:', err);
   }
 }
 
@@ -347,4 +414,8 @@ export async function purgeUserOfflineData(userId: string): Promise<void> {
     offlineDB.syncMetadata.where('userId').equals(userId).delete(),
     offlineDB.cachedQueries.where('userId').equals(userId).delete(),
   ]);
+
+  if (typeof window !== 'undefined' && 'serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: 'PURGE_USER_CACHE' });
+  }
 }

@@ -2,7 +2,7 @@ import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/tool
 
 import { ApiError, api, setAccessToken } from '@/lib/api';
 import type { Role } from '@/lib/roleRoutes';
-import { purgeUserOfflineData, setCurrentActiveUserId } from '@/lib/offline/db';
+import { purgeUserOfflineData, setActiveSessionMeta, setCurrentActiveUserId } from '@/lib/offline/db';
 
 const SESSION_STORAGE_KEY = 'winners_creek_cached_session';
 
@@ -22,9 +22,15 @@ function setStoredOfflineUser(user: SessionUser | null) {
   try {
     if (user) {
       localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
+      setActiveSessionMeta({
+        userId: user.id,
+        institutionId: user.institutionId || user.collegeId || null,
+        role: user.role,
+      });
       setCurrentActiveUserId(user.id);
     } else {
       localStorage.removeItem(SESSION_STORAGE_KEY);
+      setActiveSessionMeta(null);
       setCurrentActiveUserId(null);
     }
   } catch {
@@ -76,11 +82,10 @@ export const restoreSession = createAsyncThunk('auth/restore', async (_, { rejec
     if (!token) {
       // Offline fallback: if network is down or disconnected, allow cached session
       const offlineUser = getStoredOfflineUser();
-      if (offlineUser && (typeof navigator !== 'undefined' && !navigator.onLine)) {
-        setCurrentActiveUserId(offlineUser.id);
+      if (offlineUser) {
+        setStoredOfflineUser(offlineUser);
         return offlineUser;
       }
-      setStoredOfflineUser(null);
       return rejectWithValue('anonymous');
     }
     const me = await api.get('/auth/me');
@@ -89,8 +94,8 @@ export const restoreSession = createAsyncThunk('auth/restore', async (_, { rejec
     return user;
   } catch (err) {
     const offlineUser = getStoredOfflineUser();
-    if (offlineUser && (typeof navigator !== 'undefined' && !navigator.onLine)) {
-      setCurrentActiveUserId(offlineUser.id);
+    if (offlineUser) {
+      setStoredOfflineUser(offlineUser);
       return offlineUser;
     }
     return rejectWithValue('anonymous');
