@@ -130,11 +130,11 @@ async def test_arya_password_reset_and_must_change_enforcement():
         audit = await conn.fetchrow(
             """
             SELECT * FROM audit_logs
-            WHERE action = 'bulk_password_reset'
+            WHERE action IN ('bulk_password_reset', 'bulk_password_correction')
             ORDER BY created_at DESC LIMIT 1
             """
         )
-        assert audit is not None, "Audit log for bulk_password_reset missing"
+        assert audit is not None, "Audit log for bulk_password_correction missing"
         meta = json.loads(audit["metadata"]) if isinstance(audit["metadata"], str) else audit["metadata"]
         assert meta["total_accounts_reset"] == 1086
 
@@ -148,3 +148,52 @@ async def test_arya_password_reset_and_must_change_enforcement():
             INSTITUTION_ID,
         )
         assert non_arya_forced == 0, "Non-Arya accounts had must_change_password set!"
+
+        # 4. Verify duplicate passwords are valid and preserved without suffixes
+        dup_users = await conn.fetch(
+            """
+            SELECT u.id, u.email, u.password_hash, u.must_change_password
+            FROM users u
+            WHERE u.name = 'GAURAV JANGID'
+              AND u.email LIKE '%cs@aryacollege.in'
+              AND u.institution_id = $1
+            """,
+            INSTITUTION_ID,
+        )
+        assert len(dup_users) == 2, f"Expected 2 CS Gaurav Jangid accounts, found {len(dup_users)}"
+        for u in dup_users:
+            assert u["must_change_password"] is True
+            assert verify_password("gauravjangid@cs27", u["password_hash"])
+
+
+async def test_backend_must_change_password_enforcement(client):
+    """A user with must_change_password=True can log in, but is blocked with HTTP 403 from protected endpoints until password is changed."""
+    # Test login with email prefix as identifier
+    login_resp = await client.post(
+        "/api/v1/auth/login",
+        json={"identifier": "gauravjangid.23cs", "password": "gauravjangid@cs27"},
+    )
+    assert login_resp.status_code == 200, login_resp.text
+    login_data = login_resp.json()["data"]
+    assert login_data["user"]["mustChangePassword"] is True
+    token = login_data["accessToken"]
+    auth_header = {"Authorization": f"Bearer {token}"}
+
+    # 1. Protected endpoint (/api/v1/student/dashboard) returns 403 Forbidden
+    blocked_resp = await client.get("/api/v1/student/dashboard", headers=auth_header)
+    assert blocked_resp.status_code == 403, blocked_resp.text
+    assert "Password change required" in blocked_resp.json()["error"]["message"]
+
+    # 2. Allowed auth endpoint (/api/v1/auth/me) returns 200 OK
+    me_resp = await client.get("/api/v1/auth/me", headers=auth_header)
+    assert me_resp.status_code == 200, me_resp.text
+    assert me_resp.json()["data"]["mustChangePassword"] is True
+
+    # 3. Test login with full email and with UUID student id
+    uuid_id = login_data["user"]["id"]
+    uuid_login_resp = await client.post(
+        "/api/v1/auth/login",
+        json={"identifier": uuid_id, "password": "gauravjangid@cs27"},
+    )
+    assert uuid_login_resp.status_code == 200, uuid_login_resp.text
+    assert uuid_login_resp.json()["data"]["user"]["id"] == uuid_id

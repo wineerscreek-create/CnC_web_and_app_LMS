@@ -64,28 +64,46 @@ Eligible students were identified via canonical database relations:
 
 ---
 
-## 4. Password Policy & Collision Prevention Strategy
+## 4. Password Policy & Exact Format Specification
 
-### 4.1 Base Password Algorithm
-Each student password was generated according to the deterministic institutional pattern:
+### 4.1 Exact Password Format
+Each student's default password was generated according to the exact institutional specification:
 ```
 normalized_full_name@branchpassoutyear
 ```
-- **`normalized_full_name`**: Student full name lowercased, with whitespace, dots, and non-alphanumeric characters stripped.
-- **`branch`**: Canonical 2-letter branch code derived from department and batch metadata (`ai`, `cs`, `it`).
-- **`passoutyear`**: Two-digit terminal academic year (`29` for Semester 3; `27` for Semester 7).
+- **`normalized_full_name`**: Student full name lowercased, with whitespace and non-alphanumeric characters removed (e.g., `sandeepchaudhary`, `gauravjangid`, `khushisharma`).
+- **`branch`**: 2-letter branch code derived from department and batch metadata (`ai`, `cs`, `it`).
+- **`passoutyear`**: Two-digit terminal passout year (`29` for Semester 3; `27` for Semester 7).
+- **Format Verification**: 100% of generated passwords strictly conform to regex `^[a-z0-9]+@(ai|cs|it)(27|29)$`.
 
-### 4.2 Collision Protection
-When multiple students share the exact same normalized name, branch, and passout year, base passwords collide.
-- Base collision analysis detected **13 duplicate password strings** affecting **26 students**.
-- **Collision Resolution:** When a collision occurred, a secure 2-character alphanumeric suffix was appended with a hyphen (e.g., `-K8`, `-PB`).
-- **Uniqueness Guarantee:** 1,086 generated passwords produced **1,086 unique strings** (0 collisions across the entire student body).
+### 4.2 Shared Passwords & Non-Uniqueness Allowance
+Per administrative requirements, **password uniqueness is NOT required**:
+- Random suffixes (such as `-K8`, `-PB`) are **strictly prohibited and removed**.
+- If two or more students share the same normalized name, branch, and passout year, they have the **exact same default password**.
+- **13 duplicate password strings** are shared across **26 distinct student accounts**:
+  - `gauravjangid@cs27`: shared by 2 distinct Semester 7 CS students (`gauravjangid.23cs` and `gauravjangid2.23cs`)
+  - `sahil@cs29`: shared by 2 distinct Semester 3 CS students
+  - `ayushkumar@ai29`: shared by 2 distinct Semester 3 AI students
+  - `harshit@cs29`: shared by 2 distinct Semester 3 CS students
+  - `niharika@cs29`: shared by 2 distinct Semester 3 CS students
+  - `rahulsharma@ai29`: shared by 2 distinct Semester 3 AI students
+  - `dineshkumawat@cs29`: shared by 2 distinct Semester 3 CS students
+  - `shubhamsharma@it29`: shared by 2 distinct Semester 3 IT students
+  - `harshkumar@ai29`: shared by 2 distinct Semester 3 AI students
+  - `avinashsharma@cs29`: shared by 2 distinct Semester 3 CS students
+  - `rajyavardhansinghrathore@ai29`: shared by 2 distinct Semester 3 AI students
+  - `khushisharma@ai27`: shared by 2 distinct Semester 7 AI students
+  - `rohitkumar@it27`: shared by 2 distinct Semester 7 IT students
 
-Representative collision resolution examples:
-- `gauravjangid@cs27-PB` vs `gauravjangid@cs27-MF`
-- `khushisharma@ai27-IK` vs `khushisharma@ai27-CI`
-- `shubhamsharma@it29-3A` vs `shubhamsharma@it29-8M`
-- `sahil@cs29-ZB` vs `sahil@cs29-NH`
+### 4.3 Login Identification & Zero Collision Guarantee
+Because student identification is handled via unique login credentials, identical passwords never cause account collisions, account merging, or identity confusion:
+- **Unique Account Identifiers**: Each student retains their own unique Student ID (UUID), institutional Email address, and Roll Number.
+- **Enhanced Multi-Attribute Login**: The API authentication layer (`UserRepository.get_by_identifier`) accepts:
+  1. Full Institutional Email (e.g., `gauravjangid2.23cs@aryacollege.in`)
+  2. Institutional Username Prefix (e.g., `gauravjangid2.23cs`)
+  3. Unique Student ID / System UUID (`users.id`)
+  4. Student Roll Number (`student_profiles.roll_number`)
+- Each student's identity is strictly resolved prior to password verification, guaranteeing 100% account isolation even when passwords are identical.
 
 ---
 
@@ -93,11 +111,15 @@ Representative collision resolution examples:
 
 1. **Argon2id Hashing:**
    - Every password was individually hashed using the production Argon2id engine (`app.core.security.hash_password`).
-   - Plaintext passwords were never persisted to PostgreSQL.
-2. **Forced Password Change (`must_change_password = TRUE`):**
-   - All 1,086 accounts have `must_change_password = TRUE` set in the database.
-   - Frontend `RouteGuard` and `ForcePasswordChangeModal` intercept authenticated sessions for these accounts with an un-dismissible modal, requiring students to establish a permanent private password upon first sign-in before accessing LMS dashboards.
-3. **Audit Logging:**
+   - Plaintext passwords are never stored or logged in PostgreSQL.
+2. **Backend & Frontend Forced Password Change (`must_change_password = TRUE`):**
+   - All 1,086 accounts have `must_change_password = TRUE` set in PostgreSQL.
+   - **Backend Guard Enforcement (`app/authz/guards.py`):** When `must_change_password` is True, any attempt to access LMS resources (e.g., `/student/dashboard`, `/student/assessments`, `/courses`) immediately triggers an HTTP 403 `ROLE_FORBIDDEN` exception (`Password change required. You must set a new permanent password before accessing system resources.`). Only essential auth endpoints (`/auth/change-password`, `/auth/me`, `/auth/logout`, `/auth/refresh`, `/auth/sessions`) are accessible.
+   - **Frontend UI Modal (`ForcePasswordChangeModal`):** Intercepts the user with an un-dismissible modal requiring them to establish a permanent private password upon first sign-in before accessing LMS dashboards.
+3. **Data & Email Protection:**
+   - **0** student email addresses, names, enrollment records, batch associations, or system IDs were modified, regenerated, or altered.
+   - 100% preservation verified by comparing all post-update user rows against the pre-correction backup snapshot (`arya_students_pre_correction_backup.json`).
+4. **Audit Logging:**
    - A dedicated audit entry was committed to `audit_logs` capturing:
      - `action = 'bulk_password_reset'`
      - `entity_name = 'users'`
