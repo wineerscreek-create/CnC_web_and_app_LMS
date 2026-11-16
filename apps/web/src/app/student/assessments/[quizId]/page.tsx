@@ -9,18 +9,16 @@ import {
   XCircle,
   ChevronLeft,
   ChevronRight,
-  Bookmark,
-  Save,
   ShieldAlert,
   Maximize2,
-  Lock,
+  Save,
+  Bookmark,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import * as React from 'react';
 import { toast } from 'sonner';
 
-import { PageHeader } from '@/components/shared/page-header';
 import { AsyncSection } from '@/components/shared/state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,13 +27,11 @@ import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { useApi } from '@/hooks/useApi';
 import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/cn';
-import { duration } from '@/lib/format';
 import { useOffline } from '@/context/OfflineContext';
 import { useAppSelector } from '@/store';
 import { offlineDB, isAuthorizationValid } from '@/lib/offline/db';
 import { syncEngine } from '@/lib/offline/syncEngine';
 import { CameraFeed } from '@/components/quiz/CameraFeed';
-import { QuestionPalette, PaletteItem } from '@/components/quiz/QuestionPalette';
 import { useAntiCheat } from '@/hooks/useAntiCheat';
 import { getAssessmentWsUrl } from '@/lib/quiz/ws';
 
@@ -58,6 +54,13 @@ interface RevealData {
   correct_options: string[];
   correct_answer?: string;
   explanation?: string;
+}
+
+function formatExamTimer(seconds: number): string {
+  const safeSec = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(safeSec / 60);
+  const s = safeSec % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
 export default function AssessmentAttemptPage() {
@@ -100,7 +103,8 @@ export default function AssessmentAttemptPage() {
   const questions: AssessmentQuestion[] = React.useMemo(() => quiz?.questions ?? [], [quiz?.questions]);
   const currentQuestion = questions[currentIndex];
   const alreadyDone = Boolean(quiz?.alreadyAttempted || quiz?.attempt);
-  const limitSeconds = (quiz?.durationMinutes ?? 30) * 60;
+  const configuredMinutes = Number(quiz?.durationMinutes || 30);
+  const totalExamSeconds = configuredMinutes * 60;
   const settings = quiz?.settings ?? {};
 
   // Settings parsing
@@ -135,19 +139,21 @@ export default function AssessmentAttemptPage() {
         ws.onmessage = (event) => {
           try {
             const msg = JSON.parse(event.data);
-            if (msg.type === 'ack' && msg.data?.remaining_seconds != null) {
+            if (msg.type === 'connected' && msg.data?.remaining_seconds != null) {
+              setRemaining(msg.data.remaining_seconds);
+            } else if (msg.type === 'ack' && msg.data?.remaining_seconds != null) {
               setRemaining(msg.data.remaining_seconds);
             } else if (msg.event === 'quiz_end') {
               toast.error('The supervisor has concluded this assessment. Submitting now...');
               void submitAssessmentRef.current('forced_by_admin');
             }
-          } catch (e) {
+          } catch {
             // Ignore parse errors
           }
         };
 
         ws.onerror = (err) => {
-          console.warn('Assessment WebSocket connection notice:', err);
+          console.warn('Assessment WebSocket notice:', err);
         };
       } catch (err) {
         console.warn('Failed to establish assessment WebSocket', err);
@@ -182,7 +188,7 @@ export default function AssessmentAttemptPage() {
     };
   }, [params.quizId, alreadyDone, result, connectAssessmentSocket]);
 
-  // Heartbeat every 15 seconds to resync authoritative timer
+  // Heartbeat every 15 seconds to sync authoritative server timer
   React.useEffect(() => {
     if (alreadyDone || result) return;
 
@@ -195,7 +201,7 @@ export default function AssessmentAttemptPage() {
     return () => clearInterval(interval);
   }, [alreadyDone, result]);
 
-  // Keep refs synchronized to prevent stale closures in timers
+  // Keep refs synchronized
   React.useEffect(() => {
     currentIndexRef.current = currentIndex;
   }, [currentIndex]);
@@ -248,10 +254,14 @@ export default function AssessmentAttemptPage() {
       // Initialize authoritative timing state from server
       if (qData.timingState) {
         const ts = qData.timingState;
-        const sOffset = new Date(ts.server_time).getTime() - Date.now();
-        const sStart = new Date(ts.started_at).getTime();
+        const sOffset = ts.server_time ? new Date(ts.server_time * 1000).getTime() - Date.now() : 0;
+        const sStart = ts.started_at ? new Date(ts.started_at * 1000).getTime() : Date.now();
         setServerTimeOffset(sOffset);
         setServerStartTime(sStart);
+
+        if (ts.remaining_seconds != null) {
+          setRemaining(Math.max(0, Math.floor(ts.remaining_seconds)));
+        }
 
         if (ts.is_completed) {
           void submitAssessmentRef.current('timed_completed');
@@ -274,17 +284,17 @@ export default function AssessmentAttemptPage() {
     answeringDuration,
   ]);
 
-  // Initialize overall quiz countdown timer
+  // Initialize overall countdown timer from configured duration
   React.useEffect(() => {
     if (quiz && remaining === 0) {
-      const initialRemaining = Math.max(0, limitSeconds - elapsed);
+      const initialRemaining = Math.max(0, totalExamSeconds - elapsed);
       setRemaining(initialRemaining);
     }
-  }, [quiz, limitSeconds, elapsed, remaining]);
+  }, [quiz, totalExamSeconds, elapsed, remaining]);
 
-  // Overall countdown timer decrement (only for non-timed mode after student started)
+  // 1-second countdown clock for overall assessment
   React.useEffect(() => {
-    if (enableTimedQuestions || !started || alreadyDone || result || !quiz) return;
+    if (!started || alreadyDone || result || !quiz) return;
 
     const timer = setInterval(() => {
       setElapsed((val) => val + 1);
@@ -299,7 +309,7 @@ export default function AssessmentAttemptPage() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [enableTimedQuestions, started, alreadyDone, result, quiz]);
+  }, [started, alreadyDone, result, quiz]);
 
   // Fetch question reveal data from backend securely
   const fetchQuestionReveal = React.useCallback(
@@ -318,7 +328,7 @@ export default function AssessmentAttemptPage() {
     [params.quizId]
   );
 
-  // Authoritative High-Precision Wall-Clock Timing Engine for Timed Questions
+  // High-Precision Timing Engine for Timed Questions (internal question phases)
   React.useEffect(() => {
     if (
       !enableTimedQuestions ||
@@ -336,10 +346,10 @@ export default function AssessmentAttemptPage() {
 
       const nowServerMs = Date.now() + serverTimeOffset;
       const totalElapsedSec = Math.max(0, (nowServerMs - serverStartTime) / 1000);
-      const totalExamSeconds = questions.length * questionDuration;
+      const totalTimedSeconds = questions.length * questionDuration;
 
-      // Check if total assessment time has elapsed
-      if (totalElapsedSec >= totalExamSeconds) {
+      // Check if all timed questions have elapsed
+      if (totalElapsedSec >= totalTimedSeconds) {
         void submitAssessmentRef.current('timed_completed');
         return;
       }
@@ -446,6 +456,15 @@ export default function AssessmentAttemptPage() {
     return () => clearInterval(interval);
   }, [started, alreadyDone, result, currentQuestion, saveCurrentDraft]);
 
+  // Wire Anti-Cheat Subsystem
+  const { warningCount, isFullscreen, requestFullscreen, exitFullscreen } = useAntiCheat({
+    enabled: started && !submitting && !alreadyDone && !result && Boolean(quiz),
+    quizId: params.quizId,
+    fullscreenRequired,
+    maxWarnings,
+    onAutoSubmit: (reason) => submitAssessment(reason),
+  });
+
   // Submission handler
   const submitAssessment = React.useCallback(
     async (reason = 'manual') => {
@@ -484,6 +503,7 @@ export default function AssessmentAttemptPage() {
         } finally {
           setSubmitting(false);
           setConfirmOpen(false);
+          exitFullscreen();
         }
         return;
       }
@@ -553,20 +573,12 @@ export default function AssessmentAttemptPage() {
       } finally {
         setSubmitting(false);
         setConfirmOpen(false);
+        exitFullscreen();
       }
     },
-    [isOnline, params.quizId, answers, elapsed, user?.id, user?.institutionId, questions]
+    [isOnline, params.quizId, answers, elapsed, user?.id, user?.institutionId, questions, exitFullscreen]
   );
   submitAssessmentRef.current = submitAssessment;
-
-  // Wire Anti-Cheat Subsystem
-  const { warningCount, requestFullscreen } = useAntiCheat({
-    enabled: started && !submitting && !alreadyDone && !result && Boolean(quiz),
-    quizId: params.quizId,
-    fullscreenRequired,
-    maxWarnings,
-    onAutoSubmit: (reason) => submitAssessment(reason),
-  });
 
   // Relay Camera Snapshots over WebSocket
   const handleCameraSnapshot = React.useCallback(
@@ -586,7 +598,7 @@ export default function AssessmentAttemptPage() {
     []
   );
 
-  // Start Assessment handler
+  // Start Assessment handler: Enters Fullscreen & registers attempt
   const handleStartAssessment = async () => {
     if (fullscreenRequired) {
       void requestFullscreen();
@@ -595,10 +607,14 @@ export default function AssessmentAttemptPage() {
       const res = await api.post(`/student/assessments/${params.quizId}/start`);
       if (res.data?.timingState) {
         const ts = res.data.timingState;
-        const sOffset = new Date(ts.server_time).getTime() - Date.now();
-        const sStart = new Date(ts.started_at).getTime();
+        const sOffset = ts.server_time ? new Date(ts.server_time * 1000).getTime() - Date.now() : 0;
+        const sStart = ts.started_at ? new Date(ts.started_at * 1000).getTime() : Date.now();
         setServerTimeOffset(sOffset);
         setServerStartTime(sStart);
+
+        if (ts.remaining_seconds != null) {
+          setRemaining(Math.max(0, Math.floor(ts.remaining_seconds)));
+        }
 
         if (enableTimedQuestions) {
           const idx = Math.min(Math.max(0, questions.length - 1), ts.current_question_index || 0);
@@ -609,31 +625,20 @@ export default function AssessmentAttemptPage() {
         }
       } else {
         setServerStartTime(Date.now());
+        setRemaining(totalExamSeconds);
       }
     } catch (err) {
       console.warn('Could not register attempt start on server', err);
       setServerStartTime(Date.now());
+      setRemaining(totalExamSeconds);
     }
     setStarted(true);
     questionStartRef.current = Date.now();
   };
 
-  // Navigation actions
-  const handleJump = (index: number) => {
-    if (enableTimedQuestions && !allowPrevious && index < currentIndex) {
-      toast.error('Previous questions are locked in timed mode');
-      return;
-    }
-    void saveCurrentDraft();
-    setCurrentIndex(index);
-    questionStartRef.current = Date.now();
-  };
-
+  // Navigation actions (only active in manual navigation mode)
   const handleNext = () => {
-    if (questionPhase === 'revealing') {
-      toast.info('Please wait for reveal phase to conclude');
-      return;
-    }
+    if (questionPhase === 'revealing') return;
     void saveCurrentDraft();
     if (currentIndex < questions.length - 1) {
       setCurrentIndex((prev) => prev + 1);
@@ -695,29 +700,6 @@ export default function AssessmentAttemptPage() {
     answersRef.current = { ...answersRef.current, [qid]: value };
   };
 
-  // Build question palette metadata
-  const palette: PaletteItem[] = React.useMemo(() => {
-    return questions.map((q, idx) => {
-      const hasAns =
-        answers[q.id] !== undefined &&
-        answers[q.id] !== null &&
-        (Array.isArray(answers[q.id]) ? answers[q.id].length > 0 : String(answers[q.id]).trim().length > 0);
-
-      let status: 'answered' | 'marked_for_review' | 'not_visited' = 'not_visited';
-      if (reviews[q.id]) {
-        status = 'marked_for_review';
-      } else if (hasAns) {
-        status = 'answered';
-      }
-
-      return {
-        id: q.id,
-        index: idx,
-        status,
-      };
-    });
-  }, [questions, answers, reviews]);
-
   const effectiveQuery = React.useMemo(() => {
     if (offlineQuiz) {
       return {
@@ -734,225 +716,223 @@ export default function AssessmentAttemptPage() {
   // Reveal info for current question
   const currentReveal = currentQuestion ? revealedAnswers[currentQuestion.id] : null;
 
+  const answeredCount = Object.keys(answers).filter(
+    (k) => answers[k] !== undefined && answers[k] !== null && String(answers[k]).trim() !== ''
+  ).length;
+
   return (
     <AsyncSection query={effectiveQuery} skeleton="detail">
-      {(data) => (
-        <div className="mx-auto max-w-6xl p-3 sm:p-6 pb-24 sm:pb-28">
-          <PageHeader
-            breadcrumbs={[
-              { label: 'Assessments', href: '/student/assessments' },
-              { label: data.title },
-            ]}
-            title={data.title}
-            description={`${questions.length} question(s) · ${data.durationMinutes} minutes`}
-            actions={
-              !alreadyDone && !result && started ? (
-                <div className="flex items-center gap-2 sm:gap-3">
-                  {warningCount > 0 && (
-                    <Badge tone="danger">
-                      <ShieldAlert className="size-3" aria-hidden />
-                      Warning {warningCount}/{maxWarnings}
-                    </Badge>
-                  )}
-                  <Badge tone={remaining < 300 ? 'danger' : 'indigo'}>
-                    <Clock className="size-3" aria-hidden />
-                    {duration(remaining)} left
-                  </Badge>
-
-                  {/* Compact Mobile Camera Header Preview */}
-                  {cameraRequired && (
-                    <div className="sm:hidden">
-                      <CameraFeed
-                        required={cameraRequired}
-                        captureSnapshots={true}
-                        quizId={params.quizId}
-                        compact={true}
-                        onSnapshot={handleCameraSnapshot}
-                        className="h-10 w-14 rounded-md border border-line"
-                      />
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <Button asChild variant="secondary" size="sm">
-                  <Link href="/student/assessments">
-                    <ArrowLeft className="size-3.5" aria-hidden />
-                    All assessments
-                  </Link>
-                </Button>
-              )
-            }
-          />
-
-          {/* Results Summary if already completed */}
-          {(alreadyDone || result) && (
-            <Card className="mt-4">
-              <CardHeader>
-                <div>
-                  <CardTitle>Assessment Result</CardTitle>
-                  <CardSubtitle>
+      {(data) => {
+        // SCENARIO 1: Completed Assessment Screen
+        if (alreadyDone || result) {
+          return (
+            <div className="min-h-screen w-full flex items-center justify-center bg-background p-4">
+              <Card className="max-w-md w-full shadow-2xl border border-border">
+                <CardHeader className="text-center pb-2">
+                  <div className="mx-auto size-14 rounded-full bg-emerald-500/10 flex items-center justify-center mb-3 text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 className="size-8" />
+                  </div>
+                  <CardTitle className="text-xl sm:text-2xl font-bold">Assessment Completed</CardTitle>
+                  <CardSubtitle className="mt-1">
                     {result?.offline
                       ? 'Completed offline — Queued in outbox for automatic sync'
                       : `Scored ${result?.score ?? data.attempt?.score ?? '—'} / ${result?.maxScore ?? data.maxScore ?? 100}`}
                   </CardSubtitle>
-                </div>
-                <div className="text-right">
-                  <p className="tnum text-2xl font-bold">
-                    {result?.percentage ?? data.attempt?.percentage ?? '—'}%
+                </CardHeader>
+                <CardBody className="space-y-6 pt-2 text-center">
+                  <div className="flex flex-col items-center justify-center">
+                    <p className="text-4xl font-extrabold tracking-tight text-foreground font-mono">
+                      {result?.percentage ?? data.attempt?.percentage ?? '—'}%
+                    </p>
+                    <span
+                      className={cn(
+                        'inline-block mt-2 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider',
+                        result?.passed ?? data.attempt?.passed
+                          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30'
+                          : 'bg-rose-500/15 text-rose-700 dark:text-rose-400 border border-rose-500/30'
+                      )}
+                    >
+                      {result?.passed ?? data.attempt?.passed ? 'PASSED' : 'NOT PASSED'}
+                    </span>
+                  </div>
+
+                  <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                    Your assessment has been officially recorded. Answers and anti-cheat telemetry are secured on the LMS server.
                   </p>
-                  <span
-                    className={cn(
-                      'inline-block mt-1 text-xs font-semibold px-2 py-0.5 rounded',
-                      result?.passed ?? data.attempt?.passed
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-red-100 text-red-800'
-                    )}
-                  >
-                    {result?.passed ?? data.attempt?.passed ? 'PASSED' : 'NOT PASSED'}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardBody>
-                <p className="text-sm text-ink-2">
-                  Your assessment has been officially recorded. Answers and performance metrics are secured on the LMS server.
-                </p>
-              </CardBody>
-            </Card>
-          )}
 
-          {/* Pre-Flight Start Screen */}
-          {!alreadyDone && !result && !started && (
-            <Card className="mt-6 max-w-xl mx-auto shadow-md">
-              <CardHeader className="text-center pb-2">
-                <CardTitle className="text-xl">Ready to Begin Assessment?</CardTitle>
-                <CardSubtitle>
-                  Please review examination guidelines and check your camera feed before proceeding.
-                </CardSubtitle>
-              </CardHeader>
-              <CardBody className="space-y-4 pt-4">
-                {cameraRequired && (
-                  <div className="flex flex-col items-center">
-                    <span className="text-xs font-semibold text-ink-2 mb-2">Camera Feed Verification:</span>
-                    <CameraFeed
-                      required={cameraRequired}
-                      captureSnapshots={false}
-                      quizId={params.quizId}
-                    />
-                  </div>
-                )}
+                  <Button asChild variant="primary" size="lg" className="w-full">
+                    <Link href="/student/assessments">
+                      <ArrowLeft className="size-4 mr-2" />
+                      Return to Assessments
+                    </Link>
+                  </Button>
+                </CardBody>
+              </Card>
+            </div>
+          );
+        }
 
-                <div className="rounded-lg bg-card-hover p-3 text-xs space-y-2 border border-line">
-                  <div className="flex items-center gap-2 font-medium text-ink-1">
-                    <Maximize2 className="size-4 text-primary shrink-0" />
-                    <span>Fullscreen mode will be engaged automatically.</span>
+        // SCENARIO 2: Pre-Flight Start Screen (Clean, Focused Entry)
+        if (!started) {
+          return (
+            <div className="min-h-screen w-full flex items-center justify-center bg-background p-4 sm:p-6">
+              <Card className="max-w-xl w-full shadow-2xl border border-border">
+                <CardHeader className="text-center pb-2">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold uppercase tracking-wider mb-2 self-center">
+                    Official Examination
                   </div>
-                  {enableTimedQuestions && (
-                    <div className="flex items-center gap-2 font-medium text-amber-600 dark:text-amber-400">
-                      <Clock className="size-4 shrink-0" />
-                      <span>
-                        Timed Questions: {answeringDuration}s to answer each question, followed by {answerRevealDuration}s answer reveal.
+                  <CardTitle className="text-2xl font-bold tracking-tight text-foreground">{data.title}</CardTitle>
+                  <CardSubtitle className="mt-1 text-muted-foreground">
+                    {questions.length} Questions · {data.durationMinutes} Minutes Allotted · {data.maxScore ?? 100} Marks
+                  </CardSubtitle>
+                </CardHeader>
+                <CardBody className="space-y-5 pt-4">
+                  {/* Camera verification before entering exam */}
+                  {cameraRequired && (
+                    <div className="flex flex-col items-center">
+                      <span className="text-xs font-semibold text-muted-foreground mb-2">
+                        Webcam &amp; Proctoring Verification
                       </span>
+                      <CameraFeed
+                        required={cameraRequired}
+                        captureSnapshots={false}
+                        quizId={params.quizId}
+                      />
                     </div>
                   )}
-                  <div className="flex items-center gap-2 text-ink-3">
-                    <AlertTriangle className="size-4 text-amber-500 shrink-0" />
-                    <span>Exiting fullscreen, tab-switching, or turning off camera triggers proctoring warnings.</span>
-                  </div>
-                </div>
 
-                <Button
-                  variant="primary"
-                  size="lg"
-                  className="w-full text-base font-semibold mt-2"
-                  onClick={handleStartAssessment}
-                >
-                  <Maximize2 className="mr-2 size-4" />
-                  Start Assessment &amp; Enter Fullscreen
-                </Button>
-              </CardBody>
-            </Card>
-          )}
-
-          {/* Active Proctored Sequential Exam Engine */}
-          {!alreadyDone && !result && started && currentQuestion && (
-            <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-4">
-              {/* Main Question Display (3 Columns) */}
-              <div className="space-y-4 lg:col-span-3">
-                <Card className="relative overflow-hidden">
-                  {/* Timed Question Header Bar */}
-                  {enableTimedQuestions && (
-                    <div className="border-b border-line bg-app px-4 py-2 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            'size-2.5 rounded-full animate-pulse',
-                            questionPhase === 'answering' ? 'bg-primary' : 'bg-amber-500'
-                          )}
-                        />
-                        <span className="text-xs font-bold uppercase tracking-wider text-ink-1">
-                          {questionPhase === 'answering' ? 'Answering Phase' : 'Answer Reveal Phase'}
+                  {/* Examination Rules */}
+                  <div className="rounded-xl bg-muted/40 p-4 text-xs space-y-2.5 border border-border/80">
+                    <div className="flex items-center gap-2.5 font-medium text-foreground">
+                      <Maximize2 className="size-4 text-primary shrink-0" />
+                      <span>Dedicated fullscreen mode is required during the examination.</span>
+                    </div>
+                    {enableTimedQuestions && (
+                      <div className="flex items-center gap-2.5 font-medium text-amber-600 dark:text-amber-400">
+                        <Clock className="size-4 shrink-0" />
+                        <span>
+                          Timed Questions: {answeringDuration}s answering period, {answerRevealDuration}s answer reveal.
                         </span>
                       </div>
-                      <Badge tone={questionPhase === 'answering' ? 'indigo' : 'amber'}>
-                        <Clock className="size-3 mr-1" />
-                        {questionTimeLeft}s remaining
+                    )}
+                    <div className="flex items-center gap-2.5 text-muted-foreground">
+                      <AlertTriangle className="size-4 text-amber-500 shrink-0" />
+                      <span>
+                        Exiting fullscreen or switching browser tabs will record proctoring warnings.
+                      </span>
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    className="w-full text-base font-semibold py-6 shadow-md"
+                    onClick={handleStartAssessment}
+                  >
+                    <Maximize2 className="mr-2 size-5" />
+                    Start Assessment &amp; Enter Fullscreen
+                  </Button>
+                </CardBody>
+              </Card>
+            </div>
+          );
+        }
+
+        // SCENARIO 3: Active Distraction-Free Fullscreen Examination Interface
+        return (
+          <div className="h-[100dvh] w-full flex flex-col bg-background text-foreground overflow-hidden select-none">
+            {/* Top Examination Bar: Exactly 3 items (Question Indicator, Remaining Timer, Submit Action) */}
+            <header className="h-14 border-b border-border bg-card/95 px-4 sm:px-6 flex items-center justify-between shrink-0 z-30">
+              {/* Left: Question Indicator */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm sm:text-base font-bold text-foreground">
+                  Question {currentIndex + 1} of {questions.length}
+                </span>
+                {warningCount > 0 && (
+                  <Badge tone="danger" className="ml-2 hidden sm:inline-flex">
+                    <ShieldAlert className="size-3 mr-1" />
+                    {warningCount}/{maxWarnings} Warnings
+                  </Badge>
+                )}
+              </div>
+
+              {/* Center: Assessment Remaining Time */}
+              <div className="flex items-center gap-2">
+                <div
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1 rounded-lg text-sm sm:text-base font-mono font-bold tracking-wider',
+                    remaining < 180
+                      ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 animate-pulse'
+                      : 'bg-muted/60 text-foreground'
+                  )}
+                  title="Assessment Remaining Time"
+                >
+                  <Clock className="size-4 text-muted-foreground shrink-0" />
+                  <span>{formatExamTimer(remaining)}</span>
+                </div>
+              </div>
+
+              {/* Right: Submit Assessment Action */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => setConfirmOpen(true)}
+                  disabled={submitting}
+                  className="font-semibold text-xs sm:text-sm px-3 sm:px-4 h-9 shadow-xs"
+                >
+                  <Send className="size-3.5 mr-1.5" />
+                  <span>Submit Assessment</span>
+                </Button>
+              </div>
+            </header>
+
+            {/* Micro-Progress Bar for Timed Questions (Subtle and non-intrusive) */}
+            {enableTimedQuestions && (
+              <div className="h-1 w-full bg-muted overflow-hidden shrink-0">
+                <div
+                  className={cn(
+                    'h-full transition-all duration-300 ease-linear',
+                    questionPhase === 'answering' ? 'bg-primary' : 'bg-amber-500'
+                  )}
+                  style={{
+                    width: `${((questionTimeLeft) / (questionPhase === 'answering' ? answeringDuration : answerRevealDuration)) * 100}%`,
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Main Question Area: Occupies most of the screen */}
+            <main className="flex-1 min-h-0 overflow-y-auto px-4 py-6 sm:p-8 scroll-thin">
+              <div className="max-w-4xl mx-auto w-full pb-24">
+                {currentQuestion && (
+                  <div className="space-y-6">
+                    {/* Question Header & Marks */}
+                    <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
+                      <h1 className="text-lg sm:text-2xl font-semibold leading-relaxed text-foreground">
+                        {currentQuestion.text}
+                      </h1>
+                      <Badge tone="neutral" className="shrink-0 text-xs font-semibold">
+                        +{currentQuestion.marks} Mark{currentQuestion.marks === 1 ? '' : 's'}
                       </Badge>
                     </div>
-                  )}
 
-                  <CardHeader className="flex justify-between items-center border-b border-line pb-3">
-                    <div>
-                      <span className="text-xs font-semibold uppercase tracking-wider text-ink-3">
-                        Question {currentIndex + 1} of {questions.length}
-                      </span>
-                      <h2 className="text-base sm:text-lg font-semibold text-ink-1 mt-0.5">
-                        {currentQuestion.text}
-                      </h2>
-                    </div>
-                    <Badge tone="indigo">
-                      {currentQuestion.marks} Mark{currentQuestion.marks === 1 ? '' : 's'}
-                    </Badge>
-                  </CardHeader>
-
-                  <CardBody className="pt-4">
-                    {/* Progress Bar (Overall or Per-Question) */}
-                    <div className="w-full bg-line rounded-full h-1.5 mb-5 overflow-hidden">
-                      {enableTimedQuestions ? (
-                        <div
-                          className={cn(
-                            'h-1.5 rounded-full transition-all duration-1000 ease-linear',
-                            questionPhase === 'answering' ? 'bg-primary' : 'bg-amber-500'
-                          )}
-                          style={{
-                            width: `${(questionTimeLeft / (questionPhase === 'answering' ? answeringDuration : answerRevealDuration)) * 100}%`,
-                          }}
-                        />
-                      ) : (
-                        <div
-                          className="bg-primary h-1.5 rounded-full transition-all duration-300"
-                          style={{
-                            width: `${((currentIndex + 1) / Math.max(1, questions.length)) * 100}%`,
-                          }}
-                        />
-                      )}
-                    </div>
-
-                    {/* Question Image if present */}
+                    {/* Question Image (if present) */}
                     {currentQuestion.image && (
-                      <div className="mb-4 overflow-hidden rounded-md border border-line">
+                      <div className="overflow-hidden rounded-xl border border-border bg-card p-2">
                         <img
                           src={currentQuestion.image}
-                          alt="Question Illustration"
-                          className="max-h-64 object-contain mx-auto"
+                          alt="Question Graphic"
+                          className="max-h-72 object-contain mx-auto"
                         />
                       </div>
                     )}
 
-                    {/* Question Answer Inputs */}
-                    <div className="space-y-2.5 mb-6">
+                    {/* Answer Options Area */}
+                    <div className="space-y-3 pt-2">
                       {currentQuestion.question_type === 'numerical' ? (
-                        <div className="max-w-xs">
-                          <label className="block text-xs font-medium text-ink-2 mb-1.5">
+                        <div className="max-w-sm space-y-2">
+                          <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                             Enter Numerical Answer:
                           </label>
                           <input
@@ -961,8 +941,8 @@ export default function AssessmentAttemptPage() {
                             value={answers[currentQuestion.id] || ''}
                             onChange={(e) => handleNumericalChange(e.target.value)}
                             onBlur={() => void saveCurrentDraft()}
-                            placeholder="Type numerical answer..."
-                            className="w-full rounded-md border border-line bg-app px-3.5 py-2 text-sm focus:border-primary focus:outline-hidden disabled:opacity-60"
+                            placeholder="Type your numerical answer..."
+                            className="w-full rounded-xl border border-border bg-card px-4 py-3 text-base focus:border-primary focus:ring-1 focus:ring-primary focus:outline-hidden disabled:opacity-60"
                           />
                         </div>
                       ) : (
@@ -973,18 +953,18 @@ export default function AssessmentAttemptPage() {
                               answers[currentQuestion.id].includes(option.id)
                             : answers[currentQuestion.id] === option.id;
 
-                          // Reveal phase highlight styles
+                          // Subtle styling during Answer Reveal phase
                           let revealStyle = '';
                           if (questionPhase === 'revealing' && currentReveal) {
                             const isCorrectOpt = currentReveal.correct_options.includes(option.id);
                             if (isCorrectOpt) {
                               revealStyle =
-                                'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 ring-2 ring-emerald-500 font-bold';
+                                'border-emerald-500 bg-emerald-500/10 text-emerald-950 dark:text-emerald-200 ring-2 ring-emerald-500 font-semibold';
                             } else if (isSelected && !isCorrectOpt) {
                               revealStyle =
-                                'border-red-500 bg-red-50 dark:bg-red-950/40 text-red-900 dark:text-red-200 ring-1 ring-red-400 font-medium';
+                                'border-rose-500 bg-rose-500/10 text-rose-950 dark:text-rose-200 ring-2 ring-rose-500 font-medium';
                             } else {
-                              revealStyle = 'opacity-50 border-line';
+                              revealStyle = 'opacity-40 border-border';
                             }
                           }
 
@@ -992,11 +972,13 @@ export default function AssessmentAttemptPage() {
                             <label
                               key={option.id}
                               className={cn(
-                                'flex items-start gap-3 rounded-lg border p-3.5 transition-all text-sm',
-                                questionPhase === 'revealing' ? 'cursor-default' : 'cursor-pointer hover:bg-card-hover',
+                                'flex items-start gap-4 rounded-xl border p-4 transition-all text-sm sm:text-base select-none',
+                                questionPhase === 'revealing'
+                                  ? 'cursor-default'
+                                  : 'cursor-pointer hover:border-primary/60 hover:bg-muted/40',
                                 isSelected && questionPhase !== 'revealing'
-                                  ? 'border-primary bg-primary/10 text-primary-foreground font-medium'
-                                  : 'border-line',
+                                  ? 'border-primary bg-primary/10 text-primary font-medium ring-1 ring-primary'
+                                  : 'border-border/80 bg-card',
                                 revealStyle
                               )}
                             >
@@ -1007,22 +989,23 @@ export default function AssessmentAttemptPage() {
                                 checked={isSelected}
                                 disabled={questionPhase === 'revealing' || submitting}
                                 onChange={() => handleOptionSelect(option.id)}
-                                className="mt-0.5 size-4 shrink-0 accent-primary"
+                                className="mt-1 size-4 shrink-0 accent-primary"
                               />
-                              <span className="leading-relaxed">
-                                <b className="mr-1">{option.id}.</b> {option.text}
-                              </span>
+                              <div className="flex-1 leading-relaxed">
+                                <span className="font-bold mr-1.5">{option.id}.</span>
+                                {option.text}
+                              </div>
 
-                              {/* Reveal badge */}
+                              {/* Subtle indicator during answer reveal */}
                               {questionPhase === 'revealing' && currentReveal && (
-                                <span className="ml-auto text-xs font-semibold shrink-0">
+                                <span className="ml-2 shrink-0 text-xs font-semibold">
                                   {currentReveal.correct_options.includes(option.id) ? (
                                     <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                                      <CheckCircle2 className="size-3.5" /> Correct
+                                      <CheckCircle2 className="size-4" /> Correct
                                     </span>
                                   ) : isSelected ? (
-                                    <span className="text-red-600 dark:text-red-400 flex items-center gap-1">
-                                      <XCircle className="size-3.5" /> Selected
+                                    <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                                      <XCircle className="size-4" /> Selected
                                     </span>
                                   ) : null}
                                 </span>
@@ -1033,193 +1016,148 @@ export default function AssessmentAttemptPage() {
                       )}
                     </div>
 
-                    {/* Reveal Explanation if in reveal phase */}
+                    {/* Explanation Box during reveal phase */}
                     {questionPhase === 'revealing' && currentReveal?.explanation && (
-                      <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 p-3 text-xs text-emerald-800 dark:text-emerald-200 mb-4 animate-in fade-in">
+                      <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-4 text-xs sm:text-sm text-emerald-900 dark:text-emerald-200 animate-in fade-in">
                         <span className="font-bold block mb-1">Explanation:</span>
                         {currentReveal.explanation}
                       </div>
                     )}
+
+                    {/* Standard navigation buttons (only when manual navigation is configured) */}
+                    {(!enableTimedQuestions || !autoAdvance || allowPrevious) && (
+                      <div className="flex items-center justify-between pt-6 border-t border-border mt-8">
+                        <Button
+                          variant="secondary"
+                          size="md"
+                          onClick={handlePrev}
+                          disabled={currentIndex === 0 || (enableTimedQuestions && !allowPrevious) || questionPhase === 'revealing'}
+                          className="h-10 px-4"
+                        >
+                          <ChevronLeft className="size-4 mr-1" />
+                          <span>Previous</span>
+                        </Button>
+
+                        <div className="flex items-center gap-2">
+                          {!enableTimedQuestions && (
+                            <>
+                              <Button
+                                variant="secondary"
+                                size="md"
+                                onClick={() => void saveCurrentDraft()}
+                                className="h-10 px-3 hidden sm:inline-flex"
+                              >
+                                <Save className="size-4 mr-1.5" />
+                                <span>Save Draft</span>
+                              </Button>
+                              <Button
+                                variant={reviews[currentQuestion.id] ? 'primary' : 'secondary'}
+                                size="md"
+                                onClick={toggleMarkReview}
+                                className={cn(
+                                  'h-10 px-3',
+                                  reviews[currentQuestion.id] && 'bg-amber-500 hover:bg-amber-600 text-white'
+                                )}
+                              >
+                                <Bookmark className="size-4 sm:mr-1.5" />
+                                <span className="hidden sm:inline">
+                                  {reviews[currentQuestion.id] ? 'Marked for Review' : 'Mark Review'}
+                                </span>
+                              </Button>
+                            </>
+                          )}
+
+                          {currentIndex < questions.length - 1 ? (
+                            <Button
+                              variant="primary"
+                              size="md"
+                              onClick={handleNext}
+                              disabled={questionPhase === 'revealing'}
+                              className="h-10 px-5 font-semibold"
+                            >
+                              <span>Next</span>
+                              <ChevronRight className="size-4 ml-1" />
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="danger"
+                              size="md"
+                              onClick={() => setConfirmOpen(true)}
+                              disabled={submitting}
+                              className="h-10 px-5 font-semibold"
+                            >
+                              <Send className="size-4 mr-1.5" />
+                              <span>Submit Assessment</span>
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </main>
+
+            {/* Floating Live Camera Thumbnail in Bottom-Right Corner */}
+            {cameraRequired && (
+              <div className="fixed bottom-4 right-4 z-40 rounded-xl overflow-hidden shadow-2xl border border-border/80 bg-black/95">
+                <CameraFeed
+                  required={cameraRequired}
+                  captureSnapshots={true}
+                  quizId={params.quizId}
+                  compact={true}
+                  onSnapshot={handleCameraSnapshot}
+                  className="w-28 sm:w-36 aspect-video border-0 rounded-xl"
+                />
+              </div>
+            )}
+
+            {/* Fullscreen Violation Alert Modal (Re-entry required) */}
+            {fullscreenRequired && !isFullscreen && started && !submitting && !result && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4">
+                <Card className="max-w-md w-full border border-rose-500/50 shadow-2xl text-center bg-card">
+                  <CardHeader className="pb-2">
+                    <div className="mx-auto size-14 rounded-full bg-rose-500/10 flex items-center justify-center text-rose-500 mb-2">
+                      <AlertTriangle className="size-8" />
+                    </div>
+                    <CardTitle className="text-xl font-bold text-foreground">
+                      Anti-Cheat Alert: Fullscreen Mode Required
+                    </CardTitle>
+                    <CardSubtitle className="text-rose-600 dark:text-rose-400 font-semibold mt-1">
+                      Warning {warningCount} of {maxWarnings} recorded
+                    </CardSubtitle>
+                  </CardHeader>
+                  <CardBody className="space-y-4 pt-2">
+                    <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                      You have exited fullscreen examination mode. All assessment activities must be conducted in full screen.
+                    </p>
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      className="w-full font-semibold py-5"
+                      onClick={() => void requestFullscreen()}
+                    >
+                      <Maximize2 className="size-4 mr-2" />
+                      Return to Fullscreen
+                    </Button>
                   </CardBody>
                 </Card>
               </div>
+            )}
 
-              {/* Sidebar: Desktop Camera Feed & Question Palette (1 Column) */}
-              <div className="space-y-4">
-                {cameraRequired && (
-                  <div className="hidden sm:block">
-                    <CameraFeed
-                      required={cameraRequired}
-                      captureSnapshots={true}
-                      quizId={params.quizId}
-                      onSnapshot={handleCameraSnapshot}
-                    />
-                  </div>
-                )}
-                <QuestionPalette
-                  palette={palette}
-                  currentIndex={currentIndex}
-                  onJump={handleJump}
-                  disabled={submitting || (enableTimedQuestions && questionPhase === 'revealing')}
-                  allowPrevious={allowPrevious}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Sticky Bottom Navigation Bar for Mobile and Desktop */}
-          {!alreadyDone && !result && started && currentQuestion && (
-            <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-line bg-card/95 backdrop-blur-md px-3 py-2.5 sm:px-6 sm:py-3.5 shadow-xl">
-              <div className="mx-auto flex max-w-6xl items-center justify-between gap-2">
-                {enableTimedQuestions && autoAdvance && !allowPrevious ? (
-                  /* Streamlined Status Bar when Automatic Advancement is Active and Previous Navigation is Disabled */
-                  <div className="flex w-full items-center justify-between gap-2 sm:gap-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs sm:text-sm font-bold text-ink-1">
-                        Question {currentIndex + 1} of {questions.length}
-                      </span>
-                      <span className="hidden sm:inline-flex items-center gap-1 rounded bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-ink-3">
-                        <Lock className="size-3" /> Navigation Locked
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold shadow-xs',
-                          questionPhase === 'answering'
-                            ? 'bg-primary/10 text-primary border border-primary/20'
-                            : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            'size-2 rounded-full',
-                            questionPhase === 'answering' ? 'bg-primary animate-pulse' : 'bg-amber-500'
-                          )}
-                        />
-                        <span>
-                          {questionPhase === 'answering'
-                            ? `Answering: ${questionTimeLeft}s`
-                            : `Reveal: ${questionTimeLeft}s`}
-                        </span>
-                      </span>
-
-                      <span className="text-[11px] text-ink-3 font-medium hidden md:inline-block">
-                        {questionPhase === 'answering'
-                          ? 'Locks on timeout'
-                          : currentIndex < questions.length - 1
-                          ? 'Advancing to next...'
-                          : 'Final submission...'}
-                      </span>
-                    </div>
-                  </div>
-                ) : (
-                  /* Interactive Navigation Controls for standard / manual quiz modes */
-                  <>
-                    {/* Left: Previous Button & Actions */}
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={handlePrev}
-                        disabled={currentIndex === 0 || (enableTimedQuestions && !allowPrevious) || questionPhase === 'revealing'}
-                        className="text-xs sm:text-sm px-2.5 sm:px-3 h-8 sm:h-9"
-                        title={enableTimedQuestions && !allowPrevious ? 'Previous navigation locked' : undefined}
-                      >
-                        <ChevronLeft className="size-4 mr-0.5 sm:mr-1" />
-                        <span>Prev</span>
-                      </Button>
-
-                      {/* Non-timed Save & Review */}
-                      {!enableTimedQuestions && (
-                        <>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => void saveCurrentDraft()}
-                            className="text-xs px-2 sm:px-3 h-8 sm:h-9"
-                          >
-                            <Save className="size-3.5 sm:mr-1" />
-                            <span className="hidden sm:inline">Save</span>
-                          </Button>
-                          <Button
-                            variant={reviews[currentQuestion.id] ? 'primary' : 'secondary'}
-                            size="sm"
-                            onClick={toggleMarkReview}
-                            className={cn(
-                              'text-xs px-2 sm:px-3 h-8 sm:h-9',
-                              reviews[currentQuestion.id] && 'bg-amber-500 hover:bg-amber-600 text-white'
-                            )}
-                          >
-                            <Bookmark className="size-3.5 sm:mr-1" />
-                            <span className="hidden sm:inline">
-                              {reviews[currentQuestion.id] ? 'Marked' : 'Review'}
-                            </span>
-                          </Button>
-                        </>
-                      )}
-                    </div>
-
-                    {/* Center: Timed Question Status Badge */}
-                    {enableTimedQuestions && (
-                      <div className="flex items-center gap-1.5 text-xs font-semibold">
-                        <span
-                          className={cn(
-                            'size-2 rounded-full',
-                            questionPhase === 'answering' ? 'bg-primary animate-pulse' : 'bg-amber-500'
-                          )}
-                        />
-                        <span className="text-ink-1">
-                          {questionPhase === 'answering' ? `${questionTimeLeft}s` : `Reveal (${questionTimeLeft}s)`}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Right: Next or Submit Button */}
-                    <div className="flex items-center gap-2">
-                      {currentIndex < questions.length - 1 ? (
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onClick={handleNext}
-                          disabled={questionPhase === 'revealing'}
-                          className="text-xs sm:text-sm px-3 sm:px-4 h-8 sm:h-9"
-                        >
-                          <span>Next</span>
-                          <ChevronRight className="size-4 ml-0.5 sm:ml-1" />
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          onClick={() => setConfirmOpen(true)}
-                          disabled={submitting}
-                          className="text-xs sm:text-sm px-3 sm:px-4 h-8 sm:h-9 font-semibold"
-                        >
-                          <Send className="size-3.5 mr-1" />
-                          <span>Submit</span>
-                        </Button>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Confirmation Modal */}
-          <ConfirmDialog
-            open={confirmOpen}
-            onOpenChange={setConfirmOpen}
-            title="Submit this assessment?"
-            description={`You have answered ${Object.keys(answers).length} of ${questions.length} question(s). Assessments can only be submitted once.`}
-            confirmLabel="Confirm & Submit"
-            onConfirm={() => submitAssessment('manual')}
-            pending={submitting}
-          />
-        </div>
-      )}
+            {/* Submit Confirmation Dialog */}
+            <ConfirmDialog
+              open={confirmOpen}
+              onOpenChange={setConfirmOpen}
+              title="Submit Assessment?"
+              description={`You have answered ${answeredCount} of ${questions.length} question(s). Once submitted, you cannot change your responses.`}
+              confirmLabel="Confirm & Submit"
+              onConfirm={() => submitAssessment('manual')}
+              pending={submitting}
+            />
+          </div>
+        );
+      }}
     </AsyncSection>
   );
 }

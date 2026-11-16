@@ -38,7 +38,9 @@ class AssessmentHub:
         name: str,
         roll_number: str,
         total_questions: int = 0,
-        duration_minutes: int = 60,
+        duration_minutes: int = 30,
+        remaining_seconds: int | None = None,
+        deadline: float | None = None,
     ) -> None:
         async with self._lock:
             if quiz_id not in self.student_sockets:
@@ -51,7 +53,9 @@ class AssessmentHub:
             self.student_sockets[quiz_id][user_id] = ws
 
             now = time.time()
-            deadline = now + (duration_minutes * 60)
+            eff_deadline = deadline if deadline is not None else (now + (duration_minutes * 60))
+            eff_remaining = remaining_seconds if remaining_seconds is not None else max(0, int(eff_deadline - now))
+
             if user_id not in self.student_states[quiz_id]:
                 self.student_states[quiz_id][user_id] = {
                     "session_id": user_id,
@@ -59,8 +63,8 @@ class AssessmentHub:
                     "roll_number": roll_number,
                     "current_question": 0,
                     "total_questions": total_questions,
-                    "remaining_seconds": duration_minutes * 60,
-                    "deadline": deadline,
+                    "remaining_seconds": eff_remaining,
+                    "deadline": eff_deadline,
                     "warnings": 0,
                     "camera_on": False,
                     "fullscreen": False,
@@ -71,6 +75,9 @@ class AssessmentHub:
             else:
                 self.student_states[quiz_id][user_id]["online"] = True
                 self.student_states[quiz_id][user_id]["last_seen"] = now
+                if remaining_seconds is not None:
+                    self.student_states[quiz_id][user_id]["remaining_seconds"] = eff_remaining
+                    self.student_states[quiz_id][user_id]["deadline"] = eff_deadline
 
         log.info("student_ws_registered", extra={"quiz_id": quiz_id, "user_id": user_id, "student_name": name})
         await self.broadcast_to_trainers(

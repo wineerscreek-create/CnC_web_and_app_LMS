@@ -101,15 +101,21 @@ apps\api\tests\test_quiz_proctoring_integration.py::test_timed_question_settings
 **Command:** `pytest apps/api/tests/test_quiz_lms_integration.py -v`
 ```
 ============================= test session starts =============================
-collected 5 items
+platform win32 -- Python 3.11.9, pytest-8.3.4, pluggy-1.7.0
+rootdir: C:\Users\SANDEEP\Desktop\skillsharp\apps\api
+configfile: pytest.ini
+plugins: anyio-4.16.0, asyncio-0.25.2
+asyncio: mode=Mode.AUTO, asyncio_default_fixture_loop_scope=session
+collected 6 items
 
-apps\api\tests\test_quiz_lms_integration.py::test_trainer_quiz_batch_assignment_rbac PASSED [ 20%]
-apps\api\tests\test_quiz_lms_integration.py::test_student_quiz_attempt_submission_e2e PASSED [ 40%]
-apps\api\tests\test_quiz_lms_integration.py::test_eedi_analytics_trainer_isolation PASSED [ 60%]
-apps\api\tests\test_quiz_lms_integration.py::test_proctoring_warning_threshold_auto_submit PASSED [ 80%]
-apps\api\tests\test_quiz_lms_integration.py::test_csv_question_bank_upload_validation PASSED [100%]
+apps\api\tests\test_quiz_lms_integration.py::test_quiz_system_standalone_csv_service_compatibility PASSED [ 16%]
+apps\api\tests\test_quiz_lms_integration.py::test_trainer_quiz_batch_assignment_rbac PASSED [ 33%]
+apps\api\tests\test_quiz_lms_integration.py::test_unauthorized_batch_assignment_rejection PASSED [ 50%]
+apps\api\tests\test_quiz_lms_integration.py::test_student_batch_access_control PASSED [ 66%]
+apps\api\tests\test_quiz_lms_integration.py::test_csv_question_bank_upload_validation PASSED [ 83%]
+apps\api\tests\test_quiz_lms_integration.py::test_exact_configured_duration_and_timer_persistence PASSED [100%]
 
-============================= 5 passed in 19.75s ==============================
+============================= 6 passed in 12.27s ==============================
 ```
 
 ---
@@ -123,11 +129,14 @@ apps\api\tests\test_quiz_lms_integration.py::test_csv_question_bank_upload_valid
 | **3** | Assign Batches | Trainer assigns assessment across authorized batches. | Rows inserted into `quiz_batch_assignments`. | **PASS** |
 | **4** | Unauthorized Assignment | Trainer attempts to assign unauthorized batch. | Rejected with `403 ScopeForbidden`. | **PASS** |
 | **5** | Student Access | Student accesses `/student/assessments`. | Sees only assessments assigned to their batch. | **PASS** |
-| **6** | Launch Token Bridge | Student clicks "Start Assessment". | Issues signed JWT SSO launch token. | **PASS** |
-| **7** | Camera Initialization | CameraFeed requests webcam access (640x480). | Video streams locally; canvas encodes JPEG 0.62. | **PASS** |
-| **8** | Sequential Rendering | Engine presents Question 1 only. | One question visible; palette shows status. | **PASS** |
-| **9** | Answer Selection | Candidate selects option; clicks Next. | Answer saved immediately on navigation. | **PASS** |
-| **10** | Periodic Autosave | Candidate pauses on question for 5 seconds. | Autosave POST sent to `/draft-answer`. | **PASS** |
+| **6** | Launch Token Bridge | Student clicks "Start Assessment". | Issues signed JWT SSO launch token with `durationMinutes`. | **PASS** |
+| **7** | Fullscreen Immersion | Student enters examination mode. | All LMS shell elements removed; dedicated fullscreen active. | **PASS** |
+| **8** | Timer Precision | 5-minute quiz starts at 05:00 (300s). | Screen displays 05:00; not 60:00 or reset on reload. | **PASS** |
+| **9** | Floating Camera | Live webcam preview in bottom-right corner. | Compact thumbnail (w-28 / w-36); 5s snapshots streamed. | **PASS** |
+| **10** | Question Maximization | Question palette and bottom counter removed. | Fullscreen 100dvh question area; maximum screen space. | **PASS** |
+| **11** | Answer Reveal & Lock | 8s answering, 2s reveal in timed mode. | Options lock; correct highlighted green, incorrect red. | **PASS** |
+| **12** | Fullscreen Exit Detection | Candidate exits fullscreen or minimizes. | Detected via `fullscreenchange`; warning overlay shown. | **PASS** |
+| **13** | Submit Assessment | Candidate confirms submission. | Answers saved; media tracks stopped; results displayed. | **PASS** |
 | **11** | Snapshot Relay | Frame captured every 5 seconds. | Emitted to WebSocket; received by supervisor. | **PASS** |
 | **12** | Supervisor Monitor | Trainer views `/assessments/[id]/monitor`. | Live table and camera cards update in real time. | **PASS** |
 | **13** | Anti-Cheat Violation | Candidate switches tab or exits fullscreen. | Warning recorded; alert displayed on monitor. | **PASS** |

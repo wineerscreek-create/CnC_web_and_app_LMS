@@ -11,42 +11,75 @@
 
 ## 1. Executive Summary
 
-This report documents the architectural diagnosis, root-cause fixes, security safeguards, and implementation details for the **Trainer-Controlled Automatic Question Advancement, Authoritative Server Timing, and Mobile Assessment Flow** in Winners Creek LMS.
+This report documents the architectural diagnosis, root-cause fixes, security safeguards, and implementation details for the **Trainer-Controlled Automatic Question Advancement, Authoritative Server Timing, and Distraction-Free Fullscreen Examination Engine** in Winners Creek LMS.
 
-The system enables high-intensity, automated assessment workflows where trainers define per-question time limits (e.g., 10 seconds total: 8 seconds answering + 2 seconds instant feedback), with server-authoritative timestamps, automated option locking, server-authoritative correct answer reveal, seamless automatic question skipping, and a clutter-free mobile UI without misleading navigation buttons.
+The system addresses two critical challenges:
+1. **The 5-Minute vs 1-Hour Timer Discrepancy**: Diagnosed and permanently fixed the data flow pipeline where a trainer-configured 5-minute assessment previously displayed approximately 1 hour (3600 seconds) on the student screen due to missing token claims and fallback defaults in the real-time proctoring hub.
+2. **Distraction-Free Fullscreen Examination Interface**: Completely eliminated all extraneous LMS elements (header, sidebar, chatbot, breadcrumbs, question palette) to deliver a professional, focused online examination environment with an authoritative top countdown timer, floating camera thumbnail, and automated question advancement.
 
 ---
 
-## 2. Root Cause Analysis & Data Flow Diagnosis
+## 2. Root Cause Analysis: The 1-Hour Timer Discrepancy
 
-### 2.1 The Broken Data Flow
-During production testing, trainer portal settings were not taking effect in actual student assessments:
+### 2.1 Complete Timer Data Flow Audit
+We traced the complete timer data flow from trainer configuration to student screen rendering:
+
 ```
-Trainer UI Setting (auto_advance, question_duration, etc.)
+[1. Trainer Configuration]
+  Trainer inputs durationMinutes = 5
   │
   ▼
-[DB: quizzes.settings] (Saved correctly in PostgreSQL JSONB)
+[2. Database Persistence]
+  quizzes.duration_minutes = 5 (Saved correctly in PostgreSQL integer column)
   │
   ▼
-[API: GET /student/assessments/{quiz_id}]  <-- ROOT CAUSE BREAKPOINT
-  │  (router: student.py lines 3173-3187 returned dict omitting 'settings'!)
+[3. Student Assessment API: GET /student/assessments/{quiz_id}]
+  Returns quiz_data["durationMinutes"] = 5
+  │
   ▼
-[Student UI: quiz?.settings === undefined]
-  │  (enableTimedQuestions evaluated to false in all student sessions)
+[4. Student Launch API: POST /student/assessments/{quiz_id}/launch-token]  <-- ROOT CAUSE BREAKPOINT #1
+  Generates JWT SSO launch token for real-time proctoring session.
+  BUG: "durationMinutes" was OMITTED from token_claims dict!
+  │
   ▼
-[Student Session forced to untimed manual mode]
+[5. Real-Time WebSocket Hub: /api/v1/assessments/{quiz_id}/ws]  <-- ROOT CAUSE BREAKPOINT #2
+  claims = jwt.decode(launch_token)
+  duration_minutes = int(claims.get("durationMinutes", 60))
+  Because "durationMinutes" was missing in claims, it defaulted to 60 minutes (3600 seconds)!
+  │
+  ▼
+[6. In-Memory Session Registration: assessment_hub.register_student]
+  deadline = time.time() + (60 * 60)
+  remaining_seconds = 3600
+  │
+  ▼
+[7. Student Screen WebSocket Handshake & Heartbeat: page.tsx]
+  ws.onmessage receives msg.data.remaining_seconds = 3600
+  setRemaining(3600) was invoked every 15s, overwriting the 5-minute timer with ~1 hour!
 ```
 
-### 2.2 Fix Implementation
-1. **Endpoint Restoration (`apps/api/app/routers/student.py`)**:
-   Updated `assessment_detail` (`GET /student/assessments/{quiz_id}`) to return:
-   - `"settings": quiz_data.get("settings") or {}`
-   - `"timingState": timing_info.get("timingState")`
-   - `"answers": timing_info.get("answers")`
-   - `"hasStarted": timing_info.get("hasStarted", False)`
-   - `"status": timing_info.get("status")`
-2. **Attempt Initialization Route (`POST /student/assessments/{quiz_id}/start`)**:
-   Calls `QuizRepository.start_or_resume_quiz_attempt` to establish the authoritative start timestamp (`created_at = NOW()`) and returns the initial `timingState`.
+### 2.2 Comprehensive Root-Cause Resolution
+To eliminate all possible timer distortion and prevent client manipulation:
+
+1. **Launch Token Claims (`apps/api/app/routers/student.py`)**:
+   Explicitly embedded `"durationMinutes": int(quiz_data.get("durationMinutes") or 30)` into `token_claims`.
+2. **Database-Authoritative WebSocket Endpoint (`apps/api/app/routers/assessment_realtime.py`)**:
+   Directly queries the PostgreSQL `quizzes` table to resolve `duration_minutes`.
+   Queries `quiz_attempts` to find the student's authoritative `created_at` timestamp.
+   Computes exact remaining time:
+   $$\text{remaining\_seconds} = \max(0, (\text{duration\_minutes} \times 60) - (\text{now} - \text{started\_at}))$$
+   Passes this exact remaining time and absolute deadline to `register_student`.
+3. **In-Memory Hub Persistence (`apps/api/app/websocket/assessment_ws.py`)**:
+   Updated `register_student` to accept `remaining_seconds` and `deadline`. If a student reconnects or refreshes, their actual remaining time is preserved rather than resetting.
+4. **Timing State Machine (`apps/api/app/repositories/assignment_quiz_repo.py`)**:
+   In `get_student_attempt_timing`:
+   $$\text{overall\_duration\_seconds} = \text{quiz.duration\_minutes} \times 60$$
+   $$\text{remaining\_seconds} = \max(0, \text{overall\_duration\_seconds} - \text{elapsed\_seconds})$$
+   Guarantees that a 5-minute quiz starts at `05:00` (300s), a 30-minute quiz at `30:00` (1800s), and a 60-minute quiz at `60:00` (3600s).
+5. **Frontend Client Timer (`apps/web/src/app/student/assessments/[quizId]/page.tsx`)**:
+   Reads `totalExamSeconds = (quiz.durationMinutes || 30) * 60`.
+   Formats timer via `formatExamTimer(seconds)` into clean `mm:ss` format (e.g., `04:58`, `29:55`).
+   Listens to WebSocket connected and heartbeat messages, keeping the local timer synchronized with the server.
 
 ---
 

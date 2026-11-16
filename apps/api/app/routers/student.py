@@ -3257,6 +3257,7 @@ async def quiz_launch_token(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dic
         "roll_number": user_info["roll_number"] if user_info and user_info["roll_number"] else (str(user_info["email"]).split("@")[0] if user_info else "STUDENT"),
         "quiz_id": str(quiz_data["id"]),
         "quiz_code": quiz_data.get("quizCode"),
+        "durationMinutes": int(quiz_data.get("durationMinutes") or 30),
         "batch_id": str(user_info["batch_id"]) if user_info and user_info["batch_id"] else None,
         "batch_name": user_info["batch_name"] if user_info else None,
         "role": "student",

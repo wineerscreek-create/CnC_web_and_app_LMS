@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 import jwt
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status, Query
@@ -241,7 +243,44 @@ async def assessment_websocket_endpoint(
     roll_number = claims.get("roll_number", "—")
 
     if role == "student":
-        duration_minutes = int(claims.get("durationMinutes", 60))
+        duration_minutes = int(claims.get("durationMinutes", 0))
+        remaining_seconds = None
+        deadline_ts = None
+        try:
+            q_uuid_parsed = _safe_uuid(quiz_id)
+            u_uuid_parsed = _safe_uuid(user_id)
+            if q_uuid_parsed and u_uuid_parsed:
+                async with get_pg_connection() as conn:
+                    q_row = await conn.fetchrow(
+                        "SELECT duration_minutes FROM quizzes WHERE id = $1",
+                        q_uuid_parsed,
+                    )
+                    if q_row and q_row["duration_minutes"]:
+                        duration_minutes = int(q_row["duration_minutes"])
+
+                    att_row = await conn.fetchrow(
+                        "SELECT created_at, status FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                        q_uuid_parsed,
+                        u_uuid_parsed,
+                    )
+                    if att_row and att_row["created_at"]:
+                        st_at = att_row["created_at"]
+                        if st_at.tzinfo is None:
+                            st_at = st_at.replace(tzinfo=timezone.utc)
+                        else:
+                            st_at = st_at.astimezone(timezone.utc)
+                        el = max(0.0, (datetime.now(timezone.utc) - st_at).total_seconds())
+                        remaining_seconds = max(0, int((duration_minutes * 60) - el))
+                        deadline_ts = time.time() + remaining_seconds
+        except Exception as e:
+            log.warning("error_resolving_quiz_timing", extra={"error": str(e)})
+
+        if duration_minutes <= 0:
+            duration_minutes = 30
+        if remaining_seconds is None:
+            remaining_seconds = duration_minutes * 60
+            deadline_ts = time.time() + remaining_seconds
+
         await assessment_hub.register_student(
             quiz_id=quiz_id,
             user_id=user_id,
@@ -249,8 +288,19 @@ async def assessment_websocket_endpoint(
             name=name,
             roll_number=roll_number,
             duration_minutes=duration_minutes,
+            remaining_seconds=remaining_seconds,
+            deadline=deadline_ts,
         )
-        await websocket.send_text(json.dumps({"type": "connected", "role": "student"}))
+        await websocket.send_text(
+            json.dumps({
+                "type": "connected",
+                "role": "student",
+                "data": {
+                    "remaining_seconds": remaining_seconds,
+                    "duration_minutes": duration_minutes,
+                },
+            })
+        )
 
         try:
             while websocket.application_state == WebSocketState.CONNECTED:

@@ -706,7 +706,9 @@ class QuizRepository:
             auto_advance = bool(settings_dict.get("auto_advance", True))
             allow_prev = bool(settings_dict.get("allow_previous", False))
             allow_mod = bool(settings_dict.get("allow_modification", False))
-            total_duration_seconds = (total_questions * q_dur) if is_timed else (int(quiz["duration_minutes"] or 30) * 60)
+            overall_duration_minutes = int(quiz["duration_minutes"] or 30)
+            overall_duration_seconds = overall_duration_minutes * 60
+            total_duration_seconds = overall_duration_seconds
 
             if not attempt:
                 return {
@@ -719,6 +721,9 @@ class QuizRepository:
                         "server_time": int(now_utc.timestamp()),
                         "elapsed_seconds": 0,
                         "total_duration_seconds": total_duration_seconds,
+                        "remaining_seconds": total_duration_seconds,
+                        "overall_remaining_seconds": total_duration_seconds,
+                        "duration_minutes": overall_duration_minutes,
                         "total_questions": total_questions,
                         "current_question_index": 0,
                         "phase": "answering",
@@ -740,11 +745,13 @@ class QuizRepository:
             answers = _parse_json_dict(attempt["answers"]) if attempt["answers"] else {}
 
             elapsed_seconds = max(0.0, (now_utc - started_at).total_seconds())
+            overall_remaining_seconds = max(0.0, overall_duration_seconds - elapsed_seconds)
+            timed_exam_limit_seconds = (total_questions * q_dur) if is_timed else overall_duration_seconds
 
             is_expired = False
-            if is_timed and elapsed_seconds >= total_duration_seconds:
+            if elapsed_seconds >= overall_duration_seconds:
                 is_expired = True
-            elif not is_timed and elapsed_seconds >= total_duration_seconds:
+            elif is_timed and elapsed_seconds >= timed_exam_limit_seconds:
                 is_expired = True
 
             if status != "completed" and is_expired:
@@ -763,8 +770,8 @@ class QuizRepository:
             else:
                 current_q_idx = 0
                 phase = "answering"
-                phase_time_left = max(0.0, total_duration_seconds - elapsed_seconds)
-                question_time_left = phase_time_left
+                phase_time_left = overall_remaining_seconds
+                question_time_left = overall_remaining_seconds
 
             return {
                 "hasStarted": True,
@@ -777,6 +784,9 @@ class QuizRepository:
                     "server_time": int(now_utc.timestamp()),
                     "elapsed_seconds": round(elapsed_seconds, 2),
                     "total_duration_seconds": total_duration_seconds,
+                    "remaining_seconds": round(overall_remaining_seconds, 1),
+                    "overall_remaining_seconds": round(overall_remaining_seconds, 1),
+                    "duration_minutes": overall_duration_minutes,
                     "total_questions": total_questions,
                     "current_question_index": current_q_idx,
                     "phase": phase,
