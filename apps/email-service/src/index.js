@@ -1,6 +1,8 @@
 /**
  * index.js — Express HTTP server for the CnC LMS email microservice.
  *
+ * Delivery backend: Mailjet Send API v3.1 (replaces Nodemailer/SMTP).
+ *
  * Endpoints:
  *   GET  /health                → 200 { status: "ok" }
  *   POST /send-verification     → send OTP verification email
@@ -10,7 +12,7 @@
  * Authentication: every POST must carry  Authorization: Bearer <EMAIL_SERVICE_API_KEY>
  *
  * FastAPI calls this service from apps/api/app/services/email_service.py
- * when EMAIL_PROVIDER=nodemailer.
+ * when EMAIL_PROVIDER=nodemailer (kept for backward compatibility with existing config).
  */
 "use strict";
 
@@ -18,8 +20,8 @@
 require("dotenv").config();
 
 const express = require("express");
-const { sendVerificationEmail, sendPasswordResetEmail } = require("./mailer");
-const { transporter } = require("./transporter");
+const { sendVerificationEmail, sendPasswordResetEmail, maskEmail } = require("./mailer");
+const { sendViaMailjet } = require("./mailjet");
 
 const app = express();
 app.use(express.json());
@@ -32,7 +34,6 @@ const API_KEY = process.env.EMAIL_SERVICE_API_KEY || "";
 // ---------------------------------------------------------------------------
 function requireApiKey(req, res, next) {
   if (!API_KEY) {
-    // No key configured → reject everything for safety
     console.error(
       JSON.stringify({
         level: "error",
@@ -67,7 +68,7 @@ function requireApiKey(req, res, next) {
 
 /** Health check — no auth required (Render uses this for uptime checks) */
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "cnc-email-service" });
+  res.json({ status: "ok", service: "cnc-email-service", provider: "mailjet" });
 });
 
 /**
@@ -88,12 +89,12 @@ app.post("/send-verification", requireApiKey, async (req, res) => {
     const info = await sendVerificationEmail({ to, name, otp, link, otpTtlMinutes });
     return res.json({ ok: true, messageId: info?.messageId });
   } catch (err) {
-    // Never expose SMTP credentials in the error response
+    // Never expose credentials or OTP values in the error response
     console.error(
       JSON.stringify({
         level: "error",
         event: "send_verification_failed",
-        to,
+        to: maskEmail(to),
         message: err.message,
       })
     );
@@ -123,7 +124,7 @@ app.post("/send-password-reset", requireApiKey, async (req, res) => {
       JSON.stringify({
         level: "error",
         event: "send_password_reset_failed",
-        to,
+        to: maskEmail(to),
         message: err.message,
       })
     );
@@ -134,7 +135,7 @@ app.post("/send-password-reset", requireApiKey, async (req, res) => {
 /**
  * POST /send  (generic relay)
  * Body: { to, subject, text, html? }
- * Used as a fallback when FastAPI builds its own template and just needs SMTP relay.
+ * Used as a fallback when FastAPI builds its own template and just needs delivery.
  */
 app.post("/send", requireApiKey, async (req, res) => {
   const { to, subject, text, html } = req.body || {};
@@ -147,16 +148,24 @@ app.post("/send", requireApiKey, async (req, res) => {
   }
 
   try {
-    const { transporter: tp } = require("./transporter");
-    const FROM = process.env.EMAIL_FROM || "CnC LMS <no-reply@example.com>";
-    const info = await tp.sendMail({ from: FROM, to, subject, text, html });
+    const info = await sendViaMailjet({ to, subject, text, html });
     console.log(
-      JSON.stringify({ level: "info", event: "email_sent_generic", to, subject, messageId: info.messageId })
+      JSON.stringify({
+        level: "info",
+        event: "email_sent_generic",
+        to: maskEmail(to),
+        messageId: info.messageId,
+      })
     );
     return res.json({ ok: true, messageId: info.messageId });
   } catch (err) {
     console.error(
-      JSON.stringify({ level: "error", event: "send_generic_failed", to, message: err.message })
+      JSON.stringify({
+        level: "error",
+        event: "send_generic_failed",
+        to: maskEmail(to),
+        message: err.message,
+      })
     );
     return res.status(502).json({ error: "Failed to send email" });
   }
@@ -171,27 +180,31 @@ app.listen(PORT, () => {
       level: "info",
       event: "email_service_started",
       port: PORT,
+      provider: "mailjet",
       dryRun: process.env.EMAIL_DRY_RUN === "true",
     })
   );
 
-  // Warm up: verify SMTP connectivity at startup (non-fatal if it fails)
+  // Validate Mailjet credentials at startup (non-fatal warning only)
   if (process.env.EMAIL_DRY_RUN !== "true") {
-    transporter.verify((err) => {
-      if (err) {
-        console.warn(
-          JSON.stringify({
-            level: "warn",
-            event: "smtp_verify_failed",
-            hint: "Check SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD env vars",
-          })
-        );
-      } else {
-        console.log(JSON.stringify({ level: "info", event: "smtp_ready" }));
-      }
-    });
+    if (!process.env.MAILJET_API_KEY || !process.env.MAILJET_SECRET_KEY) {
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          event: "mailjet_credentials_missing",
+          hint: "Set MAILJET_API_KEY and MAILJET_SECRET_KEY environment variables",
+        })
+      );
+    } else {
+      console.log(
+        JSON.stringify({
+          level: "info",
+          event: "mailjet_credentials_present",
+          from: maskEmail(process.env.EMAIL_FROM || ""),
+        })
+      );
+    }
   }
 });
 
 module.exports = app; // exported for tests
-

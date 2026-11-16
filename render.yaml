@@ -76,7 +76,7 @@ services:
       # Inline worker fallback if dedicated worker service is omitted
       - key: QUEUE_EAGER
         value: "false"
-      # Node.js Nodemailer email microservice
+      # Node.js Mailjet email microservice
       - key: EMAIL_SERVICE_URL
         fromService:
           type: web
@@ -153,7 +153,7 @@ services:
         sync: false
 
   # ============================================================================
-  # 4. Node.js Nodemailer Email Microservice
+  # 4. Node.js Mailjet Email Microservice
   # ============================================================================
   - type: web
     name: cnc-email-service
@@ -167,18 +167,16 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20.18.0
-      - key: SMTP_HOST
-        value: smtp.gmail.com
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_SECURE
-        value: "false"
-      - key: SMTP_USER
+      - key: NODE_ENV
+        value: production
+      - key: MAILJET_API_KEY
         sync: false
-      - key: SMTP_PASSWORD
+      - key: MAILJET_SECRET_KEY
         sync: false
       - key: EMAIL_FROM
         sync: false
+      - key: EMAIL_FROM_NAME
+        value: Winners Creek
       - key: EMAIL_SERVICE_API_KEY
         sync: false
       - key: EMAIL_DRY_RUN
