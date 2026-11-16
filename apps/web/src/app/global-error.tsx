@@ -11,6 +11,30 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const [isOffline, setIsOffline] = React.useState(
+    typeof navigator !== 'undefined' ? !navigator.onLine : false,
+  );
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const updateOnline = () => setIsOffline(!navigator.onLine);
+    window.addEventListener('online', updateOnline);
+    window.addEventListener('offline', updateOnline);
+    return () => {
+      window.removeEventListener('online', updateOnline);
+      window.removeEventListener('offline', updateOnline);
+    };
+  }, []);
+
+  const msg = error?.message?.toLowerCase() || '';
+  const isNetworkFailure =
+    isOffline ||
+    msg.includes('failed to fetch') ||
+    msg.includes('network') ||
+    msg.includes('offline') ||
+    msg.includes('load failed') ||
+    msg.includes('rsc');
+
   React.useEffect(() => {
     // Log error to client console or monitoring service without leaking sensitive data
     console.error('Root Layout Global Error:', error.message);
@@ -55,8 +79,8 @@ export default function GlobalError({
               width: '48px',
               height: '48px',
               borderRadius: '50%',
-              backgroundColor: 'rgba(239, 68, 68, 0.12)',
-              color: '#EF4444',
+              backgroundColor: isNetworkFailure ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.12)',
+              color: isNetworkFailure ? '#D97706' : '#EF4444',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -74,7 +98,7 @@ export default function GlobalError({
               margin: '0 0 8px 0',
             }}
           >
-            Application Error
+            {isNetworkFailure ? 'You are currently offline' : 'Application Error'}
           </h1>
 
           <p
@@ -85,8 +109,9 @@ export default function GlobalError({
               margin: '0 0 24px 0',
             }}
           >
-            An unexpected error occurred while loading the application shell. You can attempt to reload the
-            interface or return to the main portal.
+            {isNetworkFailure
+              ? "This view hasn't been cached for offline use yet. Reconnect to the internet to load this content, or access your downloaded materials."
+              : 'An unexpected error occurred while loading the application shell. You can attempt to reload the interface or return to the main portal.'}
           </p>
 
           {error.digest && (

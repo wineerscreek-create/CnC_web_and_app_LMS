@@ -7,6 +7,7 @@ import * as React from 'react';
 import { Input } from '@/components/ui/input';
 import { TooltipProvider } from '@/components/ui/misc';
 import { CNCLogo } from '@/components/ui/CNCLogo';
+import { getRoleHome } from '@/lib/roleRoutes';
 import { cn } from '@/lib/cn';
 import { useAppDispatch, useAppSelector } from '@/store';
 import { toggleSidebar } from '@/store/uiSlice';
@@ -14,6 +15,8 @@ import { toggleSidebar } from '@/store/uiSlice';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { NotificationMenu, ProfileMenu } from './menus';
 import { Sidebar } from './sidebar';
+import { GlobalAssistant } from './GlobalAssistant';
+import { SyncStatusPill } from './SyncStatusPill';
 
 /**
  * SkillSharp Portal Shell — Ivory / Sage / Gold Theme
@@ -54,7 +57,7 @@ export function PortalShell({
 
             {/* Mobile branding */}
             <div className="flex items-center lg:hidden">
-              <Link href={user.home || '/'} className="flex items-center" aria-label="SkillSharp home">
+              <Link href={getRoleHome(user)} className="flex items-center" aria-label="SkillSharp home">
                 <CNCLogo variant="compact" />
               </Link>
             </div>
@@ -85,6 +88,7 @@ export function PortalShell({
             </form>
 
             <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+              <SyncStatusPill />
               {headerSlot}
               <ThemeToggle />
               <NotificationMenu />
@@ -110,6 +114,7 @@ export function PortalShell({
             </div>
           </main>
         </div>
+        <GlobalAssistant user={user} />
       </div>
     </TooltipProvider>
   );

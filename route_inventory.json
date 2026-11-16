@@ -1,0 +1,1376 @@
+[
+  {
+    "route": "/activate",
+    "file": "(auth)/activate",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [],
+    "api": [
+      "post /auth/activate"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/forgot-password",
+    "file": "(auth)/forgot-password",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [],
+    "api": [
+      "post /auth/forgot-password"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/login",
+    "file": "(auth)/login",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/reset-password",
+    "file": "(auth)/reset-password",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [],
+    "api": [
+      "post /auth/reset-password"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/signup",
+    "file": "(auth)/signup",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [
+      "/home/institutions"
+    ],
+    "api": [
+      "post /auth/signup"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/verify-email",
+    "file": "(auth)/verify-email",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [],
+    "api": [
+      "post /auth/verify-email",
+      "post /auth/verify-email",
+      "post /auth/resend-otp"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "",
+    "file": "(public)",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [
+      "/home/overview",
+      "/home/stats",
+      "/home/courses",
+      "/home/trainers",
+      "/public/trainers",
+      "/home/continue-learning"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/about",
+    "file": "(public)/about",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/announcements",
+    "file": "(public)/announcements",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [
+      "/home/announcements"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/contact",
+    "file": "(public)/contact",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/courses",
+    "file": "(public)/courses",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [
+      "/home/courses"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/courses/[slug]",
+    "file": "(public)/courses/[slug]",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [
+      "`/home/courses/${params.slug}`"
+    ],
+    "api": [
+      "post `/student/courses/${data.id}/start-trial`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/ebooks",
+    "file": "(public)/ebooks",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [
+      "/ebooks"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/ebooks/[ebookId]",
+    "file": "(public)/ebooks/[ebookId]",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [
+      "`/ebooks/${ebookId}`"
+    ],
+    "api": [
+      "post `/ebooks/${ebookId}/reviews`",
+      "post `/ebooks/${ebookId}/reports`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/faq",
+    "file": "(public)/faq",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/privacy",
+    "file": "(public)/privacy",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/refund-policy",
+    "file": "(public)/refund-policy",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/terms",
+    "file": "(public)/terms",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/testimonials",
+    "file": "(public)/testimonials",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [
+      "/feedback/public/testimonials"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/trainers",
+    "file": "(public)/trainers",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "/home/trainers"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/trainers/[slug]",
+    "file": "(public)/trainers/[slug]",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/admin/audit-log",
+    "file": "admin/audit-log",
+    "role": "ADMIN",
+    "use_client": false,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/admin/batches/[batchId]",
+    "file": "admin/batches/[batchId]",
+    "role": "ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/admin/batches",
+      "/admin/users",
+      "/admin/trainers",
+      "/admin/training-modules",
+      "`/admin/batches/${params.batchId}/trainers`"
+    ],
+    "api": [
+      "post `/admin/batches/${params.batchId}/students`",
+      "post `/admin/batches/${params.batchId}/trainers`",
+      "delete `/admin/batches/${params.batchId}/trainers/${trainerUserId}`",
+      "patch `/admin/batches/${batch.id}`",
+      "patch `/admin/batches/${batch.id}/trainers/${assignment.trainerUserId}`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/admin/bulk-import",
+    "file": "admin/bulk-import",
+    "role": "ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/admin/import/jobs"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/admin/dashboard",
+    "file": "admin/dashboard",
+    "role": "ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/admin/dashboard"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/admin/departments",
+    "file": "admin/departments",
+    "role": "ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/admin/users",
+      "/admin/semesters",
+      "/admin/departments",
+      "/admin/batches"
+    ],
+    "api": [
+      "post /admin/departments",
+      "post /admin/batches"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/admin/departments/[departmentId]",
+    "file": "admin/departments/[departmentId]",
+    "role": "ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/admin/departments",
+      "/admin/semesters",
+      "/admin/batches",
+      "/admin/users"
+    ],
+    "api": [
+      "post /admin/semesters",
+      "patch `/admin/departments/${params.departmentId}`",
+      "delete `/admin/departments/${params.departmentId}`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/admin/games",
+    "file": "admin/games",
+    "role": "ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/admin/games"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/admin/payments",
+    "file": "admin/payments",
+    "role": "ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/admin/payments?pageSize=5000",
+      "/admin/payments/summary"
+    ],
+    "api": [
+      "post `/admin/payments/${paymentId}/verify`",
+      "post `/admin/payments/${rejectingPaymentId}/reject`",
+      "post `/admin/payments/${refundTarget.id}/refund`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/admin/reports",
+    "file": "admin/reports",
+    "role": "ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/admin/reports/catalogue",
+      "/admin/departments",
+      "/admin/reports"
+    ],
+    "api": [
+      "post /admin/reports"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/admin/system",
+    "file": "admin/system",
+    "role": "ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/admin/ai-usage",
+      "/admin/system-health"
+    ],
+    "api": [
+      "post /admin/recalculate-scores"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/admin/trainers",
+    "file": "admin/trainers",
+    "role": "ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/admin/departments",
+      "/admin/trainers",
+      "`/admin/trainers/${trainer?.id}/assignments`",
+      "/admin/batches"
+    ],
+    "api": [
+      "patch `/admin/trainers/${trainer.id}/access`",
+      "post `/admin/trainers/${trainer.id}/assignments`",
+      "post `/admin/trainers/${trainer.id}/reassign`",
+      "delete `/admin/batches/${batchId}/trainers/${trainer.id}`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/admin/users",
+    "file": "admin/users",
+    "role": "ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/admin/departments",
+      "/admin/users"
+    ],
+    "api": [
+      "post /admin/users",
+      "patch `/admin/users/${user.id}/role`",
+      "post `/admin/users/${deactivating.id}/deactivate`",
+      "post `/admin/users/${user.id}/reactivate`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/hod/assessments",
+    "file": "hod/assessments",
+    "role": "HOD",
+    "use_client": true,
+    "use_api": [
+      "/hod/assessments"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/hod/attendance",
+    "file": "hod/attendance",
+    "role": "HOD",
+    "use_client": true,
+    "use_api": [
+      "/hod/attendance"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/hod/audit-logs",
+    "file": "hod/audit-logs",
+    "role": "HOD",
+    "use_client": false,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/hod/dashboard",
+    "file": "hod/dashboard",
+    "role": "HOD",
+    "use_client": true,
+    "use_api": [
+      "/hod/dashboard"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/hod/enrollment",
+    "file": "hod/enrollment",
+    "role": "HOD",
+    "use_client": true,
+    "use_api": [
+      "/hod/enrollments"
+    ],
+    "api": [
+      "patch `/hod/enrollments/${moving.id}/status`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/hod/games",
+    "file": "hod/games",
+    "role": "HOD",
+    "use_client": true,
+    "use_api": [
+      "/hod/games/analytics"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/hod/participants",
+    "file": "hod/participants",
+    "role": "HOD",
+    "use_client": true,
+    "use_api": [
+      "/hod/participants"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/hod/participants/[participantId]",
+    "file": "hod/participants/[participantId]",
+    "role": "HOD",
+    "use_client": true,
+    "use_api": [
+      "`/hod/participants/${params.participantId}`"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/hod/reports",
+    "file": "hod/reports",
+    "role": "HOD",
+    "use_client": true,
+    "use_api": [
+      "/hod/reports",
+      "/hod/participants"
+    ],
+    "api": [
+      "post /hod/reports"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/hod/trainers",
+    "file": "hod/trainers",
+    "role": "HOD",
+    "use_client": true,
+    "use_api": [
+      "/hod/trainers"
+    ],
+    "api": [
+      "post `/hod/trainers/${trainer.trainerUserId}/reassignment-request`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/live-classes/[id]/room",
+    "file": "live-classes/[id]/room",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/offline",
+    "file": "offline",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/operations-center",
+    "file": "operations-center",
+    "role": "OPS",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/operations-center/login",
+    "file": "operations-center/login",
+    "role": "OPS",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": [
+      "/api/v1/operations-center/auth/me",
+      "/api/v1/operations-center/auth/login",
+      "/api/v1/operations-center/auth/mfa/setup-initiate",
+      "/api/v1/operations-center/auth/mfa/setup-confirm"
+    ]
+  },
+  {
+    "route": "/parent",
+    "file": "parent",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/recruiter",
+    "file": "recruiter",
+    "role": "PUBLIC",
+    "use_client": false,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/student/achievements",
+    "file": "student/achievements",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "/student/achievements"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/student/assessments",
+    "file": "student/assessments",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "/student/assessments",
+      "/student/assignments"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/student/assessments/[quizId]",
+    "file": "student/assessments/[quizId]",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "`/student/assessments/${params.quizId}`"
+    ],
+    "api": [
+      "post `/student/assessments/${params.quizId}/attempts`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/student/chat",
+    "file": "student/chat",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [],
+    "api": [
+      "post `/student/chat/conversations/${conversationId}/read`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/student/dashboard",
+    "file": "student/dashboard",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "/student/dashboard"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/student/ebooks",
+    "file": "student/ebooks",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "/student/ebooks",
+      "/student/ebooks/my-uploads"
+    ],
+    "api": [
+      "post `/student/ebooks/${ebookId}/bookmark`",
+      "post `/student/ebooks/${ebookId}/request-publish`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/student/ebooks/[ebookId]",
+    "file": "student/ebooks/[ebookId]",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "`/student/ebooks/${ebookId}`"
+    ],
+    "api": [
+      "post `/student/ebooks/${ebookId}/progress`",
+      "post `/student/ebooks/${ebookId}/progress`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/student/games",
+    "file": "student/games",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "/student/games"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/student/games/[gameId]/play",
+    "file": "student/games/[gameId]/play",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/student/learning",
+    "file": "student/learning",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "/student/courses",
+      "/student/learning-path",
+      "/student/recommendations/courses"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/student/learning/[courseId]",
+    "file": "student/learning/[courseId]",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "`/student/courses/${courseId}`",
+      "`/student/courses/${courseId}/access`",
+      "`/student/courses/${courseId}/materials`",
+      "`/student/courses/${courseId}/recordings`",
+      "`/student/courses/${courseId}/sessions`",
+      "`/feedback/course/${courseId}/gate`"
+    ],
+    "api": [
+      "post `/student/courses/${courseId}/progress`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/student/live-classes",
+    "file": "student/live-classes",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/student/offline",
+    "file": "student/offline",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/student/payments",
+    "file": "student/payments",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "/student/payments",
+      "/student/trials",
+      "/student/semester-fee-status",
+      "/student/invoices"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/student/practice",
+    "file": "student/practice",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "/student/practice/modes"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/student/practice/presentation-coach",
+    "file": "student/practice/presentation-coach",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [],
+    "api": [
+      "post `/student/practice/sessions/${sessId}/complete`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/student/practice/session/[sessionId]",
+    "file": "student/practice/session/[sessionId]",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "`/student/practice/sessions/${params.sessionId}`"
+    ],
+    "api": [
+      "post `/student/practice/sessions/${params.sessionId}/complete`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/student/practice/session/[sessionId]/feedback",
+    "file": "student/practice/session/[sessionId]/feedback",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "`/student/practice/sessions/${params.sessionId}/feedback`",
+      "`/student/practice/sessions/${params.sessionId}/compare`"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/student/practice/[modeCode]",
+    "file": "student/practice/[modeCode]",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "/student/practice/modes"
+    ],
+    "api": [
+      "post /student/practice/sessions"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/student/profile",
+    "file": "student/profile",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "/student/profile"
+    ],
+    "api": [
+      "patch /student/profile",
+      "put /student/placement-goal"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/student/progress",
+    "file": "student/progress",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "/student/progress",
+      "/student/historical-reports"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/student/resume-analyzer",
+    "file": "student/resume-analyzer",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "/student/resume/analysis",
+      "/ai/roles"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/student/settings",
+    "file": "student/settings",
+    "role": "STUDENT",
+    "use_client": true,
+    "use_api": [
+      "/student/settings"
+    ],
+    "api": [
+      "patch /student/settings",
+      "post /auth/change-password",
+      "delete `/auth/sessions/${sessionId}`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/super-admin",
+    "file": "super-admin",
+    "role": "SUPER_ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/super-admin/dashboard"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/super-admin/colleges",
+    "file": "super-admin/colleges",
+    "role": "SUPER_ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/super-admin/colleges"
+    ],
+    "api": [
+      "post /super-admin/institutions/onboard",
+      "post `/super-admin/institutions/${selectedCollegeForDeletion.id}/delete`",
+      "get /super-admin/spocs",
+      "patch `/super-admin/colleges/${college.id}`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/super-admin/colleges/[institutionId]",
+    "file": "super-admin/colleges/[institutionId]",
+    "role": "SUPER_ADMIN",
+    "use_client": true,
+    "use_api": [
+      "`/super-admin/institutions/${institutionId}/control-center`"
+    ],
+    "api": [
+      "patch `/super-admin/institutions/${institutionId}/profile`",
+      "post `/super-admin/institutions/${institutionId}/departments`",
+      "post `/super-admin/institutions/${institutionId}/courses/${selectedCourseToAssociate}/associate`",
+      "delete `/super-admin/institutions/${institutionId}/courses/${courseId}/disassociate`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/super-admin/corporates",
+    "file": "super-admin/corporates",
+    "role": "SUPER_ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/super-admin/colleges"
+    ],
+    "api": [
+      "post /super-admin/institutions/onboard",
+      "post `/super-admin/institutions/${selectedCorpForDeletion.id}/delete`",
+      "patch `/super-admin/colleges/${corp.id}`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/super-admin/corporates/[institutionId]",
+    "file": "super-admin/corporates/[institutionId]",
+    "role": "SUPER_ADMIN",
+    "use_client": true,
+    "use_api": [
+      "`/super-admin/institutions/${institutionId}/control-center`"
+    ],
+    "api": [
+      "patch `/super-admin/institutions/${institutionId}/profile`",
+      "post `/super-admin/institutions/${institutionId}/departments`",
+      "post `/super-admin/institutions/${institutionId}/courses/${selectedCourseToAssociate}/associate`",
+      "delete `/super-admin/institutions/${institutionId}/courses/${courseId}/disassociate`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/super-admin/courses",
+    "file": "super-admin/courses",
+    "role": "SUPER_ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/super-admin/courses",
+      "/super-admin/colleges"
+    ],
+    "api": [
+      "post /super-admin/courses"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/super-admin/courses/[courseId]",
+    "file": "super-admin/courses/[courseId]",
+    "role": "SUPER_ADMIN",
+    "use_client": true,
+    "use_api": [
+      "`/super-admin/courses/${courseId}/control-center`",
+      "`/super-admin/courses/${courseId}/payment-config`",
+      "`/super-admin/courses/${courseId}/revenue`",
+      "`/super-admin/courses/${courseId}/transactions`",
+      "`/super-admin/courses/${courseId}/trainers`"
+    ],
+    "api": [
+      "put `/super-admin/courses/${courseId}/distribution`",
+      "delete `/super-admin/institutions/${instId}/courses/${courseId}/disassociate`",
+      "post `/super-admin/courses/${courseId}/${action}`",
+      "post `/super-admin/courses/${courseId}/delete-request`",
+      "put `/super-admin/courses/${courseId}/payment-config`",
+      "post `/super-admin/payments/${txId}/verify`",
+      "post `/super-admin/payments/${txId}/reject`",
+      "post `/super-admin/payments/${txId}/refund`",
+      "post `/super-admin/courses/${courseId}/trainers`",
+      "delete `/super-admin/courses/${courseId}/trainers/${tId}`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/super-admin/ebooks",
+    "file": "super-admin/ebooks",
+    "role": "SUPER_ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/super-admin/ebooks/requests",
+      "/super-admin/ebooks/reports"
+    ],
+    "api": [
+      "post `/super-admin/ebooks/${ebookId}/approve`",
+      "post `/super-admin/ebooks/${selectedBookForReject}/reject`",
+      "post `/super-admin/ebooks/${book.id}/unpublish`",
+      "post `/super-admin/ebooks/${book.id}/publish`",
+      "post `/super-admin/ebooks/${book.id}/unpin`",
+      "post `/super-admin/ebooks/${book.id}/pin`",
+      "post `/super-admin/ebooks/${book.id}/unfeature`",
+      "post `/super-admin/ebooks/${book.id}/feature`",
+      "delete `/super-admin/ebooks/${ebookId}`",
+      "post `/super-admin/ebooks/${ebookId}/restore`",
+      "patch `/super-admin/ebooks/${editingBook.id}`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/super-admin/feedback",
+    "file": "super-admin/feedback",
+    "role": "SUPER_ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/feedback/admin/summary",
+      "/feedback/admin/analytics",
+      "`/feedback/admin/list?tab=${activeTab}&search=${encodeURIComponent(search)}`"
+    ],
+    "api": [
+      "post `/feedback/admin/${item.feedback_type}/${item.id}/moderate`",
+      "post `/feedback/admin/${item.feedback_type}/${item.id}/publish`",
+      "post `/feedback/admin/${noteModalItem.feedback_type}/${noteModalItem.id}/moderate`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/super-admin/games",
+    "file": "super-admin/games",
+    "role": "SUPER_ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/super-admin/games",
+      "/super-admin/courses"
+    ],
+    "api": [
+      "post /super-admin/games",
+      "patch `/super-admin/games/${game.code}`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/super-admin/meetings",
+    "file": "super-admin/meetings",
+    "role": "SUPER_ADMIN",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/super-admin/payments",
+    "file": "super-admin/payments",
+    "role": "SUPER_ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/super-admin/payments?limit=5000",
+      "/super-admin/payments/verification-queue",
+      "/super-admin/invoices?pageSize=5000"
+    ],
+    "api": [
+      "post `/super-admin/payments/${paymentId}/verify`",
+      "post `/super-admin/payments/${rejectingPaymentId}/reject`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/super-admin/profile",
+    "file": "super-admin/profile",
+    "role": "SUPER_ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/super-admin/profile"
+    ],
+    "api": [
+      "patch /super-admin/profile"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/super-admin/system",
+    "file": "super-admin/system",
+    "role": "SUPER_ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/super-admin/system"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/super-admin/users",
+    "file": "super-admin/users",
+    "role": "SUPER_ADMIN",
+    "use_client": true,
+    "use_api": [
+      "/super-admin/users",
+      "/super-admin/colleges"
+    ],
+    "api": [
+      "post `/super-admin/users/${userId}/${action}`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/super_admin/profile",
+    "file": "super_admin/profile",
+    "role": "SUPER_ADMIN",
+    "use_client": false,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/alerts",
+    "file": "trainer/alerts",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "/trainer/alerts"
+    ],
+    "api": [
+      "patch `/trainer/alerts/${resolving.id}`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/assignments",
+    "file": "trainer/assignments",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "/trainer/batches",
+      "/trainer/training-modules",
+      "/trainer/assignments"
+    ],
+    "api": [
+      "post /trainer/assignments"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/assignments/[assignmentId]",
+    "file": "trainer/assignments/[assignmentId]",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "`/trainer/assignments/${params.assignmentId}/submissions`"
+    ],
+    "api": [
+      "patch `/trainer/submissions/${submissionId}`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/attendance",
+    "file": "trainer/attendance",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "/trainer/batches",
+      "/trainer/sessions"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/attendance/[sessionId]",
+    "file": "trainer/attendance/[sessionId]",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "`/trainer/sessions/${params.sessionId}/attendance`"
+    ],
+    "api": [
+      "post /trainer/attendance"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/batches",
+    "file": "trainer/batches",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "/trainer/batches"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/batches/[batchId]",
+    "file": "trainer/batches/[batchId]",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "`/trainer/batches/${params.batchId}/students`"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/chat",
+    "file": "trainer/chat",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [],
+    "api": [
+      "post `/trainer/chat/conversations/${conversationId}/read`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/classes",
+    "file": "trainer/classes",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [],
+    "api": [
+      "post `/trainer/courses/${selectedCourseId}/sessions`",
+      "post `/trainer/courses/${matCourseId}/materials`",
+      "post `/trainer/courses/${recCourseId}/recordings`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/course-progress",
+    "file": "trainer/course-progress",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "/trainer/batches",
+      "/trainer/course-progress"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/dashboard",
+    "file": "trainer/dashboard",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "/trainer/dashboard"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/ebooks",
+    "file": "trainer/ebooks",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "/trainer/ebooks"
+    ],
+    "api": [
+      "patch `/trainer/ebooks/${bookId}`",
+      "delete `/trainer/ebooks/${bookId}`",
+      "post `/trainer/ebooks/${bookId}/request-publish`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/evaluations",
+    "file": "trainer/evaluations",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "/trainer/evaluations",
+      "/trainer/ai-scores"
+    ],
+    "api": [
+      "post `/trainer/ai-scores/${score.id}/override`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/evaluations/new",
+    "file": "trainer/evaluations/new",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "/trainer/students",
+      "/trainer/training-modules"
+    ],
+    "api": [
+      "post /trainer/evaluations"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/evaluations/[evaluationId]",
+    "file": "trainer/evaluations/[evaluationId]",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "`/trainer/evaluations/${params.evaluationId}`"
+    ],
+    "api": [
+      "patch `/trainer/evaluations/${params.evaluationId}`",
+      "post `/trainer/evaluations/${params.evaluationId}/submit`"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/games",
+    "file": "trainer/games",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "/trainer/games",
+      "/trainer/batches",
+      "`/trainer/games/analytics${selectedBatch !== "
+    ],
+    "api": [
+      "post /trainer/games/assign"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/profile",
+    "file": "trainer/profile",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "/trainer/profile"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/reports",
+    "file": "trainer/reports",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "/trainer/batches",
+      "/trainer/reports"
+    ],
+    "api": [
+      "post /trainer/reports"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/students",
+    "file": "trainer/students",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "/trainer/batches",
+      "/trainer/students"
+    ],
+    "api": [],
+    "fetch": []
+  },
+  {
+    "route": "/trainer/students/[studentId]",
+    "file": "trainer/students/[studentId]",
+    "role": "TRAINER",
+    "use_client": true,
+    "use_api": [
+      "`/trainer/students/${params.studentId}`"
+    ],
+    "api": [
+      "post /trainer/feedback",
+      "post /trainer/evaluations/eedi-complete"
+    ],
+    "fetch": []
+  },
+  {
+    "route": "/unauthorized",
+    "file": "unauthorized",
+    "role": "PUBLIC",
+    "use_client": true,
+    "use_api": [],
+    "api": [],
+    "fetch": []
+  }
+]

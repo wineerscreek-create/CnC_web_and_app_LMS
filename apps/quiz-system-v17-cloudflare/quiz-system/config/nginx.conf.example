@@ -1,0 +1,93 @@
+# Nginx reverse-proxy template for a VPS deployment (Cloudflare DNS with the
+# orange cloud/proxy ON, instead of Cloudflare Tunnel -- see README.md
+# "Production deployment" section for when to use which).
+#
+# Layout assumed:
+#   - backend running as the `quiz-backend` systemd service (see
+#     systemd/quiz-backend.service), bound to 127.0.0.1:8000, exactly ONE
+#     uvicorn worker (see that file's comment for why -- the whole app is a
+#     single in-memory store, so a second worker process would be a second,
+#     inconsistent copy of "the data").
+#   - frontend built once (`npm run build`) into frontend/dist and served
+#     by Nginx directly as static files -- no Node process in production.
+#
+# Copy this file to /etc/nginx/sites-available/quiz-system, edit the
+# `server_name` and paths, then:
+#   sudo ln -s /etc/nginx/sites-available/quiz-system /etc/nginx/sites-enabled/
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# Get a cert however you prefer (certbot for Let's Encrypt if Cloudflare
+# proxy is OFF, or Cloudflare's own edge certificate if the proxy is ON --
+# in the latter case Nginx can even listen on plain 80 behind Cloudflare's
+# TLS termination, but a Cloudflare "Full (strict)" origin cert is safer).
+
+upstream quiz_backend {
+    # Single upstream, single worker -- see systemd/quiz-backend.service.
+    # If you ever do scale beyond one process (Redis-backed store, see
+    # README's "Scaling beyond one process" section), add more servers here
+    # and Nginx will load-balance across them -- but that's a real
+    # architecture change, not a config change alone.
+    server 127.0.0.1:8000;
+}
+
+server {
+    listen 80;
+    server_name quiz.example.com;  # <-- change this
+
+    # Let's Encrypt / certbot will usually inject its own server{} block or
+    # redirect here; left as an HTTP-only example. Redirect to https once
+    # you have a certificate:
+    # return 301 https://$host$request_uri;
+
+    client_max_body_size 15m;  # CSV question-bank uploads
+
+    # ---- REST API ----
+    location /api/ {
+        proxy_pass http://quiz_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Give report ZIP downloads and long report-generation status polls
+        # room to breathe.
+        proxy_read_timeout 120s;
+    }
+
+    # ---- Socket.IO (live monitoring, camera relay, heartbeat) ----
+    # Must upgrade the connection for WebSocket transport; Socket.IO falls
+    # back to HTTP long-polling automatically if this ever fails, but real
+    # WebSocket is much lighter for camera-frame relay traffic.
+    location /socket.io/ {
+        proxy_pass http://quiz_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # WebSockets are long-lived -- don't let Nginx's default 60s idle
+        # timeout kill an otherwise-healthy connection between heartbeats.
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    # ---- Frontend static build ----
+    root /var/www/quiz-system/frontend/dist;  # <-- change this
+    index index.html;
+    location / {
+        try_files $uri $uri/ /index.html;  # React Router client-side routing
+    }
+
+    # Static assets are content-hashed by Vite -- safe to cache hard.
+    location /assets/ {
+        root /var/www/quiz-system/frontend/dist;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+    gzip_min_length 500;
+}

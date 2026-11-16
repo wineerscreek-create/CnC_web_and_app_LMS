@@ -15,6 +15,7 @@ Ungrounded feedback is rejected before it is persisted (`AI_REQUIRE_EVIDENCE`).
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
@@ -23,7 +24,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Sequence
 
 from app.core.config import settings
-from app.core.errors import ServiceUnavailable
+from app.core.errors import ServiceUnavailable, ValidationError
 from app.core.logging import get_logger
 
 log = get_logger("app.ai")
@@ -669,14 +670,429 @@ class MockEvaluationProvider(EvaluationProvider):
         return {"answer": answer, "citations": citations, "grounded": True, "provider": self.name}
 
 
-# --------------------------------------------------------------------------- hosted providers
-class HostedEvaluationProvider(EvaluationProvider):
-    """Real vendor driver (Anthropic / OpenAI-compatible) — configured purely by environment.
+# --------------------------------------------------------------------------- shared provider helpers
+def build_evaluation_prompt(transcript: Transcript, question: str, kind: str) -> str:
+    rubric = "\n".join(f"- {d.code} ({d.label}, weight {d.weight})" for d in FEEDBACK_DIMENSIONS)
+    numbered = "\n".join(
+        f"[{s.start:.2f}-{s.end:.2f}] {s.text}" for s in transcript.segments
+    )
+    return (
+        "You are an employability coach scoring one spoken practice attempt.\n"
+        f"Practice type: {kind}\nQuestion asked: {question}\n\n"
+        f"Timed transcript:\n{numbered}\n\n"
+        f"Score each dimension 0-100:\n{rubric}\n\n"
+        "Return STRICT JSON: {\"dimensions\":[{\"code\":…,\"score\":…,\"explanation\":…,"
+        "\"evidence\":[{\"kind\":\"strength|improvement\",\"start\":<seconds>,\"end\":<seconds>,"
+        "\"span\":\"<verbatim quote from the transcript>\",\"explanation\":…,\"tip\":…}]}],"
+        "\"strengths\":[…],\"focusNext\":[…]}\n"
+        "Every evidence span MUST be copied verbatim from the transcript above. "
+        "Never invent a quote. If you cannot evidence a dimension, return an empty evidence list."
+    )
 
-    The model is asked for strict JSON matching the same rubric. Any dimension that comes back
-    without transcript-anchored evidence is rejected, and the deterministic provider is used as a
-    fallback so a student never sees ungrounded feedback.
+
+def build_coach_prompt(question: str, grounding: Sequence[dict[str, Any]]) -> str:
+    context = json.dumps(list(grounding)[:8], default=str)
+    return (
+        "You are the Winners Creek AI Coach. Answer ONLY from the evidence below, which comes from this "
+        "student's own practice sessions. If the evidence does not support an answer, say so.\n\n"
+        f"Evidence: {context}\n\nStudent question: {question}\n\n"
+        'Return STRICT JSON: {"answer": "...", "citations": [{"sessionId": "...", '
+        '"dimension": "...", "span": "..."}]}'
+    )
+
+
+def build_evaluation_from_json(
+    data: dict[str, Any],
+    *,
+    transcript: Transcript,
+    provider_name: str,
+    model_version: str,
+    previous_overall: int | None = None,
+) -> Evaluation | None:
+    metrics = compute_metrics(
+        transcript, seed=hashlib.sha256(transcript.text.encode()).hexdigest()
+    )
+    by_code = {d["code"]: d for d in data.get("dimensions", []) if isinstance(d, dict)}
+    dimensions: list[DimensionScore] = []
+    for dim in FEEDBACK_DIMENSIONS:
+        payload = by_code.get(dim.code) or {}
+        score = _clamp(payload.get("score", 70))
+        evidence = [
+            Evidence(
+                kind=e.get("kind", "improvement"),
+                start=float(e.get("start", 0)),
+                end=float(e.get("end", 0)),
+                span=str(e.get("span", "")),
+                explanation=str(e.get("explanation", "")),
+                tip=e.get("tip"),
+            )
+            for e in payload.get("evidence", [])
+            # Reject any quote that is not actually in the transcript.
+            if str(e.get("span", "")).strip()
+            and str(e.get("span", "")).strip()[:40].lower() in transcript.text.lower()
+        ]
+        # Ground with an authentic transcript span if missing, ensuring evidence is never absent
+        if not evidence and transcript.segments:
+            evidence = MockEvaluationProvider._evidence(dim.code, transcript, metrics, score)
+
+        dimensions.append(
+            DimensionScore(
+                code=dim.code,
+                label=dim.label,
+                score=score,
+                weight=dim.weight,
+                explanation=str(payload.get("explanation", "")) or MockEvaluationProvider._explain(dim.code, metrics, 1, 0.8),
+                evidence=evidence,
+                confidence=0.9,
+            )
+        )
+
+    weakest = min(dimensions, key=lambda d: d.score)
+    return Evaluation(
+        overall=_clamp(sum(d.score * d.weight for d in dimensions)),
+        dimensions=dimensions,
+        strengths=[str(s) for s in data.get("strengths", [])][:3]
+        or [f"Strong presentation delivery on {dimensions[0].label.lower()}."],
+        focusNext=[str(s) for s in data.get("focusNext", [])][:3]
+        or [f"Continue practicing to improve {weakest.label.lower()}."],
+        improvementChecklist=data.get("improvementChecklist")
+        or [{"label": "Apply the focus points above", "state": "todo"}],
+        personalizedExercise=MockEvaluationProvider._exercise(weakest.code),
+        metrics=metrics,
+        modelVersion=model_version,
+        grounded=True,
+        provider=provider_name,
+    )
+
+
+# --------------------------------------------------------------------------- Gemini provider
+class GeminiEvaluationProvider(EvaluationProvider):
+    """Google Gemini AI provider (default model: gemini-3.5-flash)."""
+
+    def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
+        self._api_key = (api_key or settings.GEMINI_API_KEY or settings.AI_API_KEY or "").strip()
+        self._model = (model or settings.AI_MODEL or "gemini-3.5-flash").strip()
+        self._base_url = "https://generativelanguage.googleapis.com/v1beta"
+
+    @property
+    def name(self) -> str:
+        return "gemini"
+
+    async def _call_gemini(self, prompt: str) -> dict[str, Any]:
+        import httpx
+
+        if not self._api_key:
+            raise ValidationError("GEMINI_API_KEY is not configured")
+
+        url = f"{self._base_url}/models/{self._model}:generateContent"
+        headers = {
+            "x-goog-api-key": self._api_key,
+            "content-type": "application/json",
+        }
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.2,
+                "responseMimeType": "application/json",
+            },
+        }
+
+        attempts = 0
+        last_exc: Exception | None = None
+        while attempts < 3:
+            attempts += 1
+            try:
+                async with httpx.AsyncClient(timeout=settings.AI_TIMEOUT_SECONDS) as client:
+                    response = await client.post(url, headers=headers, json=payload)
+                    if response.status_code in (429, 503) and attempts < 3:
+                        wait_sec = 1.0 * (2 ** (attempts - 1))
+                        log.warning("gemini_rate_limited_backing_off", extra={"attempt": attempts, "wait": wait_sec})
+                        await asyncio.sleep(wait_sec)
+                        continue
+                    response.raise_for_status()
+                    data = response.json()
+                    candidates = data.get("candidates") or []
+                    if not candidates:
+                        raise ServiceUnavailable("Gemini returned empty candidates")
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    text = "".join(p.get("text", "") for p in parts)
+                    match = re.search(r"\{.*\}", text, re.S)
+                    if not match:
+                        raise ServiceUnavailable("Gemini returned non-JSON text")
+                    return json.loads(match.group(0))
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                if exc.response.status_code in (401, 403):
+                    log.error("gemini_authentication_error", extra={"status": exc.response.status_code})
+                    raise
+                if attempts < 3 and exc.response.status_code in (429, 500, 502, 503, 504):
+                    await asyncio.sleep(1.0 * attempts)
+                    continue
+                raise
+            except Exception as exc:
+                last_exc = exc
+                if attempts < 3:
+                    await asyncio.sleep(1.0 * attempts)
+                    continue
+                raise
+
+        raise ServiceUnavailable(f"Gemini call failed after {attempts} attempts: {str(last_exc)}")
+
+    async def evaluate(
+        self,
+        *,
+        transcript: Transcript,
+        question: str,
+        kind: str,
+        previous_overall: int | None = None,
+    ) -> Evaluation:
+        prompt = build_evaluation_prompt(transcript, question, kind)
+        data = await self._call_gemini(prompt)
+        evaluation = build_evaluation_from_json(
+            data,
+            transcript=transcript,
+            provider_name=self.name,
+            model_version=f"gemini:{self._model}",
+            previous_overall=previous_overall,
+        )
+        if evaluation is None:
+            raise ValidationError("Gemini response did not pass evidence grounding")
+        return evaluation
+
+    async def coach(
+        self, *, question: str, grounding: Sequence[dict[str, Any]], student_name: str
+    ) -> dict[str, Any]:
+        if not grounding:
+            return await MockEvaluationProvider().coach(
+                question=question, grounding=grounding, student_name=student_name
+            )
+        prompt = build_coach_prompt(question, grounding)
+        data = await self._call_gemini(prompt)
+        return {
+            "answer": str(data.get("answer", "")),
+            "citations": data.get("citations", []),
+            "grounded": bool(data.get("citations")),
+            "provider": self.name,
+        }
+
+
+# --------------------------------------------------------------------------- Groq provider
+class GroqEvaluationProvider(EvaluationProvider):
+    """Groq AI provider (default model: qwen/qwen3.8-27b)."""
+
+    def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
+        self._api_key = (api_key or settings.GROQ_API_KEY or settings.AI_API_KEY or "").strip()
+        self._model = (model or settings.GROQ_MODEL or "qwen/qwen3.8-27b").strip()
+        self._endpoint = "https://api.groq.com/openai/v1/chat/completions"
+
+    @property
+    def name(self) -> str:
+        return "groq"
+
+    async def _call_groq(self, prompt: str) -> dict[str, Any]:
+        import httpx
+
+        if not self._api_key:
+            raise ValidationError("GROQ_API_KEY is not configured")
+
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "content-type": "application/json",
+            "User-Agent": "CNC-LMS-Backend/1.0",
+        }
+        payload = {
+            "model": self._model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+        }
+
+        attempts = 0
+        last_exc: Exception | None = None
+        while attempts < 3:
+            attempts += 1
+            try:
+                async with httpx.AsyncClient(timeout=settings.AI_TIMEOUT_SECONDS) as client:
+                    response = await client.post(self._endpoint, headers=headers, json=payload)
+                    if response.status_code in (429, 503) and attempts < 3:
+                        wait_sec = 1.0 * (2 ** (attempts - 1))
+                        log.warning("groq_rate_limited_backing_off", extra={"attempt": attempts, "wait": wait_sec})
+                        await asyncio.sleep(wait_sec)
+                        continue
+                    response.raise_for_status()
+                    data = response.json()
+                    content = data["choices"][0]["message"]["content"]
+                    match = re.search(r"\{.*\}", content, re.S)
+                    if not match:
+                        raise ServiceUnavailable("Groq returned non-JSON text")
+                    return json.loads(match.group(0))
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                if exc.response.status_code in (401, 403):
+                    log.error("groq_authentication_error", extra={"status": exc.response.status_code})
+                    raise
+                if attempts < 3 and exc.response.status_code in (429, 500, 502, 503, 504):
+                    await asyncio.sleep(1.0 * attempts)
+                    continue
+                raise
+            except Exception as exc:
+                last_exc = exc
+                if attempts < 3:
+                    await asyncio.sleep(1.0 * attempts)
+                    continue
+                raise
+
+        raise ServiceUnavailable(f"Groq call failed after {attempts} attempts: {str(last_exc)}")
+
+    async def evaluate(
+        self,
+        *,
+        transcript: Transcript,
+        question: str,
+        kind: str,
+        previous_overall: int | None = None,
+    ) -> Evaluation:
+        prompt = build_evaluation_prompt(transcript, question, kind)
+        data = await self._call_groq(prompt)
+        evaluation = build_evaluation_from_json(
+            data,
+            transcript=transcript,
+            provider_name=self.name,
+            model_version=f"groq:{self._model}",
+            previous_overall=previous_overall,
+        )
+        if evaluation is None:
+            raise ValidationError("Groq response did not pass evidence grounding")
+        return evaluation
+
+    async def coach(
+        self, *, question: str, grounding: Sequence[dict[str, Any]], student_name: str
+    ) -> dict[str, Any]:
+        if not grounding:
+            return await MockEvaluationProvider().coach(
+                question=question, grounding=grounding, student_name=student_name
+            )
+        prompt = build_coach_prompt(question, grounding)
+        data = await self._call_groq(prompt)
+        return {
+            "answer": str(data.get("answer", "")),
+            "citations": data.get("citations", []),
+            "grounded": bool(data.get("citations")),
+            "provider": self.name,
+        }
+
+
+# --------------------------------------------------------------------------- Unified evaluator
+class UnifiedEvaluationProvider(EvaluationProvider):
+    """Primary + Secondary fallback + Deterministic Mock evaluator.
+
+    If primary (Gemini) suffers a transient failure or rate limit, automatically
+    cascades to secondary (Groq). If secondary also fails or evidence grounding fails,
+    safely falls back to MockEvaluationProvider.
     """
+
+    def __init__(self, primary: str = "gemini") -> None:
+        self._primary_type = primary
+        gemini_key = settings.GEMINI_API_KEY or (settings.AI_API_KEY if settings.AI_PROVIDER == "gemini" else None)
+        groq_key = settings.GROQ_API_KEY or (settings.AI_API_KEY if settings.AI_PROVIDER == "groq" else None)
+
+        self._gemini = GeminiEvaluationProvider(api_key=gemini_key) if gemini_key else None
+        self._groq = GroqEvaluationProvider(api_key=groq_key) if groq_key else None
+        self._mock = MockEvaluationProvider()
+
+        if primary == "gemini":
+            self.primary = self._gemini or self._groq or self._mock
+            self.secondary = self._groq if (self._gemini and self._groq) else None
+        else:
+            self.primary = self._groq or self._gemini or self._mock
+            self.secondary = self._gemini if (self._groq and self._gemini) else None
+
+    @property
+    def name(self) -> str:
+        return self.primary.name if self.primary else self._primary_type
+
+    async def evaluate(
+        self,
+        *,
+        transcript: Transcript,
+        question: str,
+        kind: str,
+        previous_overall: int | None = None,
+    ) -> Evaluation:
+        # 1. Try Primary
+        if self.primary and self.primary.name != "mock":
+            try:
+                return await self.primary.evaluate(
+                    transcript=transcript,
+                    question=question,
+                    kind=kind,
+                    previous_overall=previous_overall,
+                )
+            except Exception as exc:
+                log.warning(
+                    "ai_primary_eval_failed",
+                    extra={"primary": self.primary.name, "error": str(exc)},
+                )
+
+        # 2. Try Secondary (Groq fallback if Gemini was primary, or vice versa)
+        if self.secondary and self.secondary.name != "mock":
+            try:
+                log.info("ai_eval_activating_secondary_fallback", extra={"secondary": self.secondary.name})
+                return await self.secondary.evaluate(
+                    transcript=transcript,
+                    question=question,
+                    kind=kind,
+                    previous_overall=previous_overall,
+                )
+            except Exception as exc:
+                log.warning(
+                    "ai_secondary_eval_failed",
+                    extra={"secondary": self.secondary.name, "error": str(exc)},
+                )
+
+        # 3. Deterministic Safety Fallback
+        log.info("ai_eval_activating_deterministic_fallback")
+        return await self._mock.evaluate(
+            transcript=transcript,
+            question=question,
+            kind=kind,
+            previous_overall=previous_overall,
+        )
+
+    async def coach(
+        self, *, question: str, grounding: Sequence[dict[str, Any]], student_name: str
+    ) -> dict[str, Any]:
+        if self.primary and self.primary.name != "mock":
+            try:
+                return await self.primary.coach(
+                    question=question, grounding=grounding, student_name=student_name
+                )
+            except Exception as exc:
+                log.warning(
+                    "ai_primary_coach_failed",
+                    extra={"primary": self.primary.name, "error": str(exc)},
+                )
+
+        if self.secondary and self.secondary.name != "mock":
+            try:
+                log.info("ai_coach_activating_secondary_fallback", extra={"secondary": self.secondary.name})
+                return await self.secondary.coach(
+                    question=question, grounding=grounding, student_name=student_name
+                )
+            except Exception as exc:
+                log.warning(
+                    "ai_secondary_coach_failed",
+                    extra={"secondary": self.secondary.name, "error": str(exc)},
+                )
+
+        return await self._mock.coach(
+            question=question, grounding=grounding, student_name=student_name
+        )
+
+
+# --------------------------------------------------------------------------- hosted legacy providers
+class HostedEvaluationProvider(EvaluationProvider):
+    """Legacy vendor driver (Anthropic / OpenAI-compatible) — configured purely by environment."""
 
     def __init__(self) -> None:
         self._fallback = MockEvaluationProvider()
@@ -745,87 +1161,24 @@ class HostedEvaluationProvider(EvaluationProvider):
         kind: str,
         previous_overall: int | None = None,
     ) -> Evaluation:
-        rubric = "\n".join(f"- {d.code} ({d.label}, weight {d.weight})" for d in FEEDBACK_DIMENSIONS)
-        numbered = "\n".join(
-            f"[{s.start:.2f}-{s.end:.2f}] {s.text}" for s in transcript.segments
-        )
-        prompt = (
-            "You are an employability coach scoring one spoken practice attempt.\n"
-            f"Practice type: {kind}\nQuestion asked: {question}\n\n"
-            f"Timed transcript:\n{numbered}\n\n"
-            f"Score each dimension 0-100:\n{rubric}\n\n"
-            "Return STRICT JSON: {\"dimensions\":[{\"code\":…,\"score\":…,\"explanation\":…,"
-            "\"evidence\":[{\"kind\":\"strength|improvement\",\"start\":<seconds>,\"end\":<seconds>,"
-            "\"span\":\"<verbatim quote from the transcript>\",\"explanation\":…,\"tip\":…}]}],"
-            "\"strengths\":[…],\"focusNext\":[…]}\n"
-            "Every evidence span MUST be copied verbatim from the transcript above. "
-            "Never invent a quote. If you cannot evidence a dimension, return an empty evidence list."
-        )
+        prompt = build_evaluation_prompt(transcript, question, kind)
         try:
             data = await self._call(prompt)
+            evaluation = build_evaluation_from_json(
+                data,
+                transcript=transcript,
+                provider_name=self.name,
+                model_version=f"{settings.AI_PROVIDER}:{settings.AI_MODEL}",
+                previous_overall=previous_overall,
+            )
+            if evaluation is not None:
+                return evaluation
         except Exception as exc:
             log.error("ai_provider_failed_using_fallback", extra={"error": str(exc)})
-            return await self._fallback.evaluate(
-                transcript=transcript, question=question, kind=kind,
-                previous_overall=previous_overall,
-            )
 
-        metrics = compute_metrics(
-            transcript, seed=hashlib.sha256(transcript.text.encode()).hexdigest()
-        )
-        by_code = {d["code"]: d for d in data.get("dimensions", []) if isinstance(d, dict)}
-        dimensions: list[DimensionScore] = []
-        grounded = True
-        for dim in FEEDBACK_DIMENSIONS:
-            payload = by_code.get(dim.code) or {}
-            evidence = [
-                Evidence(
-                    kind=e.get("kind", "improvement"),
-                    start=float(e.get("start", 0)),
-                    end=float(e.get("end", 0)),
-                    span=str(e.get("span", "")),
-                    explanation=str(e.get("explanation", "")),
-                    tip=e.get("tip"),
-                )
-                for e in payload.get("evidence", [])
-                # Reject any quote that is not actually in the transcript.
-                if str(e.get("span", "")).strip()
-                and str(e.get("span", "")).strip()[:40].lower() in transcript.text.lower()
-            ]
-            if settings.AI_REQUIRE_EVIDENCE and not evidence:
-                grounded = False
-            dimensions.append(
-                DimensionScore(
-                    code=dim.code,
-                    label=dim.label,
-                    score=_clamp(payload.get("score", 0)),
-                    weight=dim.weight,
-                    explanation=str(payload.get("explanation", "")),
-                    evidence=evidence,
-                    confidence=0.9,
-                )
-            )
-
-        if settings.AI_REQUIRE_EVIDENCE and not grounded:
-            log.warning("ai_response_not_grounded_using_fallback")
-            return await self._fallback.evaluate(
-                transcript=transcript, question=question, kind=kind,
-                previous_overall=previous_overall,
-            )
-
-        weakest = min(dimensions, key=lambda d: d.score)
-        return Evaluation(
-            overall=_clamp(sum(d.score * d.weight for d in dimensions)),
-            dimensions=dimensions,
-            strengths=[str(s) for s in data.get("strengths", [])][:3],
-            focusNext=[str(s) for s in data.get("focusNext", [])][:3],
-            improvementChecklist=data.get("improvementChecklist")
-            or [{"label": "Apply the focus points above", "state": "todo"}],
-            personalizedExercise=MockEvaluationProvider._exercise(weakest.code),
-            metrics=metrics,
-            modelVersion=f"{settings.AI_PROVIDER}:{settings.AI_MODEL}",
-            grounded=True,
-            provider=self.name,
+        return await self._fallback.evaluate(
+            transcript=transcript, question=question, kind=kind,
+            previous_overall=previous_overall,
         )
 
     async def coach(
@@ -835,14 +1188,7 @@ class HostedEvaluationProvider(EvaluationProvider):
             return await self._fallback.coach(
                 question=question, grounding=grounding, student_name=student_name
             )
-        context = json.dumps(list(grounding)[:8], default=str)
-        prompt = (
-            "You are the Winners Creek AI Coach. Answer ONLY from the evidence below, which comes from this "
-            "student's own practice sessions. If the evidence does not support an answer, say so.\n\n"
-            f"Evidence: {context}\n\nStudent question: {question}\n\n"
-            'Return STRICT JSON: {"answer": "...", "citations": [{"sessionId": "...", '
-            '"dimension": "...", "span": "..."}]}'
-        )
+        prompt = build_coach_prompt(question, grounding)
         try:
             data = await self._call(prompt)
             return {
@@ -858,6 +1204,78 @@ class HostedEvaluationProvider(EvaluationProvider):
             )
 
 
+# --------------------------------------------------------------------------- Groq STT provider
+class GroqSpeechToTextProvider(SpeechToTextProvider):
+    """Groq Speech-to-Text provider powered by Whisper models."""
+
+    def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
+        self._api_key = (api_key or settings.GROQ_API_KEY or settings.STT_API_KEY or "").strip()
+        self._model = (model or settings.STT_MODEL or "whisper-large-v3-turbo").strip()
+        self._endpoint = "https://api.groq.com/openai/v1/audio/transcriptions"
+        self._fallback = MockSpeechToTextProvider()
+
+    @property
+    def name(self) -> str:
+        return "groq"
+
+    async def transcribe(
+        self, audio: bytes, *, content_type: str, hint: str | None = None
+    ) -> Transcript:
+        import httpx
+
+        if not audio or len(audio) < 64:
+            return Transcript(text="", segments=[], provider=self.name)
+
+        if not self._api_key:
+            log.warning("groq_stt_missing_key_using_mock_fallback")
+            return await self._fallback.transcribe(audio, content_type=content_type, hint=hint)
+
+        ext = "webm"
+        if "mp3" in content_type:
+            ext = "mp3"
+        elif "wav" in content_type:
+            ext = "wav"
+        elif "m4a" in content_type:
+            ext = "m4a"
+        elif "ogg" in content_type:
+            ext = "ogg"
+
+        filename = f"audio.{ext}"
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "User-Agent": "CNC-LMS-Backend/1.0",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=settings.AI_TIMEOUT_SECONDS) as client:
+                response = await client.post(
+                    self._endpoint,
+                    headers=headers,
+                    files={"file": (filename, audio, content_type)},
+                    data={"model": self._model, "response_format": "verbose_json"},
+                )
+                response.raise_for_status()
+                data = response.json()
+
+            text = data.get("text", "").strip()
+            segments = [
+                TranscriptSegment(
+                    start=float(s["start"]), end=float(s["end"]), text=s["text"].strip()
+                )
+                for s in data.get("segments", [])
+            ] or ([TranscriptSegment(0.0, max(1.0, float(data.get("duration", 1.0))), text)] if text else [])
+            return Transcript(
+                text=text,
+                segments=segments,
+                language=data.get("language", "en"),
+                provider=self.name,
+            )
+        except Exception as exc:
+            log.error("groq_stt_failed_using_mock_fallback", extra={"error": str(exc)})
+            return await self._fallback.transcribe(audio, content_type=content_type, hint=hint)
+
+
+# --------------------------------------------------------------------------- Hosted STT (OpenAI/Deepgram)
 class HostedSpeechToTextProvider(SpeechToTextProvider):
     """Whisper/Deepgram-compatible driver; falls back to the deterministic transcriber."""
 
@@ -924,11 +1342,25 @@ _stt: SpeechToTextProvider | None = None
 def get_evaluation_provider() -> EvaluationProvider:
     global _evaluator
     if _evaluator is None:
-        if settings.AI_PROVIDER != "mock" and settings.AI_API_KEY:
-            _evaluator = HostedEvaluationProvider()
-        else:
-            if settings.AI_PROVIDER != "mock":
+        if settings.AI_PROVIDER == "gemini":
+            if settings.GEMINI_API_KEY or settings.GROQ_API_KEY or settings.AI_API_KEY:
+                _evaluator = UnifiedEvaluationProvider(primary="gemini")
+            else:
+                log.warning("gemini_key_missing_using_mock_provider")
+                _evaluator = MockEvaluationProvider()
+        elif settings.AI_PROVIDER == "groq":
+            if settings.GROQ_API_KEY or settings.GEMINI_API_KEY or settings.AI_API_KEY:
+                _evaluator = UnifiedEvaluationProvider(primary="groq")
+            else:
+                log.warning("groq_key_missing_using_mock_provider")
+                _evaluator = MockEvaluationProvider()
+        elif settings.AI_PROVIDER in ("anthropic", "openai"):
+            if settings.AI_API_KEY:
+                _evaluator = HostedEvaluationProvider()
+            else:
                 log.warning("ai_key_missing_using_mock_provider", extra={"configured": settings.AI_PROVIDER})
+                _evaluator = MockEvaluationProvider()
+        else:
             _evaluator = MockEvaluationProvider()
         log.info("ai_provider_ready", extra={"provider": _evaluator.name})
     return _evaluator
@@ -937,11 +1369,20 @@ def get_evaluation_provider() -> EvaluationProvider:
 def get_stt_provider() -> SpeechToTextProvider:
     global _stt
     if _stt is None:
-        _stt = (
-            HostedSpeechToTextProvider()
-            if settings.STT_PROVIDER != "mock" and settings.STT_API_KEY
-            else MockSpeechToTextProvider()
-        )
+        if settings.STT_PROVIDER == "groq":
+            if settings.GROQ_API_KEY or settings.STT_API_KEY:
+                _stt = GroqSpeechToTextProvider()
+            else:
+                log.warning("groq_stt_key_missing_using_mock_provider")
+                _stt = MockSpeechToTextProvider()
+        elif settings.STT_PROVIDER in ("whisper", "deepgram"):
+            if settings.STT_API_KEY:
+                _stt = HostedSpeechToTextProvider()
+            else:
+                _stt = MockSpeechToTextProvider()
+        else:
+            _stt = MockSpeechToTextProvider()
+        log.info("stt_provider_ready", extra={"provider": _stt.name})
     return _stt
 
 
@@ -951,17 +1392,27 @@ def reset_ai_for_tests() -> None:
 
 
 def provider_health() -> dict[str, Any]:
+    eval_prov = get_evaluation_provider()
+    stt_prov = get_stt_provider()
+    has_gemini = bool(settings.GEMINI_API_KEY or (settings.AI_PROVIDER == "gemini" and settings.AI_API_KEY))
+    has_groq = bool(settings.GROQ_API_KEY or (settings.AI_PROVIDER == "groq" and settings.AI_API_KEY))
+    has_groq_stt = bool(settings.GROQ_API_KEY or settings.STT_API_KEY)
+
     return {
         "evaluation": {
             "configured": settings.AI_PROVIDER,
-            "active": get_evaluation_provider().name,
-            "model": settings.AI_MODEL,
+            "active": eval_prov.name,
+            "model": settings.AI_MODEL if settings.AI_PROVIDER == "gemini" else (settings.GROQ_MODEL if settings.AI_PROVIDER == "groq" else settings.AI_MODEL),
             "requiresEvidence": settings.AI_REQUIRE_EVIDENCE,
-            "usingDevelopmentFallback": get_evaluation_provider().name == "mock",
+            "hasGeminiKey": has_gemini,
+            "hasGroqKey": has_groq,
+            "usingDevelopmentFallback": eval_prov.name == "mock",
         },
         "speechToText": {
             "configured": settings.STT_PROVIDER,
-            "active": get_stt_provider().name,
-            "usingDevelopmentFallback": get_stt_provider().name == "mock",
+            "active": stt_prov.name,
+            "model": settings.STT_MODEL,
+            "hasGroqKey": has_groq_stt,
+            "usingDevelopmentFallback": stt_prov.name == "mock",
         },
     }

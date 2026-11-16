@@ -1,6 +1,6 @@
 'use client';
 
-import { BarCompare, ChartCard, attendanceColor } from '@/components/charts';
+import { BarCompare, ChartCard, HorizontalBarCompare, attendanceColor } from '@/components/charts';
 import { PageHeader } from '@/components/shared/page-header';
 import { ProgressBar } from '@/components/shared/progress-bits';
 import { AsyncSection } from '@/components/shared/state';
@@ -66,14 +66,14 @@ export default function CourseProgressPage() {
                 .map((row: any) => `${row.name}: ${row.averageScore ?? 'no data'}`)
                 .join('; ')}
               isEmpty={data.modules.length === 0}
-              height={220}
+              height={Math.max(260, data.modules.length * 44)}
             >
-              <BarCompare
+              <HorizontalBarCompare
                 data={data.modules.map((row: any) => ({
                   module: row.name,
                   average: row.averageScore ?? 0,
                 }))}
-                xKey="module"
+                yKey="module"
                 valueKey="average"
                 colorBy={(row) => attendanceColor(row.average)}
               />

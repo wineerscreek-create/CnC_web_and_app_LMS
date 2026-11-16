@@ -1,0 +1,6 @@
+Question,Image,OptionA,OptionB,OptionC,OptionD,Correct,Marks,Negative
+Python is a?,,Programming Language,Compiler,Operating System,IDE,A,2,-0.25
+Which keyword defines a function in Python?,,func,def,function,define,B,2,-0.25
+Which of these are Python data types? (select all that apply),,int,str,list,dict,"A,B,C,D",4,-1
+2 + 2 * 2 equals?,,4,6,8,2,B,1,0
+The capital of France is?,,Berlin,Madrid,Paris,Rome,C,1,-0.25

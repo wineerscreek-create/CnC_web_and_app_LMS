@@ -20,6 +20,7 @@ import { toast } from 'sonner';
 import { RadialScore } from '@/components/charts';
 import { PageHeader } from '@/components/shared/page-header';
 import { AsyncSection } from '@/components/shared/state';
+import { OnlineOnlyNotice } from '@/components/offline/OnlineOnlyNotice';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardSubtitle, CardTitle } from '@/components/ui/card';
@@ -41,7 +42,7 @@ const DEFAULT_ROLES = [
 
 export default function ResumeAnalyzerPage() {
   const query = useApi<any>('/student/resume/analysis', undefined, {
-    select: (raw) => ({ latest: raw.data, history: raw.meta?.history ?? [] }),
+    select: (raw) => ({ latest: raw?.data ?? null, history: raw?.meta?.history ?? [] }),
   });
 
   const rolesQuery = useApi<any>('/ai/roles');
@@ -87,7 +88,8 @@ export default function ResumeAnalyzerPage() {
       toast.success(response.message ?? 'Resume analysed against target role');
       query.refetch();
     } catch (caught) {
-      toast.error((caught as ApiError).message);
+      const err = caught as ApiError;
+      toast.error(err.message || 'Resume upload failed. Please verify file format and try again.');
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = '';
@@ -105,6 +107,8 @@ export default function ResumeAnalyzerPage() {
         const missingSkills: string[] = Array.isArray(analysis?.missingSkills) ? analysis.missingSkills : [];
         const actionableCritique: string[] = Array.isArray(analysis?.actionableCritique)
           ? analysis.actionableCritique
+          : Array.isArray(analysis?.actionItems)
+          ? analysis.actionItems
           : Array.isArray(analysis?.gaps)
           ? analysis.gaps
           : [];
@@ -120,7 +124,7 @@ export default function ResumeAnalyzerPage() {
                   <input
                     ref={inputRef}
                     type="file"
-                    accept=".pdf,.doc,.docx,.txt"
+                    accept=".pdf,.doc,.docx,.txt,.md"
                     className="sr-only"
                     id="resume-file"
                     onChange={(event) => {
@@ -140,6 +144,8 @@ export default function ResumeAnalyzerPage() {
                 </div>
               }
             />
+
+            <OnlineOnlyNotice featureName="AI Resume Analyzer" description="Deep AI resume parsing and ATS role matching require cloud computation. Reconnect to evaluate a new resume." />
 
             {/* Target Role Selector Bar */}
             <Card className="card-interactive bg-card border-border">

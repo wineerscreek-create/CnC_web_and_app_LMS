@@ -80,8 +80,12 @@ class Settings(BaseSettings):
     OTP_TTL_MINUTES: int = 10
     OTP_MAX_SENDS_PER_HOUR: int = 5
 
-    # ---------- storage (S3) ----------
-    STORAGE_DRIVER: Literal["s3", "local"] = "local"
+    # ---------- storage (Supabase / S3 / Local) ----------
+    STORAGE_DRIVER: Literal["supabase", "s3", "local"] = "s3"
+    SUPABASE_URL: str | None = None
+    SUPABASE_ANON_KEY: str | None = None
+    SUPABASE_SERVICE_ROLE_KEY: str | None = None
+    SUPABASE_STORAGE_BUCKET: str = "cnc-lms-files"
     S3_BUCKET: str = "eedi-lms-private"
     S3_REGION: str = "ap-south-1"
     S3_ENDPOINT_URL: str | None = None
@@ -90,14 +94,18 @@ class Settings(BaseSettings):
     SIGNED_URL_TTL_SECONDS: int = 900
     LOCAL_STORAGE_ROOT: str = "./.storage"
 
-    # ---------- AI ----------
-    AI_PROVIDER: Literal["mock", "anthropic", "openai", "huggingface"] = "mock"
+    # ---------- AI & Speech-to-Text ----------
+    AI_PROVIDER: Literal["gemini", "groq", "anthropic", "openai", "huggingface", "mock"] = "gemini"
     AI_API_KEY: str | None = None
-    AI_MODEL: str = "claude-sonnet-4-5"
+    AI_MODEL: str = "gemini-3.5-flash"
+    GEMINI_API_KEY: str | None = None
+    GROQ_API_KEY: str | None = None
+    GROQ_MODEL: str = "qwen/qwen3.8-27b"
     AI_BASE_URL: str | None = None
     AI_TIMEOUT_SECONDS: int = 45
-    STT_PROVIDER: Literal["mock", "whisper", "deepgram"] = "mock"
+    STT_PROVIDER: Literal["groq", "whisper", "deepgram", "mock"] = "groq"
     STT_API_KEY: str | None = None
+    STT_MODEL: str = "whisper-large-v3-turbo"
     AI_REQUIRE_EVIDENCE: bool = True
 
     # ---------- email ----------

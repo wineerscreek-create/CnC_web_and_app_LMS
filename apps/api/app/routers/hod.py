@@ -276,6 +276,7 @@ async def dashboard(ctx: ScopeContext = HodCtx) -> dict[str, Any]:
 async def participants(
     search: str | None = Query(None, max_length=80),
     batchId: str | None = Query(None),
+    academic_year: str | None = Query(None, alias="year"),
     status_filter: str | None = Query(None, alias="status", max_length=20),
     attendanceBand: str | None = Query(None, max_length=20),
     certificate: str | None = Query(None, max_length=20),
@@ -316,6 +317,20 @@ async def participants(
                     params.append(b_uuid)
                     conds.append(f"sp.batch_id = ${len(params)}")
 
+            if academic_year and academic_year.lower() != "all":
+                ay = academic_year.strip().lower()
+                if "2nd" in ay or "2" in ay:
+                    conds.append("COALESCE(b.semester, sp.current_semester) IN (3, 4)")
+                elif "3rd" in ay or "3" in ay:
+                    conds.append("COALESCE(b.semester, sp.current_semester) IN (5, 6)")
+                elif "4th" in ay or "4" in ay:
+                    conds.append("COALESCE(b.semester, sp.current_semester) IN (7, 8)")
+                elif "1st" in ay or "1" in ay:
+                    conds.append("COALESCE(b.semester, sp.current_semester) IN (1, 2)")
+                else:
+                    params.append(academic_year.strip())
+                    conds.append(f"(b.academic_year = ${len(params)} OR sp.academic_year = ${len(params)})")
+
             if status_filter and status_filter.lower() != "all":
                 params.append(status_filter.upper())
                 conds.append(f"u.status::text = ${len(params)}")
@@ -329,6 +344,7 @@ async def participants(
                 SELECT COUNT(*) 
                 FROM users u 
                 LEFT JOIN student_profiles sp ON u.id = sp.user_id 
+                LEFT JOIN batches b ON sp.batch_id = b.id
                 WHERE {where_clause}
             """, *params) or 0
 
@@ -396,6 +412,7 @@ async def participants(
                     "scope": scope,
                     "filters": {
                         "batches": [{"id": str(b["id"]), "name": b["name"]} for b in batch_rows],
+                        "academicYears": ["2nd Year", "3rd Year", "4th Year"],
                         "statuses": ["active", "on_hold", "completed", "dropped", "transferred"],
                         "certificateStates": ["issued", "pending", "not_eligible", "revoked"],
                         "attendanceBands": ["high", "medium", "low"],

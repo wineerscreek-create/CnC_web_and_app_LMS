@@ -187,63 +187,65 @@ export default function CoursePlayerPage() {
             )}
 
             {/* Content Navigation Tabs */}
-            <div className="flex items-center rounded-xl bg-muted p-1 border border-border text-xs w-fit">
-              <button
-                onClick={() => setActiveTab('lessons')}
-                className={`px-3.5 py-1.5 rounded-lg font-medium transition-all ${
-                  activeTab === 'lessons'
-                    ? 'bg-card shadow-xs text-foreground font-bold border border-border'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Curriculum Lessons
-              </button>
-              <button
-                onClick={() => setActiveTab('materials')}
-                className={`px-3.5 py-1.5 rounded-lg font-medium transition-all ${
-                  activeTab === 'materials'
-                    ? 'bg-card shadow-xs text-foreground font-bold border border-border'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Class Materials ({materialsQuery.data?.length ?? 0})
-              </button>
-              <button
-                onClick={() => setActiveTab('recordings')}
-                className={`px-3.5 py-1.5 rounded-lg font-medium transition-all ${
-                  activeTab === 'recordings'
-                    ? 'bg-card shadow-xs text-foreground font-bold border border-border'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Recordings ({recordingsQuery.data?.length ?? 0})
-              </button>
-              <button
-                onClick={() => setActiveTab('sessions')}
-                className={`px-3.5 py-1.5 rounded-lg font-medium transition-all ${
-                  activeTab === 'sessions'
-                    ? 'bg-card shadow-xs text-foreground font-bold border border-border'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Live Classes &amp; Meetings ({sessionsQuery.data?.length ?? 0})
-              </button>
-              <button
-                onClick={() => setActiveTab('feedback')}
-                className={`px-3.5 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
-                  activeTab === 'feedback'
-                    ? 'bg-card shadow-xs text-foreground font-bold border border-border'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <span>Course Feedback</span>
-                {gateQuery.data?.feedbackRequired && (
-                  <span className="size-2 rounded-full bg-amber-500 animate-pulse" title="Feedback required for completion" />
-                )}
-                {gateQuery.data?.hasFinalFeedback && (
-                  <CheckCircle2 className="size-3 text-emerald-500" />
-                )}
-              </button>
+            <div className="w-full overflow-x-auto scroll-thin pb-1">
+              <div className="flex items-center rounded-xl bg-muted p-1 border border-border text-xs w-max min-w-full sm:w-fit">
+                <button
+                  onClick={() => setActiveTab('lessons')}
+                  className={`px-3.5 py-1.5 rounded-lg font-medium transition-all whitespace-nowrap shrink-0 ${
+                    activeTab === 'lessons'
+                      ? 'bg-card shadow-xs text-foreground font-bold border border-border'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Curriculum Lessons
+                </button>
+                <button
+                  onClick={() => setActiveTab('materials')}
+                  className={`px-3.5 py-1.5 rounded-lg font-medium transition-all whitespace-nowrap shrink-0 ${
+                    activeTab === 'materials'
+                      ? 'bg-card shadow-xs text-foreground font-bold border border-border'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Class Materials ({materialsQuery.data?.length ?? 0})
+                </button>
+                <button
+                  onClick={() => setActiveTab('recordings')}
+                  className={`px-3.5 py-1.5 rounded-lg font-medium transition-all whitespace-nowrap shrink-0 ${
+                    activeTab === 'recordings'
+                      ? 'bg-card shadow-xs text-foreground font-bold border border-border'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Recordings ({recordingsQuery.data?.length ?? 0})
+                </button>
+                <button
+                  onClick={() => setActiveTab('sessions')}
+                  className={`px-3.5 py-1.5 rounded-lg font-medium transition-all whitespace-nowrap shrink-0 ${
+                    activeTab === 'sessions'
+                      ? 'bg-card shadow-xs text-foreground font-bold border border-border'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Live Classes &amp; Meetings ({sessionsQuery.data?.length ?? 0})
+                </button>
+                <button
+                  onClick={() => setActiveTab('feedback')}
+                  className={`px-3.5 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                    activeTab === 'feedback'
+                      ? 'bg-card shadow-xs text-foreground font-bold border border-border'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <span>Course Feedback</span>
+                  {gateQuery.data?.feedbackRequired && (
+                    <span className="size-2 rounded-full bg-amber-500 animate-pulse" title="Feedback required for completion" />
+                  )}
+                  {gateQuery.data?.hasFinalFeedback && (
+                    <CheckCircle2 className="size-3 text-emerald-500" />
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Mandatory Course Completion Gating Banner */}

@@ -1,6 +1,6 @@
 'use client';
 
-import { Bell, CheckCheck, HelpCircle, LogOut, Monitor, Settings, User } from 'lucide-react';
+import { Bell, Camera, CheckCheck, HelpCircle, LogOut, Monitor, Settings, User } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import * as React from 'react';
@@ -23,6 +23,7 @@ import { ROLE_LABEL, type Role } from '@/lib/roleRoutes';
 import { useAppDispatch } from '@/store';
 import { signOut, signOutEverywhere, type SessionUser } from '@/store/authSlice';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { ProfileAvatarUploadModal } from './ProfileAvatarUploadModal';
 
 export function NotificationMenu() {
   const [open, setOpen] = React.useState(false);
@@ -133,6 +134,7 @@ export function NotificationMenu() {
 export function ProfileMenu({ user }: { user: SessionUser }) {
   const dispatch = useAppDispatch();
   const router = useRouter();
+  const [avatarModalOpen, setAvatarModalOpen] = React.useState(false);
 
   const leave = async (everywhere: boolean) => {
     await dispatch(everywhere ? signOutEverywhere() : signOut());
@@ -142,64 +144,76 @@ export function ProfileMenu({ user }: { user: SessionUser }) {
   const settingsHref = user.role === 'STUDENT' ? '/student/settings' : `/${user.role.toLowerCase()}/profile`;
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        aria-label="Account menu"
-        className="flex items-center gap-2 rounded-full border border-border bg-card p-[3px] pr-2.5 text-foreground hover:bg-muted transition-all active:scale-95 shadow-xs"
-      >
-        <Avatar name={user.name} color={user.avatarColor} size={26} />
-        <span className="hidden min-w-0 text-left sm:block">
-          <span className="block truncate text-sm font-semibold leading-tight text-foreground">{user.name}</span>
-          <span className="block truncate text-2xs text-muted-foreground">
-            {ROLE_LABEL[user.role as Role]}
-          </span>
-        </span>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuLabel>
-          <span className="block font-semibold text-foreground text-sm">{user.name}</span>
-          <span className="block text-xs text-muted-foreground">{user.email}</span>
-          {user.departmentName && (
-            <span className="mt-1 block text-2xs text-muted-foreground">
-              {user.collegeName} › {user.departmentName}
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label="Account menu"
+          className="flex items-center gap-2 rounded-full border border-border bg-card p-[3px] pr-2.5 text-foreground hover:bg-muted transition-all active:scale-95 shadow-xs"
+        >
+          <Avatar name={user.name} color={user.avatarColor} src={user.avatarUrl} size={26} />
+          <span className="hidden min-w-0 text-left sm:block">
+            <span className="block truncate text-sm font-semibold leading-tight text-foreground">{user.name}</span>
+            <span className="block truncate text-2xs text-muted-foreground">
+              {ROLE_LABEL[user.role as Role]}
             </span>
+          </span>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuLabel>
+            <span className="block font-semibold text-foreground text-sm">{user.name}</span>
+            <span className="block text-xs text-muted-foreground">{user.email}</span>
+            {user.departmentName && (
+              <span className="mt-1 block text-2xs text-muted-foreground">
+                {user.collegeName} › {user.departmentName}
+              </span>
+            )}
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => setAvatarModalOpen(true)}>
+            <Camera aria-hidden />
+            Change profile photo
+          </DropdownMenuItem>
+          <div className="px-1 py-0.5">
+            <ThemeToggle variant="menu-item" />
+          </div>
+          <DropdownMenuSeparator />
+          {user.role === 'STUDENT' && (
+            <DropdownMenuItem asChild>
+              <Link href="/student/profile">
+                <User aria-hidden />
+                My profile &amp; plan
+              </Link>
+            </DropdownMenuItem>
           )}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <div className="px-1 py-0.5">
-          <ThemeToggle variant="menu-item" />
-        </div>
-        <DropdownMenuSeparator />
-        {user.role === 'STUDENT' && (
           <DropdownMenuItem asChild>
-            <Link href="/student/profile">
-              <User aria-hidden />
-              My profile &amp; plan
+            <Link href={settingsHref}>
+              <Settings aria-hidden />
+              Settings
             </Link>
           </DropdownMenuItem>
-        )}
-        <DropdownMenuItem asChild>
-          <Link href={settingsHref}>
-            <Settings aria-hidden />
-            Settings
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href="/contact">
-            <HelpCircle aria-hidden />
-            Help &amp; support
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => leave(true)}>
-          <Monitor aria-hidden />
-          Sign out of all devices
-        </DropdownMenuItem>
-        <DropdownMenuItem tone="danger" onSelect={() => leave(false)}>
-          <LogOut aria-hidden />
-          Sign out
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          <DropdownMenuItem asChild>
+            <Link href="/contact">
+              <HelpCircle aria-hidden />
+              Help &amp; support
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => leave(true)}>
+            <Monitor aria-hidden />
+            Sign out of all devices
+          </DropdownMenuItem>
+          <DropdownMenuItem tone="danger" onSelect={() => leave(false)}>
+            <LogOut aria-hidden />
+            Sign out
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <ProfileAvatarUploadModal
+        open={avatarModalOpen}
+        onClose={() => setAvatarModalOpen(false)}
+        user={user}
+      />
+    </>
   );
 }

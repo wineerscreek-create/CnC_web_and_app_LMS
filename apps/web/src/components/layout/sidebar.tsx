@@ -9,7 +9,7 @@ import { Avatar } from '@/components/ui/misc';
 import { CNCLogo } from '@/components/ui/CNCLogo';
 import { cn } from '@/lib/cn';
 import { NAVIGATION, PORTAL_SUBTITLE } from '@/lib/nav';
-import { ROLE_LABEL, type Role } from '@/lib/roleRoutes';
+import { ROLE_LABEL, getRoleHome, type Role } from '@/lib/roleRoutes';
 import type { SessionUser } from '@/store/authSlice';
 
 export function Sidebar({
@@ -71,7 +71,7 @@ export function Sidebar({
         <div className="flex flex-col gap-2.5 px-2 pb-4 border-b border-border">
           <div className="flex items-center justify-between">
             <Link
-              href={user.home || '/'}
+              href={getRoleHome(user)}
               className="flex items-center overflow-hidden"
               aria-label="SkillSharp home"
             >
@@ -190,7 +190,7 @@ export function Sidebar({
               collapsed && 'justify-center p-2',
             )}
           >
-            <Avatar name={user.name} size={collapsed ? 28 : 32} />
+            <Avatar name={user.name} color={user.avatarColor} src={user.avatarUrl} size={collapsed ? 28 : 32} />
             {!collapsed && (
               <div className="min-w-0 flex-1">
                 <span className="block truncate text-xs font-bold text-foreground">

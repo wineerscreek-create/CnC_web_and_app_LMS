@@ -452,8 +452,7 @@ async def super_admin_institution_control_center(
 ) -> dict[str, Any]:
     """Provides complete 15-section Control Center data for College or Corporate institution."""
     from app.repositories.control_center_repo import ControlCenterRepository
-    inst_uuid = UUID(str(institution_id))
-    res = await ControlCenterRepository.get_institution_control_center(inst_uuid)
+    res = await ControlCenterRepository.get_institution_control_center(institution_id)
     return res
 
 

@@ -1,6 +1,7 @@
 'use client';
 
-import { AlertTriangle, Inbox, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CloudOff, Download, Inbox, RefreshCw, WifiOff } from 'lucide-react';
+import Link from 'next/link';
 import * as React from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -123,6 +124,17 @@ export function EmptyState({
   );
 }
 
+function formatSyncTime(isoString?: string | null): string {
+  if (!isoString) return '';
+  try {
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return '';
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
 export function ErrorState({
   error,
   onRetry,
@@ -134,6 +146,50 @@ export function ErrorState({
 }) {
   const apiError = error as ApiError | undefined;
   const isScope = apiError?.code === 'SCOPE_FORBIDDEN' || apiError?.code === 'ROLE_FORBIDDEN';
+  const isOffline =
+    apiError?.status === 0 ||
+    apiError?.code === 'NETWORK_ERROR' ||
+    (typeof navigator !== 'undefined' && !navigator.onLine);
+
+  if (isOffline) {
+    return (
+      <div
+        role="alert"
+        className={cn(
+          'flex flex-col items-center rounded-2xl border border-amber-500/30 bg-amber-500/10 px-6 py-12 text-center',
+          className,
+        )}
+      >
+        <div className="mb-3.5 flex size-11 items-center justify-center rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400">
+          <WifiOff className="size-5" aria-hidden />
+        </div>
+        <p className="text-md font-bold text-heading">You are currently offline</p>
+        <p className="mt-1.5 max-w-md text-base text-muted-foreground">
+          {error?.message &&
+          !error.message.includes('reach the server') &&
+          !error.message.includes('Failed to fetch') &&
+          !error.message.includes('Something went wrong')
+            ? error.message
+            : "This page hasn't been cached for offline use yet. Reconnect to the internet to load this content, or access your downloaded materials."}
+        </p>
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+          {onRetry && (
+            <Button variant="secondary" size="sm" onClick={onRetry}>
+              <RefreshCw className="mr-1.5 size-3.5" aria-hidden />
+              Try again
+            </Button>
+          )}
+          <Link href="/student/offline">
+            <Button variant="secondary" size="sm">
+              <Download className="mr-1.5 size-3.5" aria-hidden />
+              Downloaded Content
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       role="alert"
@@ -166,7 +222,7 @@ export function ErrorState({
 
 /**
  * One wrapper for the loading → error → empty → content decision, so no screen can forget a
- * state. `isEmpty` is opt-in because "empty" means something different per screen.
+ * state. Displays offline cached banner when data is rendered from the local offline-first cache.
  */
 export function AsyncSection<T>({
   query,
@@ -175,7 +231,14 @@ export function AsyncSection<T>({
   empty,
   children,
 }: {
-  query: { data: T | null; error: ApiError | null; initialLoading: boolean; refetch: () => void };
+  query: {
+    data: T | null;
+    error: ApiError | null;
+    initialLoading: boolean;
+    refetch: () => void;
+    isFromCache?: boolean;
+    lastSyncedAt?: string | null;
+  };
   skeleton?: React.ComponentProps<typeof LoadingSkeleton>['variant'];
   isEmpty?: (data: T) => boolean;
   empty?: React.ReactNode;
@@ -185,5 +248,34 @@ export function AsyncSection<T>({
   if (query.error) return <ErrorState error={query.error} onRetry={query.refetch} />;
   if (!query.data) return <>{empty ?? <EmptyState title="Nothing to show yet" />}</>;
   if (isEmpty?.(query.data)) return <>{empty ?? <EmptyState title="Nothing to show yet" />}</>;
-  return <>{children(query.data)}</>;
+
+  return (
+    <>
+      {query.isFromCache && (
+        <div
+          role="status"
+          className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-900 dark:text-amber-200"
+        >
+          <div className="flex items-center gap-2">
+            <CloudOff className="size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+            <span>
+              Viewing offline data
+              {query.lastSyncedAt ? ` (synced ${formatSyncTime(query.lastSyncedAt)})` : ''}.
+              Reconnect to refresh.
+            </span>
+          </div>
+          {query.refetch && (
+            <button
+              type="button"
+              onClick={() => query.refetch()}
+              className="font-medium underline hover:text-amber-700 dark:hover:text-amber-300"
+            >
+              Refresh
+            </button>
+          )}
+        </div>
+      )}
+      {children(query.data)}
+    </>
+  );
 }

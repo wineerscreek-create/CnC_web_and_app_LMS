@@ -2,6 +2,41 @@ import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/tool
 
 import { ApiError, api, setAccessToken } from '@/lib/api';
 import type { Role } from '@/lib/roleRoutes';
+import { purgeUserOfflineData, setActiveSessionMeta, setCurrentActiveUserId } from '@/lib/offline/db';
+
+const SESSION_STORAGE_KEY = 'winners_creek_cached_session';
+
+function getStoredOfflineUser(): SessionUser | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as SessionUser;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredOfflineUser(user: SessionUser | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (user) {
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
+      setActiveSessionMeta({
+        userId: user.id,
+        institutionId: user.institutionId || user.collegeId || null,
+        role: user.role,
+      });
+      setCurrentActiveUserId(user.id);
+    } else {
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+      setActiveSessionMeta(null);
+      setCurrentActiveUserId(null);
+    }
+  } catch {
+    // Ignore storage quota/security errors
+  }
+}
 
 export interface SessionUser {
   id: string;
@@ -17,6 +52,7 @@ export interface SessionUser {
   emailVerified: boolean;
   status: string;
   avatarColor?: string | null;
+  avatarUrl?: string | null;
   mustChangePassword: boolean;
   home: string;
   preferences?: Record<string, boolean>;
@@ -40,12 +76,31 @@ const initialState: AuthState = {
   signingIn: false,
 };
 
-/** Rehydrate from the HttpOnly refresh cookie on first load. */
+/** Rehydrate from the HttpOnly refresh cookie on first load, or offline cache if disconnected. */
 export const restoreSession = createAsyncThunk('auth/restore', async (_, { rejectWithValue }) => {
-  const token = await api.refresh();
-  if (!token) return rejectWithValue('anonymous');
-  const me = await api.get('/auth/me');
-  return me.data as SessionUser;
+  try {
+    const token = await api.refresh();
+    if (!token) {
+      // Offline fallback: if network is down or disconnected, allow cached session
+      const offlineUser = getStoredOfflineUser();
+      if (offlineUser) {
+        setStoredOfflineUser(offlineUser);
+        return offlineUser;
+      }
+      return rejectWithValue('anonymous');
+    }
+    const me = await api.get('/auth/me');
+    const user = me.data as SessionUser;
+    setStoredOfflineUser(user);
+    return user;
+  } catch (err) {
+    const offlineUser = getStoredOfflineUser();
+    if (offlineUser) {
+      setStoredOfflineUser(offlineUser);
+      return offlineUser;
+    }
+    return rejectWithValue('anonymous');
+  }
 });
 
 export const signIn = createAsyncThunk(
@@ -59,13 +114,20 @@ export const signIn = createAsyncThunk(
       if (!response.success) {
         return rejectWithValue({
           message: response.message || 'Sign-in failed',
+          verificationRequired: response.data?.verificationRequired,
+          email: response.data?.email,
         });
       }
       setAccessToken(response.data.accessToken);
       return response.data.user as SessionUser;
     } catch (error) {
       const apiError = error as ApiError;
-      return rejectWithValue({ message: apiError.message, code: apiError.code });
+      return rejectWithValue({
+        message: apiError.message,
+        code: apiError.code,
+        verificationRequired: (apiError as any).data?.verificationRequired,
+        email: (apiError as any).data?.email,
+      });
     }
   },
 );
@@ -91,6 +153,10 @@ const authSlice = createSlice({
   initialState,
   reducers: {
     sessionExpired(state) {
+      if (state.user?.id) {
+        purgeUserOfflineData(state.user.id).catch(() => {});
+      }
+      setStoredOfflineUser(null);
       state.status = 'anonymous';
       state.user = null;
       setAccessToken(null);
@@ -99,7 +165,10 @@ const authSlice = createSlice({
       state.error = null;
     },
     userUpdated(state, action: PayloadAction<Partial<SessionUser>>) {
-      if (state.user) state.user = { ...state.user, ...action.payload };
+      if (state.user) {
+        state.user = { ...state.user, ...action.payload };
+        setStoredOfflineUser(state.user);
+      }
     },
   },
   extraReducers: (builder) => {
@@ -110,6 +179,7 @@ const authSlice = createSlice({
       .addCase(restoreSession.fulfilled, (state, action) => {
         state.status = 'authenticated';
         state.user = action.payload;
+        setStoredOfflineUser(action.payload);
       })
       .addCase(restoreSession.rejected, (state) => {
         state.status = 'anonymous';
@@ -123,6 +193,7 @@ const authSlice = createSlice({
         state.signingIn = false;
         state.status = 'authenticated';
         state.user = action.payload;
+        setStoredOfflineUser(action.payload);
         state.error = null;
       })
       .addCase(signIn.rejected, (state, action) => {
@@ -131,10 +202,18 @@ const authSlice = createSlice({
         state.error = (action.payload as { message?: string })?.message ?? 'Sign-in failed';
       })
       .addCase(signOut.fulfilled, (state) => {
+        if (state.user?.id) {
+          purgeUserOfflineData(state.user.id).catch(() => {});
+        }
+        setStoredOfflineUser(null);
         state.status = 'anonymous';
         state.user = null;
       })
       .addCase(signOutEverywhere.fulfilled, (state) => {
+        if (state.user?.id) {
+          purgeUserOfflineData(state.user.id).catch(() => {});
+        }
+        setStoredOfflineUser(null);
         state.status = 'anonymous';
         state.user = null;
       });

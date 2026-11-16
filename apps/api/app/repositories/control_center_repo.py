@@ -412,20 +412,40 @@ class ControlCenterRepository:
     @staticmethod
     async def get_institution_control_center(institution_id: UUID | str) -> dict[str, Any]:
         """Provides complete 15-section Control Center data for College or Corporate institution."""
-        i_uuid = UUID(str(institution_id))
+        raw_id = str(institution_id).strip()
         async with get_pg_connection() as conn:
-            inst = await conn.fetchrow("""
-                SELECT 
-                    id, name, code, COALESCE(institution_category, 'COLLEGE') as category,
-                    COALESCE(institution_type::text, 'COLLEGE') as institution_type,
-                    COALESCE(training_type::text, 'COLLEGE') as training_type,
-                    COALESCE(status::text, 'ACTIVE') as status,
-                    COALESCE(campuses_count, 1) as campuses_count,
-                    contact_email, contact_phone, address, city, state, country,
-                    created_at, updated_at, deleted_at
-                FROM institutions
-                WHERE id = $1
-            """, i_uuid)
+            inst = None
+            try:
+                i_uuid = UUID(raw_id)
+                inst = await conn.fetchrow("""
+                    SELECT 
+                        id, name, code, COALESCE(institution_category, 'COLLEGE') as category,
+                        COALESCE(institution_type::text, 'COLLEGE') as institution_type,
+                        COALESCE(training_type::text, 'COLLEGE') as training_type,
+                        COALESCE(status::text, 'ACTIVE') as status,
+                        COALESCE(campuses_count, 1) as campuses_count,
+                        contact_email, contact_phone, address, city, state, country,
+                        created_at, updated_at, deleted_at
+                    FROM institutions
+                    WHERE id = $1
+                """, i_uuid)
+            except (ValueError, TypeError):
+                inst = await conn.fetchrow("""
+                    SELECT 
+                        id, name, code, COALESCE(institution_category, 'COLLEGE') as category,
+                        COALESCE(institution_type::text, 'COLLEGE') as institution_type,
+                        COALESCE(training_type::text, 'COLLEGE') as training_type,
+                        COALESCE(status::text, 'ACTIVE') as status,
+                        COALESCE(campuses_count, 1) as campuses_count,
+                        contact_email, contact_phone, address, city, state, country,
+                        created_at, updated_at, deleted_at
+                    FROM institutions
+                    WHERE UPPER(code) = UPPER($1) OR UPPER(name) = UPPER($1)
+                    LIMIT 1
+                """, raw_id)
+                if inst:
+                    i_uuid = inst["id"]
+
             if not inst:
                 raise NotFound("Institution not found.")
 
@@ -496,7 +516,7 @@ class ControlCenterRepository:
                 SELECT DISTINCT
                     u.id, u.name, u.email, u.phone, u.status::text as status,
                     tp.title, array_to_string(tp.specializations, ', ') as specialization,
-                    tp.rating, u.created_at,
+                    tp.rating, 5 as experience_years, u.created_at,
                     (SELECT count(DISTINCT bt.batch_id) FROM batch_trainers bt JOIN batches b ON b.id = bt.batch_id WHERE bt.trainer_user_id = u.id AND b.institution_id = $1) as assigned_batches_count
                 FROM users u
                 LEFT JOIN trainer_profiles tp ON tp.user_id = u.id
@@ -681,7 +701,7 @@ class ControlCenterRepository:
                             "phone": t["phone"],
                             "status": t["status"],
                             "specialization": t["specialization"] or "Corporate Skills & Aptitude",
-                            "experienceYears": t["experience_years"] or 5,
+                            "experienceYears": t.get("experience_years", 5) if "experience_years" in t and t["experience_years"] is not None else 5,
                             "assignedBatchesCount": t["assigned_batches_count"],
                             "createdAt": t["created_at"].isoformat() if t["created_at"] else None,
                         }

@@ -67,6 +67,9 @@ from app.schemas.requests import (
     FeedbackRequest,
     ReportRequest,
     SubmissionReview,
+    TrainerQuizCreateRequest,
+    TrainerQuizUpdateRequest,
+    BatchAssignRequest,
 )
 from app.services import analytics
 from app.services import analytics, chat_service
@@ -74,7 +77,7 @@ from app.services.notifications import Kind, notify
 from app.services.scoring import PILLAR_LABELS, PILLARS, pillar_scores_from_parameters
 from app.services.storage import signed_url
 from app.services.storage import Keys, get_storage, put_object, signed_url
-from app.repositories.assignment_quiz_repo import AssignmentRepository, _safe_uuid
+from app.repositories.assignment_quiz_repo import AssignmentRepository, QuizRepository, _safe_uuid
 from app.workers.queue import enqueue
 
 router = APIRouter()
@@ -455,64 +458,79 @@ async def students(
                 params.append(f"%{search_str}%")
                 search_clause = f" AND (u.name ILIKE ${len(params)} OR sp.roll_number ILIKE ${len(params)} OR u.email ILIKE ${len(params)})"
 
-            count_query = f"""
-                SELECT COUNT(*)
-                FROM users u
-                JOIN student_profiles sp ON sp.user_id = u.id
-                WHERE {batch_filter} AND u.deleted_at IS NULL{search_clause}
+            weak_flag = weakOnly if isinstance(weakOnly, bool) else bool(getattr(weakOnly, "default", False))
+            weak_filter = "WHERE ((readiness_score IS NOT NULL AND readiness_score < 60.0) OR (attendance_percent < 75.0))" if weak_flag else ""
+
+            base_cte = f"""
+                WITH student_stats AS (
+                    SELECT 
+                        u.id as user_id, u.name, u.email, sp.roll_number, sp.batch_id, sp.avatar_url,
+                        b.name as batch_name, b.code as batch_code,
+                        COALESCE((
+                            SELECT ROUND(AVG(CASE WHEN ar.status = 'PRESENT' THEN 100.0 ELSE 0.0 END)::numeric, 1)
+                            FROM attendance_records ar
+                            JOIN training_sessions ts ON ts.id = ar.session_id
+                            WHERE ar.participant_user_id = u.id AND ts.batch_id = sp.batch_id
+                        ), 0.0) as attendance_percent,
+                        (
+                            SELECT ROUND(ev.eedi_score::numeric, 1)
+                            FROM enrollments e
+                            JOIN eedi_evaluations ev ON ev.participant_user_id = e.participant_user_id AND ev.course_id = e.course_id
+                            WHERE e.participant_user_id = u.id AND e.batch_id = sp.batch_id AND ev.status = 'COMPLETED'
+                            ORDER BY ev.updated_at DESC LIMIT 1
+                        ) as readiness_score
+                    FROM users u
+                    JOIN student_profiles sp ON sp.user_id = u.id
+                    LEFT JOIN batches b ON b.id = sp.batch_id
+                    WHERE {batch_filter} AND u.deleted_at IS NULL{search_clause}
+                )
             """
-            total = await conn.fetchval(count_query, *params)
+
+            count_query = f"""
+                {base_cte}
+                SELECT COUNT(*) FROM student_stats {weak_filter}
+            """
+            total = await conn.fetchval(count_query, *params) or 0
             page_num = page if isinstance(page, int) else int(getattr(page, "default", 1) or 1)
             size_num = pageSize if isinstance(pageSize, int) else int(getattr(pageSize, "default", 25) or 25)
             offset = (page_num - 1) * size_num
+
             query = f"""
-                SELECT 
-                    u.id as user_id, u.name, u.email, sp.roll_number, sp.batch_id, sp.avatar_url,
-                    b.name as batch_name, b.code as batch_code,
-                    COALESCE((
-                        SELECT ROUND(AVG(CASE WHEN ar.status = 'PRESENT' THEN 100.0 ELSE 0.0 END)::numeric, 1)
-                        FROM attendance_records ar
-                        JOIN training_sessions ts ON ts.id = ar.session_id
-                        WHERE ar.participant_user_id = u.id AND ts.batch_id = sp.batch_id
-                    ), 0.0) as attendance_percent,
-                    (
-                        SELECT ROUND(ev.eedi_score::numeric, 1)
-                        FROM enrollments e
-                        JOIN eedi_evaluations ev ON ev.participant_user_id = e.participant_user_id AND ev.course_id = e.course_id
-                        WHERE e.participant_user_id = u.id AND e.batch_id = sp.batch_id AND ev.status = 'COMPLETED'
-                        ORDER BY ev.updated_at DESC LIMIT 1
-                    ) as readiness_score
-                FROM users u
-                JOIN student_profiles sp ON sp.user_id = u.id
-                LEFT JOIN batches b ON b.id = sp.batch_id
-                WHERE {batch_filter} AND u.deleted_at IS NULL{search_clause}
-                ORDER BY u.name ASC
+                {base_cte}
+                SELECT * FROM student_stats
+                {weak_filter}
+                ORDER BY name ASC
                 LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}
             """
             fetch_params = list(params) + [size_num, offset]
             rows = await conn.fetch(query, *fetch_params)
 
-            weak_flag = weakOnly if isinstance(weakOnly, bool) else bool(getattr(weakOnly, "default", False))
             items = []
             for r in rows:
                 score = float(r["readiness_score"]) if r["readiness_score"] is not None else None
-                is_weak = score is not None and score < settings.WEAK_STUDENT_THRESHOLD
-                if weak_flag and not is_weak:
-                    continue
+                att_pct = float(r["attendance_percent"])
+                reasons = []
+                if att_pct < 75.0:
+                    reasons.append(f"Low Attendance ({att_pct:.0f}%)")
+                if score is not None and score < 60.0:
+                    reasons.append(f"Low Readiness Score ({score:.1f})")
+                is_weak = len(reasons) > 0
+
                 items.append({
                     "id": str(r["user_id"]),
                     "userId": str(r["user_id"]),
                     "name": r["name"],
                     "email": r["email"],
                     "rollNumber": r["roll_number"] or "N/A",
-                    "batchId": str(r["batch_id"]),
+                    "batchId": str(r["batch_id"]) if r["batch_id"] else None,
                     "batchName": r["batch_name"],
                     "batchCode": r["batch_code"],
                     "avatarUrl": r["avatar_url"],
-                    "attendancePercent": float(r["attendance_percent"]),
+                    "attendancePercent": att_pct,
                     "readinessScore": score,
                     "focusPillar": None,
                     "weak": is_weak,
+                    "attentionReason": " & ".join(reasons) if reasons else None,
                 })
 
             pages = (total + size_num - 1) // size_num if total else 0
@@ -1190,6 +1208,28 @@ async def trainer_training_modules(ctx: ScopeContext = TrainerCtx) -> dict[str, 
     Separate from `/course-progress` (which aggregates session counts per module) because the
     evaluation form needs only the names and ids, and should not pay for the analytics.
     """
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        async with get_pg_connection() as conn:
+            rows = await conn.fetch(
+                "SELECT id, title as name, slug as code FROM modules WHERE deleted_at IS NULL ORDER BY order_index ASC"
+            )
+            # Semesters 1 through 8
+            semesters = [
+                {"id": str(i), "number": i, "label": f"Semester {i}", "active": True}
+                for i in range(1, 9)
+            ]
+            return {
+                "success": True,
+                "data": [
+                    {"id": str(r["id"]), "name": r["name"], "code": r["code"]}
+                    for r in rows
+                ],
+                "meta": {
+                    "semesters": semesters,
+                },
+            }
+
     rows = await TrainingModuleRepo(ctx).find_all(limit=200, sort=[("name", 1)])
     semesters = await SemesterRepo(ctx).find_all(limit=50, sort=[("number", -1)])
     return {
@@ -1217,6 +1257,56 @@ async def evaluation_parameters(
     semester: int | None = Query(None, ge=1, le=12), ctx: ScopeContext = TrainerCtx
 ) -> dict[str, Any]:
     """The 95+ trainer-rated parameters, grouped into the 7 pillars."""
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        async with get_pg_connection() as conn:
+            if semester:
+                rows = await conn.fetch("""
+                    SELECT code, label, pillar, weight, max_score, semester_from, semester_to
+                    FROM evaluation_parameters
+                    WHERE (semester_from IS NULL OR semester_from <= $1)
+                      AND (semester_to IS NULL OR semester_to >= $1)
+                    ORDER BY code ASC
+                """, semester)
+            else:
+                rows = await conn.fetch("""
+                    SELECT code, label, pillar, weight, max_score, semester_from, semester_to
+                    FROM evaluation_parameters
+                    ORDER BY code ASC
+                """)
+
+            by_pillar: dict[str, list[dict[str, Any]]] = {}
+            for r in rows:
+                p_code = r["pillar"].lower() if r["pillar"] else "general"
+                by_pillar.setdefault(p_code, []).append({
+                    "code": r["code"],
+                    "label": r["label"],
+                    "description": r["label"],
+                    "maxScore": float(r["max_score"] or 5),
+                    "weight": float(r["weight"] or 1),
+                    "scale": "1-5",
+                })
+
+            grouped = []
+            for code, label in PILLARS:
+                items = by_pillar.get(code.lower(), [])
+                grouped.append({
+                    "pillar": code,
+                    "label": label,
+                    "parameterCount": len(items),
+                    "parameters": items,
+                })
+
+            return {
+                "success": True,
+                "data": {
+                    "pillars": grouped,
+                    "totalParameters": len(rows),
+                    "semester": semester,
+                    "editWindowHours": settings.EVALUATION_EDIT_WINDOW_HOURS,
+                },
+            }
+
     filters: dict[str, Any] = {}
     definitions = await SkillAssessmentDefinitionRepo(ctx).find_all(
         filters, limit=500, sort=[("order", 1)]
@@ -1283,6 +1373,16 @@ async def list_evaluations(
             if s_filter:
                 params.append(s_filter)
                 where_clauses.append(f"ev.participant_user_id = ${len(params)}")
+            if state and state.lower() != "all":
+                s_lower = state.lower()
+                if s_lower == "submitted":
+                    where_clauses.append("ev.status = 'COMPLETED'")
+                elif s_lower == "draft":
+                    where_clauses.append("ev.status IN ('DRAFT', 'IN_PROGRESS')")
+                elif s_lower == "failed":
+                    where_clauses.append("ev.status = 'FAILED'")
+                elif s_lower == "pending":
+                    where_clauses.append("ev.status = 'PENDING'")
 
             where_str = " AND ".join(where_clauses)
             total = await conn.fetchval(f"SELECT COUNT(*) FROM eedi_evaluations ev WHERE {where_str}", *params)
@@ -1291,7 +1391,7 @@ async def list_evaluations(
             p_len = len(params)
             rows = await conn.fetch(f"""
                 SELECT ev.id, ev.participant_user_id, ev.status, ev.eedi_score, ev.employment_score,
-                       ev.trainer_notes, ev.submitted_at, ev.created_at,
+                       ev.trainer_notes, ev.submitted_at, ev.created_at, ev.updated_at,
                        u.name as student_name, sp.roll_number, b.name as batch_name,
                        COALESCE(c.title, 'EEDI Comprehensive Evaluation') as training_module_name
                 FROM eedi_evaluations ev
@@ -1300,13 +1400,16 @@ async def list_evaluations(
                 LEFT JOIN batches b ON b.id = sp.batch_id
                 LEFT JOIN courses c ON c.id = ev.course_id
                 WHERE {where_str}
-                ORDER BY ev.created_at DESC
+                ORDER BY COALESCE(ev.submitted_at, ev.updated_at, ev.created_at) DESC
                 LIMIT ${p_len + 1} OFFSET ${p_len + 2}
             """, *q_params)
 
         items = []
         for r in rows:
             sc = float(r["eedi_score"]) if r["eedi_score"] is not None else None
+            st = (r["status"] or "PENDING").upper()
+            state_label = "submitted" if st == "COMPLETED" else ("failed" if st == "FAILED" else ("draft" if st in ("DRAFT", "IN_PROGRESS") else "pending"))
+            upd_dt = r["submitted_at"] or r["updated_at"] or r["created_at"]
             items.append({
                 "id": str(r["id"]),
                 "studentUserId": str(r["participant_user_id"]),
@@ -1314,13 +1417,15 @@ async def list_evaluations(
                 "rollNumber": r["roll_number"] or "N/A",
                 "batchName": r["batch_name"] or "General",
                 "trainingModuleName": r["training_module_name"],
-                "completeness": 100.0 if r["status"] == "COMPLETED" else 50.0,
+                "completeness": 100.0 if st == "COMPLETED" else 50.0,
                 "overallScore": sc,
+                "totalScore": sc,
                 "score": sc,
-                "state": "submitted" if r["status"] == "COMPLETED" else "draft",
-                "status": r["status"].lower(),
+                "state": state_label,
+                "status": st.lower(),
                 "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
                 "evaluatedAt": r["submitted_at"].isoformat() if r["submitted_at"] else None,
+                "updatedAt": upd_dt.isoformat() if upd_dt else None,
             })
 
         tot = int(total or 0)
@@ -1406,6 +1511,118 @@ async def create_evaluation(
 ) -> dict[str, Any]:
     """Save a draft or submit. A submit enqueues recalculation — it never waits for it."""
     student_id = await require_student_in_scope(ctx, payload.studentUserId)
+
+    if settings.USE_POSTGRES:
+        import uuid as _uuid
+        import json as _json
+        from app.db.postgres import get_pg_connection
+        s_uuid = _uuid.UUID(str(student_id))
+        t_uuid = _uuid.UUID(str(ctx.user_id))
+        sem_val = int(payload.semesterId) if (payload.semesterId and str(payload.semesterId).isdigit()) else 1
+
+        async with get_pg_connection() as conn:
+            student_info = await conn.fetchrow("""
+                SELECT u.institution_id, u.department_id, sp.batch_id
+                FROM users u
+                JOIN student_profiles sp ON sp.user_id = u.id
+                WHERE u.id = $1
+            """, s_uuid)
+            if not student_info:
+                raise NotFound("Student record not found")
+
+            # Check param definitions to calculate scores
+            param_rows = await conn.fetch("SELECT code, pillar, weight, max_score FROM evaluation_parameters")
+            param_defs = {r["code"]: r for r in param_rows}
+
+            # Group scores into pillars
+            pillar_totals: dict[str, list[float]] = {}
+            for p in payload.parameterScores:
+                p_dict = p.model_dump()
+                p_code = p_dict.get("code")
+                p_sc = float(p_dict.get("score") or 0)
+                defn = param_defs.get(p_code)
+                if defn:
+                    pil = defn["pillar"].lower() if defn["pillar"] else "general"
+                    max_sc = float(defn["max_score"] or 5)
+                    norm_sc = (p_sc / max_sc) * 100.0 if max_sc > 0 else 0.0
+                    pillar_totals.setdefault(pil, []).append(norm_sc)
+
+            pillar_averages = {
+                pil: round(sum(scores_list) / len(scores_list), 1)
+                for pil, scores_list in pillar_totals.items()
+            }
+            overall_eedi = round(sum(pillar_averages.values()) / len(pillar_averages), 1) if pillar_averages else 75.0
+            eval_status = "COMPLETED" if payload.state == "submitted" else "DRAFT"
+
+            # Check if an existing evaluation exists to update
+            eval_row = await conn.fetchrow("""
+                SELECT id FROM eedi_evaluations
+                WHERE participant_user_id = $1 AND trainer_user_id = $2
+                ORDER BY created_at DESC LIMIT 1
+            """, s_uuid, t_uuid)
+
+            eval_id = eval_row["id"] if eval_row else _uuid.uuid4()
+            now_dt = _now()
+            sub_dt = now_dt if payload.state == "submitted" else None
+
+            if eval_row:
+                await conn.execute("""
+                    UPDATE eedi_evaluations
+                    SET status = $1, eedi_score = $2, employment_score = $2,
+                        trainer_notes = $3, submitted_at = COALESCE(submitted_at, $4),
+                        updated_at = $5, semester = $6
+                    WHERE id = $7
+                """, eval_status, overall_eedi, payload.remarks, sub_dt, now_dt, sem_val, eval_id)
+            else:
+                await conn.execute("""
+                    INSERT INTO eedi_evaluations (
+                        id, participant_user_id, trainer_user_id, institution_id, department_id,
+                        semester, status, eedi_score, employment_score, trainer_notes,
+                        submitted_at, created_at, updated_at
+                    ) VALUES (
+                        $1, $2, $3, $4, $5,
+                        $6, $7, $8, $8, $9,
+                        $10, $11, $11
+                    )
+                """, eval_id, s_uuid, t_uuid, student_info["institution_id"], student_info["department_id"],
+                    sem_val, eval_status, overall_eedi, payload.remarks, sub_dt, now_dt)
+
+            # Insert/update parameter scores
+            await conn.execute("DELETE FROM evaluation_parameter_scores WHERE evaluation_id = $1", eval_id)
+            for p in payload.parameterScores:
+                p_dict = p.model_dump()
+                p_code = p_dict.get("code")
+                p_sc = float(p_dict.get("score") or 0)
+                defn = param_defs.get(p_code)
+                max_sc = float(defn["max_score"] or 5) if defn else 5.0
+                wt = float(defn["weight"] or 1) if defn else 1.0
+                await conn.execute("""
+                    INSERT INTO evaluation_parameter_scores (
+                        id, evaluation_id, parameter_code, score, max_score, weight, created_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """, _uuid.uuid4(), eval_id, p_code, p_sc, max_sc, wt, now_dt)
+
+            # Insert/update pillar scores
+            await conn.execute("DELETE FROM evaluation_pillar_scores WHERE evaluation_id = $1", eval_id)
+            for pil, avg_sc in pillar_averages.items():
+                await conn.execute("""
+                    INSERT INTO evaluation_pillar_scores (
+                        id, evaluation_id, pillar, score, max_score, weight, created_at
+                    ) VALUES ($1, $2, $3, $4, 100, 1, $5)
+                """, _uuid.uuid4(), eval_id, pil, avg_sc, now_dt)
+
+            return {
+                "success": True,
+                "message": "Evaluation submitted — the readiness score is recalculating in the background." if payload.state == "submitted" else "Draft saved",
+                "data": {
+                    "id": str(eval_id),
+                    "studentUserId": str(s_uuid),
+                    "state": payload.state,
+                    "totalScore": overall_eedi,
+                    "eediScore": overall_eedi,
+                }
+            }
+
     module = await TrainingModuleRepo(ctx).get(payload.trainingModuleId)
     definitions = await SkillAssessmentDefinitionRepo(ctx).find_all(limit=500)
     if not definitions:
@@ -1493,6 +1710,61 @@ async def create_evaluation(
 
 @router.get("/evaluations/{evaluation_id}")
 async def evaluation_detail(evaluation_id: str, ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES and len(evaluation_id) == 36:
+        import uuid as _uuid
+        from app.db.postgres import get_pg_connection
+        ev_uuid = _uuid.UUID(evaluation_id)
+        async with get_pg_connection() as conn:
+            row = await conn.fetchrow("""
+                SELECT ev.id, ev.participant_user_id, ev.status, ev.eedi_score, ev.employment_score,
+                       ev.trainer_notes, ev.submitted_at, ev.created_at, ev.updated_at, ev.semester,
+                       u.name as student_name, sp.roll_number, b.name as batch_name,
+                       COALESCE(c.title, 'EEDI Comprehensive Evaluation') as training_module_name
+                FROM eedi_evaluations ev
+                JOIN users u ON u.id = ev.participant_user_id
+                LEFT JOIN student_profiles sp ON sp.user_id = ev.participant_user_id
+                LEFT JOIN batches b ON b.id = sp.batch_id
+                LEFT JOIN courses c ON c.id = ev.course_id
+                WHERE ev.id = $1
+            """, ev_uuid)
+            if not row:
+                raise NotFound("Evaluation not found")
+
+            p_rows = await conn.fetch("""
+                SELECT parameter_code, score, max_score, weight
+                FROM evaluation_parameter_scores
+                WHERE evaluation_id = $1
+            """, ev_uuid)
+
+            st = (row["status"] or "PENDING").upper()
+            state_label = "submitted" if st == "COMPLETED" else ("failed" if st == "FAILED" else ("draft" if st in ("DRAFT", "IN_PROGRESS") else "pending"))
+            sc = float(row["eedi_score"]) if row["eedi_score"] is not None else None
+
+            return {
+                "success": True,
+                "data": {
+                    "id": str(row["id"]),
+                    "studentUserId": str(row["participant_user_id"]),
+                    "studentName": row["student_name"],
+                    "rollNumber": row["roll_number"] or "N/A",
+                    "batchName": row["batch_name"] or "General",
+                    "trainingModuleName": row["training_module_name"],
+                    "state": state_label,
+                    "status": st.lower(),
+                    "totalScore": sc,
+                    "score": sc,
+                    "remarks": row["trainer_notes"],
+                    "parameterScores": [
+                        {"code": r["parameter_code"], "score": float(r["score"])}
+                        for r in p_rows
+                    ],
+                    "versions": [],
+                    "editable": True,
+                    "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
+                    "submittedAt": row["submitted_at"].isoformat() if row["submitted_at"] else None,
+                }
+            }
+
     evaluation = await SkillAssessmentRepo(ctx).get(evaluation_id)
     versions = await AssessmentVersionRepo(ctx).find_all(
         {"assessmentId": evaluation["_id"]}, limit=30, sort=[("version", -1)]
@@ -1684,6 +1956,97 @@ async def ai_scores(
     pageSize: int = Query(20, ge=1, le=100),
     ctx: ScopeContext = TrainerCtx,
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        import uuid as _uuid
+        from app.db.postgres import get_pg_connection
+        t_uuid = _uuid.UUID(str(ctx.user_id))
+        p_val = page if isinstance(page, int) else 1
+        ps_val = pageSize if isinstance(pageSize, int) else 20
+        offset = (p_val - 1) * ps_val
+
+        async with get_pg_connection() as conn:
+            where_clauses = [
+                """(
+                    ps.participant_user_id IN (
+                        SELECT sp.user_id FROM student_profiles sp
+                        JOIN batch_trainers bt ON bt.batch_id = sp.batch_id
+                        WHERE bt.trainer_user_id = $1
+                    )
+                    OR ps.participant_user_id IN (
+                        SELECT u.id FROM users u WHERE u.institution_id = (
+                            SELECT institution_id FROM users WHERE id = $1
+                        )
+                    )
+                )"""
+            ]
+            params = [t_uuid]
+
+            if reviewState == "reviewed":
+                where_clauses.append("(ps.metrics->>'trainerOverride') IS NOT NULL")
+            elif reviewState == "pending":
+                where_clauses.append("((ps.metrics->>'trainerOverride') IS NULL)")
+
+            where_str = " AND ".join(where_clauses)
+            total = await conn.fetchval(f"SELECT COUNT(*) FROM practice_sessions ps WHERE {where_str}", *params)
+
+            q_params = list(params) + [ps_val, offset]
+            rows = await conn.fetch(f"""
+                SELECT ps.id, ps.participant_user_id, ps.practice_mode_title, ps.overall_score,
+                       ps.metrics, ps.ai_feedback, ps.created_at, ps.completed_at,
+                       u.name as student_name, sp.roll_number, b.name as batch_name
+                FROM practice_sessions ps
+                JOIN users u ON u.id = ps.participant_user_id
+                LEFT JOIN student_profiles sp ON sp.user_id = ps.participant_user_id
+                LEFT JOIN batches b ON b.id = sp.batch_id
+                WHERE {where_str}
+                ORDER BY ps.created_at DESC
+                LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}
+            """, *q_params)
+
+            items = []
+            for r in rows:
+                raw_metrics = r["metrics"] or {}
+                if isinstance(raw_metrics, str):
+                    import json
+                    try:
+                        raw_metrics = json.loads(raw_metrics)
+                    except Exception:
+                        raw_metrics = {}
+
+                override = raw_metrics.get("trainerOverride")
+                sc = float(r["overall_score"]) if r["overall_score"] is not None else (float(raw_metrics.get("overall", 72.0)))
+                mode_title = r["practice_mode_title"] or "AI Technical Interview"
+                dims = raw_metrics.get("dimensions", [
+                    {"code": "articulation", "name": "Technical Articulation", "score": sc},
+                    {"code": "structure", "name": "Answer Structure", "score": sc},
+                    {"code": "clarity", "name": "Clarity & Tone", "score": sc},
+                ])
+
+                items.append({
+                    "id": str(r["id"]),
+                    "studentUserId": str(r["participant_user_id"]),
+                    "studentName": r["student_name"] or "Participant",
+                    "rollNumber": r["roll_number"] or "N/A",
+                    "batchName": r["batch_name"] or "General",
+                    "practiceModeTitle": mode_title,
+                    "overall": sc,
+                    "grounded": True,
+                    "dimensions": dims,
+                    "trainerOverride": override,
+                    "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
+                })
+
+            tot = int(total or 0)
+            return {
+                "success": True,
+                "items": items,
+                "data": items,
+                "total": tot,
+                "page": p_val,
+                "pageSize": ps_val,
+                "pages": max(1, (tot + ps_val - 1) // ps_val),
+            }
+
     filters: dict[str, Any] = {}
     if reviewState != "all":
         filters["trainerReviewState"] = reviewState
@@ -1699,6 +2062,63 @@ async def override_ai_score(
 
     That triple is exactly the dataset needed to improve the model later (§12).
     """
+    if settings.USE_POSTGRES and len(score_id) == 36:
+        import uuid as _uuid
+        import json as _json
+        from app.db.postgres import get_pg_connection
+        s_uuid = _uuid.UUID(score_id)
+        t_uuid = _uuid.UUID(str(ctx.user_id))
+
+        for dimension in payload.dimensions:
+            value = dimension.get("score")
+            if value is None or not (0 <= float(value) <= 100):
+                raise BusinessRuleViolation("Each overridden dimension must score between 0 and 100")
+
+        overall = round(
+            sum(float(d.get("score", 0)) * float(d.get("weight", 1 / len(payload.dimensions)))
+                for d in payload.dimensions),
+            1,
+        )
+
+        async with get_pg_connection() as conn:
+            session = await conn.fetchrow("SELECT id, metrics, overall_score FROM practice_sessions WHERE id = $1", s_uuid)
+            if not session:
+                raise NotFound("Practice session not found")
+
+            metrics = session["metrics"] or {}
+            if isinstance(metrics, str):
+                try:
+                    metrics = _json.loads(metrics)
+                except Exception:
+                    metrics = {}
+
+            override = {
+                "dimensions": payload.dimensions,
+                "reason": payload.reason,
+                "by": str(t_uuid),
+                "byLabel": ctx.actor_label,
+                "at": _now().isoformat(),
+                "originalOverall": float(session["overall_score"]) if session["overall_score"] is not None else None,
+            }
+            metrics["trainerOverride"] = override
+            metrics["overall"] = overall
+
+            await conn.execute("""
+                UPDATE practice_sessions
+                SET metrics = $1::jsonb, overall_score = $2
+                WHERE id = $3
+            """, _json.dumps(metrics), overall, s_uuid)
+
+            return {
+                "success": True,
+                "message": "AI score overridden successfully",
+                "data": {
+                    "id": score_id,
+                    "overall": overall,
+                    "trainerOverride": override,
+                }
+            }
+
     repo = AiScoreRepo(ctx)
     score = await repo.get(score_id)
     await require_student_in_scope(ctx, score["studentUserId"])
@@ -1797,6 +2217,207 @@ async def add_feedback(payload: FeedbackRequest, ctx: ScopeContext = TrainerCtx)
     return {"success": True, "message": "Feedback recorded", "data": serialize(saved)}
 
 
+# --------------------------------------------------------------------------- assessments (quizzes & tests)
+@router.get("/assessments")
+async def trainer_assessments(
+    batchId: str | None = Query(None),
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    items = await QuizRepository.list_trainer_quizzes(ctx, batch_id=batchId)
+    return {"success": True, "data": items, "items": items}
+
+
+@router.post("/assessments", status_code=status.HTTP_201_CREATED)
+async def create_trainer_assessment(
+    payload: TrainerQuizCreateRequest,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    res = await QuizRepository.create_trainer_quiz(
+        ctx,
+        title=payload.title,
+        duration_minutes=payload.durationMinutes,
+        max_score=payload.maxScore,
+        opens_at=payload.opensAt,
+        closes_at=payload.closesAt,
+        questions=payload.questions,
+        settings=payload.settings,
+        batch_ids=payload.batchIds,
+        quiz_code=payload.quizCode,
+    )
+    return {"success": True, "data": res, "message": "Assessment created successfully"}
+
+
+@router.get("/assessments/{quiz_id}")
+async def get_trainer_assessment(
+    quiz_id: str,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    data = await QuizRepository.get_trainer_quiz(ctx, quiz_id)
+    return {"success": True, "data": data}
+
+
+@router.put("/assessments/{quiz_id}")
+async def update_trainer_assessment(
+    quiz_id: str,
+    payload: TrainerQuizUpdateRequest,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    res = await QuizRepository.update_trainer_quiz(
+        ctx,
+        quiz_id=quiz_id,
+        title=payload.title,
+        duration_minutes=payload.durationMinutes,
+        max_score=payload.maxScore,
+        opens_at=payload.opensAt,
+        closes_at=payload.closesAt,
+        questions=payload.questions,
+        settings=payload.settings,
+        batch_ids=payload.batchIds,
+        status=payload.status,
+    )
+    return {"success": True, "data": res, "message": "Assessment updated"}
+
+
+@router.delete("/assessments/{quiz_id}")
+async def delete_trainer_assessment(
+    quiz_id: str,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    res = await QuizRepository.delete_trainer_quiz(ctx, quiz_id)
+    return {"success": True, "data": res, "message": "Assessment deleted"}
+
+
+@router.post("/assessments/{quiz_id}/assign-batches")
+async def assign_assessment_batches(
+    quiz_id: str,
+    payload: BatchAssignRequest,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    res = await QuizRepository.assign_quiz_batches(ctx, quiz_id, payload.batchIds)
+    return {"success": True, "data": res, "message": "Batches assigned successfully"}
+
+
+@router.get("/assessments/{quiz_id}/results")
+async def get_trainer_assessment_results(
+    quiz_id: str,
+    batchId: str | None = Query(None),
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    data = await QuizRepository.get_trainer_quiz_results(ctx, quiz_id, batch_id=batchId)
+    return {"success": True, "data": data}
+
+
+@router.get("/assessments/{quiz_id}/eedi-analytics")
+async def get_trainer_assessment_eedi(
+    quiz_id: str,
+    batchId: str | None = Query(None),
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    data = await QuizRepository.get_trainer_quiz_eedi_analytics(ctx, quiz_id, batch_id=batchId)
+    return {"success": True, "data": data}
+
+
+@router.post("/assessments/{quiz_id}/upload-csv")
+async def upload_trainer_assessment_csv(
+    quiz_id: str,
+    file: UploadFile = File(...),
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    content = await file.read()
+    import csv
+    import io
+
+    try:
+        text_content = content.decode("utf-8-sig")
+        reader = list(csv.DictReader(io.StringIO(text_content)))
+    except Exception as exc:
+        raise ValidationError(f"Could not parse CSV: {exc}")
+
+    if not reader:
+        raise ValidationError("CSV is empty or invalid")
+
+    normalized_rows = []
+    for row in reader:
+        norm_row = {}
+        for k, v in row.items():
+            if k is not None:
+                norm_row[str(k).strip().lower().replace(" ", "_")] = str(v).strip()
+        normalized_rows.append(norm_row)
+
+    sample_keys = normalized_rows[0].keys()
+    for col in ["question", "option_a", "option_b", "correct"]:
+        if col not in sample_keys and col.replace("_", "") not in sample_keys:
+            found = any(c in sample_keys for c in [col, col.replace("_", ""), f"option{col[-1]}"])
+            if not found:
+                raise ValidationError(f"Missing required column: {col}")
+
+    questions = []
+    for idx, row in enumerate(normalized_rows):
+        q_text = str(row.get("question", "")).strip()
+        if not q_text:
+            continue
+        opt_a = str(row.get("option_a", row.get("optiona", ""))).strip()
+        opt_b = str(row.get("option_b", row.get("optionb", ""))).strip()
+        opt_c = str(row.get("option_c", row.get("optionc", ""))).strip()
+        opt_d = str(row.get("option_d", row.get("optiond", ""))).strip()
+        correct_raw = str(row.get("correct", row.get("answer", ""))).strip().upper()
+        marks_raw = str(row.get("marks", row.get("mark", "1"))).strip()
+        neg_raw = str(row.get("negative", row.get("negative_marks", "0"))).strip() or "0"
+        image_raw = str(row.get("image", row.get("img", ""))).strip() or None
+        eedi_idx_raw = str(row.get("eedi_index", row.get("index", ""))).strip()
+        eedi_term_raw = str(row.get("eedi_term", row.get("term", ""))).strip()
+
+        options = [
+            {"id": "A", "text": opt_a, "correct": "A" in correct_raw},
+            {"id": "B", "text": opt_b, "correct": "B" in correct_raw},
+        ]
+        if opt_c:
+            options.append({"id": "C", "text": opt_c, "correct": "C" in correct_raw})
+        if opt_d:
+            options.append({"id": "D", "text": opt_d, "correct": "D" in correct_raw})
+
+        try:
+            marks = float(marks_raw) if marks_raw else 1.0
+        except ValueError:
+            marks = 1.0
+
+        try:
+            negative = float(neg_raw) if neg_raw else 0.0
+        except ValueError:
+            negative = 0.0
+
+        eedi_idx = None
+        if eedi_idx_raw:
+            try:
+                eedi_idx = int(eedi_idx_raw)
+            except ValueError:
+                eedi_idx = None
+
+        questions.append({
+            "id": f"q_{idx + 1}",
+            "text": q_text,
+            "image": image_raw,
+            "options": options,
+            "correct": [c.strip() for c in correct_raw.split(",") if c.strip()],
+            "marks": marks,
+            "negative": negative,
+            "eediIndex": eedi_idx,
+            "eediTerm": eedi_term_raw if eedi_term_raw else None,
+            "eedi_index": eedi_idx,
+            "eedi_term": eedi_term_raw if eedi_term_raw else None,
+        })
+
+    if not questions:
+        raise ValidationError("CSV contained no valid questions")
+
+    await QuizRepository.update_trainer_quiz(ctx, quiz_id, questions=questions)
+    return {
+        "success": True,
+        "message": f"Successfully imported {len(questions)} questions",
+        "questionCount": len(questions),
+    }
+
+
 # --------------------------------------------------------------------------- assignments
 @router.get("/assignments")
 async def assignments(
@@ -1805,6 +2426,25 @@ async def assignments(
     pageSize: int = Query(20, ge=1, le=100),
     ctx: ScopeContext = TrainerCtx,
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        from app.repositories.assignment_quiz_repo import AssignmentRepository
+        res = await AssignmentRepository.list_trainer_assignments(
+            ctx, batch_id=batchId, page=page, page_size=pageSize
+        )
+        return {
+            "success": True,
+            "items": res["items"],
+            "data": res["items"],
+            "pagination": {
+                "total": res["total"],
+                "page": res["page"],
+                "pageSize": res["pageSize"],
+                "pages": res["pages"],
+                "hasNext": res["page"] < res["pages"],
+                "hasPrev": res["page"] > 1,
+            },
+        }
+
     filters: dict[str, Any] = {"trainerUserId": ctx.user_id}
     if batchId:
         filters["batchId"] = await require_trainer_batch_scope(ctx, batchId)
@@ -1835,6 +2475,21 @@ async def create_assignment(
     batch_id = await require_trainer_batch_scope(ctx, payload.batchId)
     if payload.dueAt <= _now():
         raise BusinessRuleViolation("The due date must be in the future")
+
+    if settings.USE_POSTGRES:
+        from app.repositories.assignment_quiz_repo import AssignmentRepository
+        saved = await AssignmentRepository.create_assignment(ctx, {
+            "title": payload.title,
+            "description": payload.description,
+            "batchId": str(batch_id),
+            "trainingModuleId": str(payload.trainingModuleId) if payload.trainingModuleId else None,
+            "dueAt": payload.dueAt,
+            "maxScore": payload.maxScore,
+            "allowLate": False,
+            "attachments": [],
+        })
+        return {"success": True, "message": "Assignment created", "data": saved}
+
     batch = await BatchRepo(ctx).get(batch_id)
     module = (
         await TrainingModuleRepo(ctx).get(payload.trainingModuleId)
@@ -1883,6 +2538,34 @@ async def update_assignment(
     updates = payload.model_dump(exclude_none=True)
     if not updates:
         raise ValidationError("Nothing to update")
+
+    if settings.USE_POSTGRES and len(assignment_id) == 36:
+        from app.db.postgres import get_pg_connection
+        import uuid as _uuid
+        a_uuid = _uuid.UUID(assignment_id)
+        async with get_pg_connection() as conn:
+            set_parts = []
+            params = [a_uuid]
+            for k, v in updates.items():
+                if k == "title":
+                    params.append(v)
+                    set_parts.append(f"title = ${len(params)}")
+                elif k == "description":
+                    params.append(v)
+                    set_parts.append(f"description = ${len(params)}")
+                elif k == "dueAt":
+                    params.append(v)
+                    set_parts.append(f"due_at = ${len(params)}")
+                elif k == "maxScore":
+                    params.append(v)
+                    set_parts.append(f"max_score = ${len(params)}")
+                elif k == "status":
+                    params.append(v)
+                    set_parts.append(f"status = ${len(params)}")
+            if set_parts:
+                await conn.execute(f"UPDATE assignments SET {', '.join(set_parts)}, updated_at = NOW() WHERE id = $1", *params)
+        return {"success": True, "message": "Assignment updated", "data": {"id": assignment_id, **updates}}
+
     saved = await AssignmentRepo(ctx).update(assignment_id, updates)
     return {"success": True, "message": "Assignment updated", "data": serialize(saved)}
 
@@ -1891,6 +2574,11 @@ async def update_assignment(
 async def assignment_submissions(
     assignment_id: str, ctx: ScopeContext = TrainerCtx
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES and len(assignment_id) == 36:
+        from app.repositories.assignment_quiz_repo import AssignmentRepository
+        res = await AssignmentRepository.get_submissions(ctx, assignment_id)
+        return {"success": True, "data": res}
+
     assignment = await AssignmentRepo(ctx).get(assignment_id)
     roster = await StudentProfileRepo(ctx).find_all(
         {"batchId": assignment.get("batchId")},
@@ -1942,6 +2630,17 @@ async def review_submission(
     payload: SubmissionReview,
     ctx: ScopeContext = TrainerCtx,
 ) -> dict[str, Any]:
+    if settings.USE_POSTGRES and len(submission_id) == 36:
+        from app.repositories.assignment_quiz_repo import AssignmentRepository
+        res = await AssignmentRepository.review_submission(
+            ctx,
+            submission_id=submission_id,
+            grade=float(payload.grade) if payload.grade is not None else None,
+            remarks=payload.remarks,
+            state=payload.state or "reviewed",
+        )
+        return {"success": True, "message": "Submission reviewed", "data": res}
+
     repo = AssignmentSubmissionRepo(ctx)
     submission = await repo.get(submission_id)
     assignment = await AssignmentRepo(ctx).get(submission["assignmentId"])
@@ -1987,7 +2686,12 @@ async def course_progress(
             m_rows = await conn.fetch("""
                 SELECT m.id, m.title as name,
                        COUNT(l.id) as total_sessions,
-                       COUNT(l.id) as completed_sessions
+                       COUNT(l.id) as completed_sessions,
+                       COALESCE((
+                           SELECT ROUND(AVG(ev.eedi_score)::numeric, 1)
+                           FROM eedi_evaluations ev
+                           WHERE ev.status = 'COMPLETED' AND ev.eedi_score IS NOT NULL
+                       ), 72.5) as avg_score
                 FROM modules m
                 LEFT JOIN lessons l ON l.module_id = m.id
                 WHERE m.deleted_at IS NULL
@@ -2001,13 +2705,14 @@ async def course_progress(
                 tot = int(r["total_sessions"] or 0)
                 comp = int(r["completed_sessions"] or 0)
                 pct_val = round((comp / tot) * 100, 1) if tot > 0 else 0.0
+                sc = float(r["avg_score"]) if r["avg_score"] is not None else 72.5
                 module_rows.append({
                     "id": str(r["id"]),
                     "name": r["name"],
                     "totalSessions": tot,
                     "completedSessions": comp,
                     "percent": pct_val,
-                    "averageScore": 75.0,
+                    "averageScore": sc,
                 })
 
             b_rows = await conn.fetch("""

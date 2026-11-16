@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import * as React from 'react';
 
 import { PortalShell } from '@/components/layout/portal-shell';
-import { WinnersCreekLogo } from '@/components/ui/WinnersCreekLogo';
+import { SkillSharpLogo } from '@/components/ui/SkillSharpLogo';
 import { ROLE_HOME, type Role } from '@/lib/roleRoutes';
 import { useAppSelector } from '@/store';
 
@@ -47,7 +47,7 @@ export function RouteGuard({
       role="status"
       aria-label="Checking your session"
     >
-      <WinnersCreekLogo variant="full" priority />
+      <SkillSharpLogo variant="full" priority />
       <Loader2 className="size-4 animate-spin text-indigo-400" aria-hidden />
     </div>
   );

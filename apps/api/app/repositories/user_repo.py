@@ -59,7 +59,7 @@ class UserRepository:
                 SELECT u.id, u.email, u.password_hash, u.name, u.role, u.institution_id, u.department_id,
                        u.phone, u.status, u.last_login_at, u.created_at, u.email_verified,
                        u.activation_token, u.activation_token_expires_at, u.must_change_password,
-                       u.avatar_color, u.preferences,
+                       u.avatar_color, u.avatar_url, u.preferences,
                        u.reset_password_token_hash, u.reset_password_token_expires_at,
                        i.name as college_name, d.name as department_name
                 FROM users u
@@ -79,7 +79,7 @@ class UserRepository:
                 SELECT u.id, u.email, u.password_hash, u.name, u.role, u.institution_id, u.department_id,
                        u.phone, u.status, u.last_login_at, u.created_at, u.email_verified,
                        u.activation_token, u.activation_token_expires_at, u.must_change_password,
-                       u.avatar_color, u.preferences,
+                       u.avatar_color, u.avatar_url, u.preferences,
                        u.reset_password_token_hash, u.reset_password_token_expires_at,
                        i.name as college_name, d.name as department_name
                 FROM users u
@@ -101,7 +101,7 @@ class UserRepository:
                 SELECT u.id, u.email, u.password_hash, u.name, u.role, u.institution_id, u.department_id,
                        u.phone, u.status, u.last_login_at, u.created_at, u.email_verified,
                        u.activation_token, u.activation_token_expires_at, u.must_change_password,
-                       u.avatar_color, u.preferences,
+                       u.avatar_color, u.avatar_url, u.preferences,
                        u.reset_password_token_hash, u.reset_password_token_expires_at,
                        sp.roll_number,
                        i.name as college_name, d.name as department_name
@@ -394,6 +394,26 @@ class UserRepository:
                 "SELECT id, name, code FROM departments WHERE institution_id = $1 AND UPPER(code) = UPPER($2) AND deleted_at IS NULL",
                 UUID(str(institution_id)),
                 code.strip(),
+            )
+            return dict(row) if row else None
+
+    @staticmethod
+    async def get_student_by_roll_number(institution_id: UUID | str, roll_number: str) -> dict[str, Any] | None:
+        inst_uuid = _parse_uuid(institution_id)
+        if not inst_uuid or not roll_number:
+            return None
+        async with get_pg_connection() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT sp.id, sp.user_id, sp.roll_number, sp.institution_id, sp.department_id, u.email, u.name
+                FROM student_profiles sp
+                JOIN users u ON u.id = sp.user_id
+                WHERE sp.institution_id = $1
+                  AND UPPER(TRIM(sp.roll_number)) = UPPER(TRIM($2))
+                  AND u.deleted_at IS NULL
+                """,
+                inst_uuid,
+                roll_number.strip(),
             )
             return dict(row) if row else None
 

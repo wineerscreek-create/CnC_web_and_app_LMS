@@ -13,6 +13,7 @@ import {
   Building2,
   Mail,
   Send,
+  RotateCcw,
 } from 'lucide-react';
 import { CNCLogo } from '@/components/ui/CNCLogo';
 import { Button } from '@/components/ui/button';
@@ -23,14 +24,14 @@ import { toast } from 'sonner';
 const SOCIAL_LINKS = [
   {
     name: 'LinkedIn',
-    href: 'https://linkedin.com/company/winners-creek-lms',
+    href: 'https://www.linkedin.com/company/winners-creek-lms',
     icon: Linkedin,
     hoverClass: 'hover:text-[#0a66c2]',
     primary: true,
   },
   {
     name: 'YouTube',
-    href: 'https://youtube.com/@winnerscreeklms',
+    href: 'https://www.youtube.com/@winnerscreeklms',
     icon: Youtube,
     hoverClass: 'hover:text-[#ff0000]',
     primary: false,
@@ -76,7 +77,7 @@ export function SiteFooter() {
   };
 
   return (
-    <footer className="relative mt-24 border-t border-slate-800 bg-[#0a0f1d] text-slate-300 overflow-hidden">
+    <footer className="relative z-10 mt-24 border-t border-slate-800 bg-[#0a0f1d] text-slate-300 overflow-hidden">
       {/* Top Specular Brand Accent Line */}
       <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-amber-500/40 to-transparent" />
 
@@ -150,6 +151,23 @@ export function SiteFooter() {
                 <Link href="/faq" className="hover:text-amber-400 transition-colors">
                   FAQs
                 </Link>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof window !== 'undefined') {
+                      try {
+                        sessionStorage.removeItem('skillsharp_intro_viewed');
+                      } catch {}
+                      window.dispatchEvent(new CustomEvent('skillsharp:replay-intro'));
+                    }
+                  }}
+                  className="hover:text-amber-400 transition-colors text-left flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RotateCcw className="size-3 text-amber-400" />
+                  <span>Replay Brand Intro</span>
+                </button>
               </li>
             </ul>
           </div>
@@ -255,7 +273,23 @@ export function SiteFooter() {
       <div className="border-t border-slate-800/80 bg-[#070b16] px-6 py-5">
         <div className="mx-auto flex max-w-[1240px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between text-xs text-slate-400">
           <p>© 2026 Winners Creek. All rights reserved.</p>
-          <div className="flex items-center gap-4 text-xs">
+          <div className="flex flex-wrap items-center gap-4 text-xs">
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  try {
+                    sessionStorage.removeItem('skillsharp_intro_viewed');
+                  } catch {}
+                  window.dispatchEvent(new CustomEvent('skillsharp:replay-intro'));
+                }
+              }}
+              className="inline-flex items-center gap-1.5 text-amber-400/90 hover:text-amber-300 transition-colors cursor-pointer"
+            >
+              <RotateCcw className="size-3" />
+              <span>Replay Intro</span>
+            </button>
+            <span className="text-slate-700">·</span>
             <Link href="/privacy" className="hover:text-white transition-colors">
               Privacy Policy
             </Link>

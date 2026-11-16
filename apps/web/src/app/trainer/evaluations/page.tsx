@@ -161,10 +161,26 @@ function OverrideDialog({
 export default function TrainerEvaluationsPage() {
   const table = useTableState('trainer-evaluations', { pageSize: 20 });
   const evaluations = useApi<any>('/trainer/evaluations', table.params, {
-    select: (raw) => ({ items: raw.items, pagination: raw.pagination }),
+    select: (raw) => ({
+      items: raw.items ?? raw.data ?? [],
+      pagination: raw.pagination ?? {
+        page: raw.page ?? 1,
+        pageSize: raw.pageSize ?? 20,
+        total: raw.total ?? (raw.items?.length || 0),
+        pages: raw.pages ?? 1,
+      },
+    }),
   });
   const aiScores = useApi<any>('/trainer/ai-scores', { pageSize: 20, reviewState: 'all' }, {
-    select: (raw) => ({ items: raw.items ?? raw.data ?? [], pagination: raw.pagination }),
+    select: (raw) => ({
+      items: raw.items ?? raw.data ?? [],
+      pagination: raw.pagination ?? {
+        page: raw.page ?? 1,
+        pageSize: raw.pageSize ?? 20,
+        total: raw.total ?? (raw.items?.length || 0),
+        pages: raw.pages ?? 1,
+      },
+    }),
   });
   const [overriding, setOverriding] = React.useState<any>(null);
 
@@ -198,27 +214,52 @@ export default function TrainerEvaluationsPage() {
       key: 'score',
       header: 'Score',
       align: 'right',
-      render: (row) => (
-        <span className="tnum font-semibold">
-          {num(row.totalScore, 1)}
-          <span className="text-xs font-normal text-ink-3">/100</span>
-        </span>
-      ),
+      render: (row) => {
+        const val = row.totalScore ?? row.score ?? row.overallScore;
+        return (
+          <span className="tnum font-semibold">
+            {val !== null && val !== undefined ? num(val, 1) : '—'}
+            {val !== null && val !== undefined && (
+              <span className="text-xs font-normal text-muted-foreground">/100</span>
+            )}
+          </span>
+        );
+      },
     },
     {
       key: 'state',
       header: 'State',
-      render: (row) => <StatusBadge status={row.state} />,
+      render: (row) => {
+        const rawState = (row.state || row.status || 'pending').toLowerCase();
+        const label = rawState === 'completed' || rawState === 'submitted'
+          ? 'Submitted'
+          : rawState === 'failed'
+          ? 'Failed'
+          : rawState === 'draft' || rawState === 'in_progress'
+          ? 'Draft'
+          : 'Pending';
+        const tone = label === 'Submitted'
+          ? 'success'
+          : label === 'Failed'
+          ? 'danger'
+          : label === 'Draft'
+          ? 'neutral'
+          : 'amber';
+        return <Badge tone={tone}>{label}</Badge>;
+      },
     },
     {
       key: 'updated',
       header: 'Updated',
       hideBelow: 'lg',
-      render: (row) => <span className="tnum text-sm">{formatDate(row.updatedAt)}</span>,
+      render: (row) => {
+        const d = row.updatedAt || row.evaluatedAt || row.createdAt;
+        return <span className="tnum text-sm">{d ? formatDate(d) : '—'}</span>;
+      },
     },
     {
       key: 'open',
-      header: '',
+      header: 'Action',
       align: 'right',
       render: (row) => (
         <Button asChild variant="secondary" size="sm">

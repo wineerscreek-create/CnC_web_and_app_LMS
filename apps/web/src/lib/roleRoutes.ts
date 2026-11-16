@@ -42,3 +42,15 @@ export const ROLE_PREFIX: Record<Role, string> = {
   RECRUITER: '/recruiter',
   PARENT: '/parent',
 };
+
+/**
+ * Returns the verified home dashboard URL for an authenticated user.
+ * Guarantees that logo clicks and home redirects never lead to /login or dead ends.
+ */
+export function getRoleHome(user?: { role?: string; home?: string } | null): string {
+  if (!user) return '/';
+  if (user.role && ROLE_HOME[user.role as Role]) {
+    return ROLE_HOME[user.role as Role];
+  }
+  return user.home || '/';
+}

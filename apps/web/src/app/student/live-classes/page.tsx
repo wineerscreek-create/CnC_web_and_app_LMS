@@ -20,6 +20,7 @@ import { VisualPageBackground } from '@/components/ui/VisualPageBackground';
 import { InteractiveArrowButton } from '@/components/ui/InteractiveArrowButton';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { MetricCard } from '@/components/ui/MetricCard';
+import { OnlineOnlyNotice } from '@/components/offline/OnlineOnlyNotice';
 import { liveClassApi, LiveClass, LiveRecording } from '@/lib/api/live-classroom';
 import { formatDate, formatTime } from '@/lib/format';
 
@@ -111,6 +112,8 @@ export default function StudentLiveClassesPage() {
             </div>
           </div>
         </div>
+
+        <OnlineOnlyNotice featureName="Live Classroom" />
 
         {/* 2. Highlight: Prominent LIVE NOW Banner */}
         {liveNow.length > 0 && (

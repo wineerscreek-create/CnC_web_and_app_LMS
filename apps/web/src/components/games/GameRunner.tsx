@@ -276,7 +276,7 @@ export function GameRunner({ gameId }: GameRunnerProps) {
         </div>
 
         {/* Live HUD Counters */}
-        <div className="flex items-center gap-3 sm:gap-4">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-3">
           {/* Difficulty Badge */}
           <div className="flex items-center gap-1.5 bg-surface-muted px-2.5 py-1.5 rounded-xl border border-line">
             <Layers className="size-3.5 text-cyan-500" />

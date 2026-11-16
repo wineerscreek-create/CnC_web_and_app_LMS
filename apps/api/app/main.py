@@ -194,6 +194,9 @@ def create_app() -> FastAPI:
     )
     app.include_router(user_banner.router, prefix=prefix, tags=["user-banner"])
 
+    from app.routers import user_avatar
+    app.include_router(user_avatar.router, prefix=prefix, tags=["user-avatar"])
+
     from app.routers.trainer_profile import public_trainers_router, TRAINER_STATIC_DIR
     app.include_router(public_trainers_router, prefix=prefix, tags=["public-trainers"])
 
@@ -208,9 +211,25 @@ def create_app() -> FastAPI:
         tags=["operations-center"],
     )
 
+    from app.routers import offline_sync
+    app.include_router(
+        offline_sync.router,
+        prefix=f"{prefix}/offline",
+        tags=["offline-sync"],
+    )
+
+    from app.routers import assessment_realtime
+    app.include_router(
+        assessment_realtime.router,
+        prefix=f"{prefix}/assessments",
+        tags=["assessment-realtime"],
+    )
+
     from fastapi.staticfiles import StaticFiles
     from app.routers.user_banner import BANNER_UPLOAD_DIR
+    from app.routers.user_avatar import AVATAR_UPLOAD_DIR
     app.mount("/static/banners", StaticFiles(directory=BANNER_UPLOAD_DIR), name="banners")
+    app.mount("/static/avatars", StaticFiles(directory=AVATAR_UPLOAD_DIR), name="avatars")
     app.mount("/static/trainers", StaticFiles(directory=TRAINER_STATIC_DIR), name="trainers")
 
     return app

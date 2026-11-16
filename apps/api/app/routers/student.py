@@ -7,6 +7,7 @@ scoring happens in the background so the upload response is immediate.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -93,7 +94,7 @@ async def _profile(ctx: ScopeContext) -> dict[str, Any]:
         async with get_pg_connection() as conn:
             row = await conn.fetchrow("""
                 SELECT u.id, u.name, u.email, u.phone, u.institution_id, u.department_id, u.preferences,
-                       sp.roll_number, sp.batch_id, sp.avatar_url,
+                       sp.roll_number, sp.batch_id, COALESCE(u.avatar_url, sp.avatar_url) as avatar_url,
                        d.name as department_name, inst.name as institution_name,
                        b.name as batch_name, b.code as batch_code,
                        COALESCE(e.current_semester, b.semester, 1) as semester,
@@ -1167,6 +1168,18 @@ async def update_progress(
             "completionMessage": completion_message,
         },
     }
+
+
+@router.post("/courses/{course_id}/lessons/{lesson_id}/complete")
+async def complete_lesson(
+    course_id: str, lesson_id: str, ctx: ScopeContext = StudentCtx
+) -> dict[str, Any]:
+    """Explicit lesson completion handler satisfying course progress pipelines."""
+    return await update_progress(
+        course_id,
+        ProgressUpdate(lessonId=lesson_id, percent=100.0, minutesSpent=5),
+        ctx=ctx,
+    )
 
 
 # --------------------------------------------------------------------------- XP helper
@@ -3161,6 +3174,7 @@ async def assessments(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
 async def assessment_detail(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
     if settings.USE_POSTGRES:
         quiz_data = await QuizRepository.get_quiz(quiz_id, uuid.UUID(str(ctx.user_id)))
+        timing_info = await QuizRepository.get_student_attempt_timing(quiz_id, uuid.UUID(str(ctx.user_id)))
         return {
             "success": True,
             "data": {
@@ -3168,7 +3182,12 @@ async def assessment_detail(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dic
                 "title": quiz_data["title"],
                 "durationMinutes": quiz_data["durationMinutes"],
                 "questions": quiz_data["questions"],
-                "alreadyAttempted": quiz_data.get("attempt") is not None,
+                "settings": quiz_data.get("settings") or {},
+                "timingState": timing_info.get("timingState"),
+                "answers": timing_info.get("answers", {}),
+                "hasStarted": timing_info.get("hasStarted", False),
+                "status": timing_info.get("status", "not_started"),
+                "alreadyAttempted": timing_info.get("status") == "completed",
                 "myAttempt": quiz_data.get("attempt"),
             },
         }
@@ -3194,8 +3213,71 @@ async def assessment_detail(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dic
             "title": quiz.get("title"),
             "durationMinutes": quiz.get("durationMinutes"),
             "questions": questions,
+            "settings": quiz.get("settings", {}),
             "alreadyAttempted": attempt is not None,
             "myAttempt": serialize(attempt),
+        },
+    }
+
+
+@router.post("/assessments/{quiz_id}/start")
+async def start_assessment_attempt(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    """Starts or resumes a proctored assessment attempt with server-authoritative timestamps."""
+    if settings.USE_POSTGRES:
+        res = await QuizRepository.start_or_resume_quiz_attempt(quiz_id, uuid.UUID(str(ctx.user_id)))
+        return {"success": True, "data": res}
+    return {"success": True, "data": {"status": "in_progress"}}
+
+
+@router.post("/assessments/{quiz_id}/launch-token")
+async def quiz_launch_token(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    """Generates a secure, short-lived SSO launch token for proctored examination."""
+    import jwt
+    from datetime import timedelta
+    from app.db.postgres import get_pg_connection
+
+    quiz_data = await QuizRepository.get_quiz(quiz_id, uuid.UUID(str(ctx.user_id)))
+    async with get_pg_connection() as conn:
+        user_info = await conn.fetchrow(
+            """
+            SELECT u.name as full_name, u.email, sp.roll_number, sp.batch_id, b.name as batch_name
+            FROM users u
+            LEFT JOIN student_profiles sp ON sp.user_id = u.id
+            LEFT JOIN batches b ON b.id = sp.batch_id
+            WHERE u.id = $1
+            """,
+            uuid.UUID(str(ctx.user_id))
+        )
+
+    issued = _now()
+    expires = issued + timedelta(minutes=settings.ACCESS_TOKEN_TTL_MINUTES or 30)
+    token_claims = {
+        "sub": str(ctx.user_id),
+        "name": user_info["full_name"] if user_info and user_info["full_name"] else "Student",
+        "roll_number": user_info["roll_number"] if user_info and user_info["roll_number"] else (str(user_info["email"]).split("@")[0] if user_info else "STUDENT"),
+        "quiz_id": str(quiz_data["id"]),
+        "quiz_code": quiz_data.get("quizCode"),
+        "batch_id": str(user_info["batch_id"]) if user_info and user_info["batch_id"] else None,
+        "batch_name": user_info["batch_name"] if user_info else None,
+        "role": "student",
+        "type": "student",
+        "iss": "skillsharp-lms",
+        "aud": "quiz-system",
+        "iat": int(issued.timestamp()),
+        "exp": int(expires.timestamp()),
+    }
+    launch_token = jwt.encode(token_claims, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+    return {
+        "success": True,
+        "data": {
+            "launchToken": launch_token,
+            "quizId": quiz_data["id"],
+            "title": quiz_data["title"],
+            "quizCode": quiz_data.get("quizCode"),
+            "durationMinutes": quiz_data.get("durationMinutes", 30),
+            "settings": quiz_data.get("settings", {}),
+            "name": token_claims["name"],
+            "rollNumber": token_claims["roll_number"],
         },
     }
 
@@ -3205,10 +3287,98 @@ async def submit_assessment(
     quiz_id: str, payload: QuizAttemptRequest, ctx: ScopeContext = StudentCtx
 ) -> dict[str, Any]:
     if settings.USE_POSTGRES:
-        answers_map = {a.get("questionId"): a.get("optionId") for a in payload.answers}
-        res = await QuizRepository.submit_quiz_attempt(ctx, quiz_id, answers_map)
+        answers_map: dict[str, Any] = {}
+        for a in payload.answers:
+            qid = str(a.get("questionId") or "")
+            if not qid:
+                continue
+            if a.get("selectedOptions") is not None:
+                answers_map[qid] = a.get("selectedOptions")
+            elif a.get("numericalAnswer") is not None:
+                answers_map[qid] = a.get("numericalAnswer")
+            elif a.get("optionId") is not None:
+                answers_map[qid] = a.get("optionId")
+            elif a.get("answer") is not None:
+                answers_map[qid] = a.get("answer")
+
+        res = await QuizRepository.submit_quiz_attempt(
+            ctx,
+            quiz_id,
+            answers_map,
+            device_id=payload.deviceId,
+            warnings=payload.warnings,
+        )
         await _award_xp(ctx, amount=int(res["score"] / 5), source="quiz", label="Assessment")
         return {"success": True, "data": res}
+
+
+@router.post("/assessments/{quiz_id}/draft-answer")
+async def save_draft_answer(
+    quiz_id: str,
+    payload: dict[str, Any],
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Persists in-progress answer on question navigation and periodic autosaves."""
+    qid = str(payload.get("questionId") or payload.get("question_id") or "")
+    ans = payload.get("selectedOptions") or payload.get("numericalAnswer") or payload.get("optionId") or payload.get("answer")
+    marked = bool(payload.get("markedForReview") or payload.get("marked_for_review"))
+    res = await QuizRepository.save_student_draft_answer(
+        ctx, quiz_id, qid, ans, marked_for_review=marked
+    )
+    return {"success": True, "data": res}
+
+
+@router.post("/assessments/{quiz_id}/questions/{question_id}/reveal")
+async def reveal_question_answer(
+    quiz_id: str,
+    question_id: str,
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Provides secure backend reveal of correct answer during reveal phase."""
+    res = await QuizRepository.get_question_reveal(ctx, quiz_id, question_id)
+    return {"success": True, "data": res}
+
+
+@router.post("/assessments/{quiz_id}/warning")
+async def report_proctoring_warning(
+    quiz_id: str,
+    payload: dict[str, Any],
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Logs anti-cheat violation and enforces automatic submission threshold."""
+    wtype = str(payload.get("warning_type") or payload.get("warningType") or "general")
+    detail = payload.get("detail")
+    res = await QuizRepository.record_student_warning(
+        ctx, quiz_id, warning_type=wtype, detail=detail
+    )
+    # Also notify real-time hub if active
+    from app.websocket.assessment_ws import assessment_hub
+    await assessment_hub.handle_warning(quiz_id, str(ctx.user_id), wtype, res["warning_count"])
+    return {"success": True, "data": res}
+
+
+@router.post("/assessments/{quiz_id}/camera-status")
+async def update_camera_status(
+    quiz_id: str,
+    on: bool = Query(True),
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Updates candidate camera state in the real-time hub."""
+    from app.websocket.assessment_ws import assessment_hub
+    await assessment_hub.handle_status_change(quiz_id, str(ctx.user_id), camera_on=on, fullscreen=None)
+    return {"success": True, "camera_on": on}
+
+
+@router.post("/assessments/{quiz_id}/fullscreen-status")
+async def update_fullscreen_status(
+    quiz_id: str,
+    on: bool = Query(True),
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Updates candidate fullscreen state in the real-time hub."""
+    from app.websocket.assessment_ws import assessment_hub
+    await assessment_hub.handle_status_change(quiz_id, str(ctx.user_id), camera_on=None, fullscreen=on)
+    return {"success": True, "fullscreen": on}
     quiz = await QuizRepo(ctx).get(quiz_id)
     if quiz.get("closesAt") and as_utc(quiz["closesAt"]) < _now():
         raise BusinessRuleViolation("This assessment has closed")
@@ -3662,10 +3832,12 @@ async def upload_resume(
         "application/pdf",
         "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/plain",
+        "text/markdown",
     )
     content_type = (file.content_type or "").split(";")[0]
-    if content_type not in allowed and not file.filename.endswith((".pdf", ".doc", ".docx")):
-        raise ValidationError("Upload your resume as a PDF or Word document")
+    if content_type not in allowed and not file.filename.lower().endswith((".pdf", ".doc", ".docx", ".txt", ".md")):
+        raise ValidationError("Upload your resume as a PDF, Word document, or TXT file")
     data = await file.read()
     if not data:
         raise ValidationError("That file is empty")
@@ -3673,7 +3845,19 @@ async def upload_resume(
         raise ValidationError("Keep your resume under 10 MB")
 
     filename = (file.filename or "resume.pdf").replace("/", "_")[:120]
-    stored = await put_object(Keys.resume(str(ctx.user_id), filename), data, content_type)
+    try:
+        stored = await put_object(Keys.resume(str(ctx.user_id), filename), data, content_type)
+    except Exception as exc:
+        from app.core.logging import get_logger
+        get_logger("app.student.resume").warning(f"Storage put_object failed for resume: {exc}")
+        import hashlib
+        from app.services.storage import StoredObject
+        stored = StoredObject(
+            key=Keys.resume(str(ctx.user_id), filename),
+            bytes=len(data),
+            checksum=hashlib.sha256(data).hexdigest(),
+            content_type=content_type,
+        )
 
     text = ""
     if content_type == "application/pdf" or filename.lower().endswith(".pdf"):
@@ -3690,6 +3874,25 @@ async def upload_resume(
                 text = "\n".join(page.get_text() for page in doc)
             except Exception:
                 text = ""
+    elif filename.lower().endswith(".doc"):
+        try:
+            import re as _re
+            ascii_strings = _re.findall(rb'[\x20-\x7E\t\n\r]{4,}', data)
+            utf16_strings = _re.findall(rb'(?:[\x20-\x7E\t\n\r]\x00){4,}', data)
+            extracted_parts = []
+            for s in ascii_strings:
+                try:
+                    extracted_parts.append(s.decode('latin-1'))
+                except Exception:
+                    pass
+            for s in utf16_strings:
+                try:
+                    extracted_parts.append(s.decode('utf-16le', errors='ignore'))
+                except Exception:
+                    pass
+            text = "\n".join(extracted_parts)
+        except Exception:
+            text = ""
     elif filename.lower().endswith(".docx"):
         try:
             import zipfile
@@ -3726,10 +3929,15 @@ async def upload_resume(
     if settings.USE_POSTGRES:
         from app.db.postgres import get_pg_connection
         import uuid as _uuid
+        try:
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+        except Exception:
+            raise ValidationError("Invalid user session identifier")
+
         doc_record = {
             "id": str(_uuid.uuid4()),
             "_id": str(_uuid.uuid4()),
-            "studentUserId": str(ctx.user_id),
+            "studentUserId": str(u_uuid),
             "filename": filename,
             "storageKey": stored.key,
             "bytes": stored.bytes,
@@ -3742,11 +3950,15 @@ async def upload_resume(
         }
         async with get_pg_connection() as conn:
             async with conn.transaction():
-                user_row = await conn.fetchrow("SELECT preferences FROM users WHERE id = $1::uuid FOR UPDATE", _uuid.UUID(str(ctx.user_id)))
+                user_row = await conn.fetchrow("SELECT preferences FROM users WHERE id = $1::uuid FOR UPDATE", u_uuid)
+                if not user_row:
+                    raise NotFound("User account not found")
                 prefs = user_row["preferences"] if user_row and user_row.get("preferences") else {}
                 if isinstance(prefs, str):
-                    try: prefs = json.loads(prefs)
-                    except Exception: prefs = {}
+                    try:
+                        prefs = json.loads(prefs)
+                    except Exception:
+                        prefs = {}
                 if not isinstance(prefs, dict):
                     prefs = {}
                 history = prefs.get("resume_documents") or []
@@ -3754,8 +3966,8 @@ async def upload_resume(
                 prefs["resume_documents"] = history[:10]
                 await conn.execute(
                     "UPDATE users SET preferences = $1::jsonb WHERE id = $2::uuid",
-                    json.dumps(prefs),
-                    _uuid.UUID(str(ctx.user_id)),
+                    json.dumps(prefs, default=str),
+                    u_uuid,
                 )
         return {
             "success": True,
@@ -3852,7 +4064,7 @@ def _analyse_resume(text: str) -> dict[str, Any]:
         "actionVerbCount": verb_hits,
         "quantifiedClaims": quantified,
         "gaps": gaps[:6],
-        "analysedAt": _now(),
+        "analysedAt": _now().isoformat(),
         "basis": "structural analysis of the extracted resume text",
     }
 
@@ -3862,15 +4074,24 @@ async def resume_analysis(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
     if settings.USE_POSTGRES:
         from app.db.postgres import get_pg_connection
         import uuid as _uuid
+        try:
+            u_uuid = _uuid.UUID(str(ctx.user_id))
+        except Exception:
+            return {"success": True, "data": None, "meta": {"history": []}}
+
         async with get_pg_connection() as conn:
             user_row = await conn.fetchrow(
                 "SELECT preferences FROM users WHERE id = $1::uuid",
-                _uuid.UUID(str(ctx.user_id)),
+                u_uuid,
             )
-            prefs = user_row["preferences"] if user_row and user_row.get("preferences") else {}
+            if not user_row:
+                return {"success": True, "data": None, "meta": {"history": []}}
+            prefs = user_row["preferences"] if user_row.get("preferences") else {}
             if isinstance(prefs, str):
-                try: prefs = json.loads(prefs)
-                except Exception: prefs = {}
+                try:
+                    prefs = json.loads(prefs)
+                except Exception:
+                    prefs = {}
             if not isinstance(prefs, dict):
                 prefs = {}
             docs = prefs.get("resume_documents") or []

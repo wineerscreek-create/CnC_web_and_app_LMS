@@ -5,6 +5,8 @@ import { GlobalBackgroundProvider } from '@/components/ui/GlobalBackgroundLayer'
 import { StoreProvider } from '@/store/provider';
 import { ThemeProvider } from '@/lib/theme/ThemeContext';
 import { BannerProvider } from '@/context/BannerContext';
+import { OfflineProvider } from '@/context/OfflineContext';
+import { PWARegister } from '@/components/pwa/PWARegister';
 import '@/styles/globals.css';
 
 export const metadata: Metadata = {
@@ -15,7 +17,25 @@ export const metadata: Metadata = {
   description:
     'SkillSharp — An elite career-readiness and soft-skills platform empowering students to learn, practise, and build essential skills for professional career success.',
   robots: { index: true, follow: true },
-  applicationName: 'SkillSharp — Campus to Corporate',
+  applicationName: 'SkillSharp',
+  manifest: '/manifest.webmanifest',
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/favicon-32x32.png', type: 'image/png', sizes: '32x32' },
+      { url: '/favicon-16x16.png', type: 'image/png', sizes: '16x16' },
+      { url: '/images/icons/icon-192x192.png', type: 'image/png', sizes: '192x192' },
+      { url: '/images/icons/icon-512x512.png', type: 'image/png', sizes: '512x512' },
+    ],
+    apple: [
+      { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+    ],
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'SkillSharp',
+  },
 };
 
 export const viewport: Viewport = {
@@ -56,9 +76,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <ThemeProvider>
             <BannerProvider>
               <GlobalBackgroundProvider>
-                <div className="relative z-10 flex min-h-screen flex-col">
-                  {children}
-                </div>
+                <PWARegister />
+                <OfflineProvider>
+                  <div className="relative z-10 flex min-h-screen flex-col">
+                    {children}
+                  </div>
+                </OfflineProvider>
                 <Toaster
                   position="top-right"
                   toastOptions={{

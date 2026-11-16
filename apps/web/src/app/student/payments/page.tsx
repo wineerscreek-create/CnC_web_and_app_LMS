@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { StatCard } from '@/components/shared/stat-card';
+import { OnlineOnlyNotice } from '@/components/offline/OnlineOnlyNotice';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
@@ -452,6 +453,8 @@ function StudentPaymentsContent() {
             hint="Direct UPI QR / Instant Gateway"
           />
         </div>
+
+        <OnlineOnlyNotice featureName="Payment Transactions" />
 
         {/* Semester Fee & Program Access Status Card */}
         {semesterFee && (

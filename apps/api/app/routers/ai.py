@@ -59,6 +59,26 @@ async def ai_chat(
     return await answer_ai_query(ctx, payload.question, payload.conversationId)
 
 
+@router.get("/chat/history")
+async def ai_chat_history(
+    ctx: ScopeContext = Depends(require_role(Role.STUDENT, Role.TRAINER, Role.HOD, Role.ADMIN, Role.SUPER_ADMIN))
+) -> dict[str, Any]:
+    """Retrieve authenticated user's recent chat history."""
+    from app.services.chatbot_service import get_user_chat_history
+    history = await get_user_chat_history(ctx)
+    return {"success": True, "data": history}
+
+
+@router.delete("/chat/history")
+async def ai_chat_clear_history(
+    ctx: ScopeContext = Depends(require_role(Role.STUDENT, Role.TRAINER, Role.HOD, Role.ADMIN, Role.SUPER_ADMIN))
+) -> dict[str, Any]:
+    """Clear authenticated user's chat history."""
+    from app.services.chatbot_service import clear_user_chat_history
+    await clear_user_chat_history(ctx)
+    return {"success": True, "message": "Conversation history cleared"}
+
+
 @router.post("/assess")
 async def evaluate_assessment(
     payload: AssessmentEvaluationRequest,

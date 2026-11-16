@@ -1,0 +1,21 @@
+Test_ID,Category,Feature_Description,Expected_Result,Actual_Result,Endpoint_or_Route,Status
+E2E-AUTH-001,Authentication,Preserve redirect destination on login,User redirected to destination query target,Destination target preserved and navigated,/login?next=/courses,VERIFIED
+E2E-AUTH-002,Authentication,Duplicate roll number scoped to institution,Rejects duplicate in same institution; allows across institutions,Correctly raises HTTP 409 with specific detail,/auth/signup,VERIFIED
+E2E-AUTH-003,Authentication,Password eye/eye-off toggle,Hidden by default with accessible toggle,Toggles text/password type without form submit,/(auth)/*,VERIFIED
+E2E-SA-001,Super Admin,Arya College Control Center resolution,Resolves by UUID or ACEIT code with full data,Returns complete institution dashboard without 500,/super-admin/colleges/{id},VERIFIED
+E2E-HOD-001,HOD,Academic year grouping in participants,Filters by 2nd/3rd/4th year corresponding to semester bands,Filters records across batches joined with semesters,/hod/participants,VERIFIED
+E2E-TRN-001,Trainer,Batch capacity missing indicator,Shows 'Not Set' instead of 100% full progress bar,Displays 'Not Set' and percentage correctly,/trainer/batches,VERIFIED
+E2E-TRN-002,Trainer,Teaching sessions incomplete schedule guard,Disallows launch for unscheduled sessions,Schedule Incomplete badge shown; launch disabled,/trainer/classes,VERIFIED
+E2E-TRN-003,Trainer,Participants needing attention filter,Filters server-side and displays reason,Correct counts and attention reasons returned,/trainer/students,VERIFIED
+E2E-TRN-004,Trainer,Evaluation modules and parameters loading,Loads 29 modules and 102 parameters across 7 pillars,PostgreSQL tables queried and mapped correctly,/trainer/evaluations/parameters,VERIFIED
+E2E-TRN-005,Trainer,Evaluation submission and score calculation,Saves draft/submission and recalculates EEDI score,Upserts eedi_evaluations and parameter score tables,/trainer/evaluations,VERIFIED
+E2E-TRN-006,Trainer,AI Practice scores review and override,Trainer overrides dimensions with stored rationale,Override persisted in metrics->trainerOverride,/trainer/ai-scores/{id}/override,VERIFIED
+E2E-TRN-007,Trainer,Assignments creation and grading pipeline,Lists assignments and submissions for grading,AssignmentRepository queries PostgreSQL successfully,/trainer/assignments,VERIFIED
+E2E-TRN-008,Trainer,Course progress analytics chart layout,Horizontal responsive bar chart without overlapping labels,HorizontalBarCompare component renders cleanly,/trainer/course-progress,VERIFIED
+E2E-TRN-009,Trainer,Report requested-by and timestamps,Separates requested-at from generated-at,Correctly tracks requestedByLabel and timestamps,/trainer/reports,VERIFIED
+E2E-STU-001,Student,Progress report PDF generation,Generates signed PDF download link,Returns status ready with valid download URL,/student/reports/progress,VERIFIED
+E2E-STU-002,Student,AI practice audio recording persistence,Saves audio recording URL and duration in PostgreSQL,jsonb_set stores duration, recording status, and answered count,/student/practice/upload,VERIFIED
+E2E-STU-003,Student,Lesson completion endpoint,Completes lesson and advances progress,Endpoint triggers progress update with 100% lesson state,/student/courses/{c}/lessons/{l}/complete,VERIFIED
+E2E-STU-004,Student,Resume Analyzer ATS checker file parsing,Parses PDF DOCX and TXT resumes against target roles,Parses text content and scores keywords against role,/student/resume,VERIFIED
+E2E-STU-005,Student,Presentation Simulator slide extraction,Parses uploaded text/markdown into slide decks,Extracts headings and bullet points into slide objects,/student/practice/presentation-coach,VERIFIED
+E2E-LIV-001,Live Classroom,Responsive controls and safe-area padding,Controls fit mobile screens with touch-manipulation padding,Padding pb-[max(0.625rem,env(safe-area-inset-bottom))] verified,/live-classes/{id}/room,VERIFIED

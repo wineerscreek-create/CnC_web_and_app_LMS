@@ -193,6 +193,53 @@ export function BarCompare({
   );
 }
 
+export function HorizontalBarCompare({
+  data,
+  yKey,
+  valueKey,
+  unit = '',
+  domain = [0, 100],
+  colorBy,
+}: {
+  data: any[];
+  yKey: string;
+  valueKey: string;
+  unit?: string;
+  domain?: [number, number];
+  colorBy?: (row: any) => string;
+}) {
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart
+        data={data}
+        layout="vertical"
+        margin={{ top: 8, right: 24, bottom: 8, left: 16 }}
+      >
+        <CartesianGrid stroke={GRID} horizontal={false} />
+        <XAxis type="number" domain={domain} tickLine={false} axisLine={false} tick={AXIS} />
+        <YAxis
+          type="category"
+          dataKey={yKey}
+          tickLine={false}
+          axisLine={false}
+          tick={AXIS}
+          width={180}
+          interval={0}
+        />
+        <RechartsTooltip
+          content={<ChartTooltip unit={unit} />}
+          cursor={{ fill: 'hsl(var(--muted) / 0.5)' }}
+        />
+        <Bar dataKey={valueKey} radius={[0, 4, 4, 0]} maxBarSize={28}>
+          {data.map((row, index) => (
+            <Cell key={index} fill={colorBy ? colorBy(row) : SERIES[0]} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
 export function StackedDistribution({
   data,
   xKey,

@@ -428,8 +428,17 @@ class PracticeRepository:
                 SET audio_recording_url = $2,
                     state = 'uploaded',
                     metrics = jsonb_set(
-                        jsonb_set(metrics, '{durationSeconds}', $3::text::jsonb, true),
-                        '{hasRecording}', 'true'::jsonb, true
+                        jsonb_set(
+                            jsonb_set(
+                                CASE
+                                    WHEN jsonb_typeof(metrics) = 'string' THEN (metrics #>> '{}')::jsonb
+                                    ELSE COALESCE(metrics, '{}'::jsonb)
+                                END,
+                                '{durationSeconds}', to_jsonb($3::integer), true
+                            ),
+                            '{hasRecording}', to_jsonb(true), true
+                        ),
+                        '{answeredQuestions}', to_jsonb(1), true
                     )
                 WHERE id = $1 AND participant_user_id = $4
                 RETURNING id, participant_user_id, mode_code, practice_mode_title, kind,
@@ -438,7 +447,7 @@ class PracticeRepository:
                 """,
                 s_uuid,
                 storage_key,
-                str(duration_seconds),
+                int(duration_seconds),
                 student_user_id,
             )
             if not row:
@@ -540,8 +549,14 @@ class PracticeRepository:
                     transcript = $4,
                     completed_at = NOW(),
                     metrics = jsonb_set(
-                        jsonb_set(metrics, '{answeredQuestions}', $5::text::jsonb, true),
-                        '{durationSeconds}', $6::text::jsonb, true
+                        jsonb_set(
+                            CASE
+                                WHEN jsonb_typeof(metrics) = 'string' THEN (metrics #>> '{}')::jsonb
+                                ELSE COALESCE(metrics, '{}'::jsonb)
+                            END,
+                            '{answeredQuestions}', to_jsonb($5::integer), true
+                        ),
+                        '{durationSeconds}', to_jsonb($6::integer), true
                     )
                 WHERE id = $1
                 RETURNING id, participant_user_id, mode_code, practice_mode_title, kind,
@@ -552,8 +567,8 @@ class PracticeRepository:
                 overall_score,
                 ai_feedback,
                 transcript_text,
-                str(answered_questions),
-                str(duration_seconds),
+                int(answered_questions),
+                int(duration_seconds),
             )
 
         return _serialize_session(row)

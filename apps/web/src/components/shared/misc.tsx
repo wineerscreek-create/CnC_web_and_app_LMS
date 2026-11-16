@@ -106,6 +106,9 @@ export interface ReportJob {
   filename?: string | null;
   downloadUrl?: string | null;
   createdAt?: string;
+  requestedAt?: string;
+  generatedAt?: string;
+  updatedAt?: string;
   requestedByLabel?: string;
   bytes?: number | null;
   error?: string | null;
@@ -137,7 +140,8 @@ export function ReportDownload({
           <Tr>
             <Th>Report type</Th>
             <Th hideBelow="md">Requested by</Th>
-            <Th hideBelow="sm">Generated</Th>
+            <Th hideBelow="md">Requested at</Th>
+            <Th hideBelow="sm">Generated at</Th>
             <Th>Format</Th>
             <Th>Status</Th>
             <Th align="right">File</Th>
@@ -152,8 +156,19 @@ export function ReportDownload({
                   <span className="block text-xs text-ink-2">{job.rowCount} row(s)</span>
                 )}
               </Td>
-              <Td className="hidden text-ink-2 md:table-cell">{job.requestedByLabel ?? '—'}</Td>
-              <Td className="hidden text-ink-2 sm:table-cell">{formatDate(job.createdAt, true)}</Td>
+              <Td className="hidden text-ink-2 md:table-cell">{job.requestedByLabel ?? 'Trainer'}</Td>
+              <Td className="hidden text-ink-2 md:table-cell">
+                {job.requestedAt || job.createdAt ? formatDate(job.requestedAt || job.createdAt, true) : '—'}
+              </Td>
+              <Td className="hidden text-ink-2 sm:table-cell">
+                {job.status === 'ready' && (job.generatedAt || job.updatedAt) ? (
+                  formatDate(job.generatedAt || job.updatedAt, true)
+                ) : job.status === 'processing' || job.status === 'queued' ? (
+                  <span className="text-amber-500 font-medium animate-pulse">Processing…</span>
+                ) : (
+                  '—'
+                )}
+              </Td>
               <Td>
                 <Badge tone="neutral" dot>
                   {job.format?.toUpperCase()}
@@ -430,11 +445,11 @@ export function DetailList({
   className?: string;
 }) {
   return (
-    <dl className={cn('divide-y divide-dashed divide-line', className)}>
+    <dl className={cn('divide-y divide-dashed divide-border/60', className)}>
       {rows.map((row) => (
-        <div key={row.label} className="flex items-baseline justify-between gap-4 py-2.5">
-          <dt className="text-base text-ink-2">{row.label}</dt>
-          <dd className="text-right text-base font-semibold text-ink-1">{row.value ?? '—'}</dd>
+        <div key={row.label} className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-4 py-2.5 min-w-0">
+          <dt className="text-xs sm:text-sm text-muted-foreground shrink-0">{row.label}</dt>
+          <dd className="text-left sm:text-right text-xs sm:text-sm font-semibold text-heading min-w-0 break-words [overflow-wrap:anywhere]">{row.value ?? '—'}</dd>
         </div>
       ))}
     </dl>

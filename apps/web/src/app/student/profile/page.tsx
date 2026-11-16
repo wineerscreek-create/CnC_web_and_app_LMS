@@ -2,6 +2,7 @@
 
 import {
   CalendarDays,
+  Camera,
   FileText,
   Pencil,
   Save,
@@ -23,18 +24,23 @@ import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardSubtitle, CardTitle } from '@/components/ui/card';
 import { Field, Input, Textarea } from '@/components/ui/input';
 import { Avatar } from '@/components/ui/misc';
+import { HorizontalTabSlider } from '@/components/ui/horizontal-tab-slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useApi } from '@/hooks/useApi';
 import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { formatDate, num, pct } from '@/lib/format';
-import { useAppDispatch } from '@/store';
+import { useAppDispatch, useAppSelector } from '@/store';
 import { userUpdated } from '@/store/authSlice';
+import { ProfileAvatarUploadModal } from '@/components/layout/ProfileAvatarUploadModal';
 
 export default function StudentProfilePage() {
   const dispatch = useAppDispatch();
+  const user = useAppSelector((state) => state.auth.user);
+  const [avatarModalOpen, setAvatarModalOpen] = React.useState(false);
   const query = useApi<any>('/student/profile');
 
+  const [activeTab, setActiveTab] = React.useState('details');
   const [editing, setEditing] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
@@ -114,7 +120,7 @@ export default function StudentProfilePage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full max-w-full min-w-0">
       <AsyncSection query={query} skeleton="detail">
         {(data) => {
           const goal = data.placementGoal;
@@ -136,20 +142,33 @@ export default function StudentProfilePage() {
                 }
               />
 
-              <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
+              <div className="grid gap-6 lg:grid-cols-[300px_1fr] min-w-0">
                 {/* ---------------------------------------------------------- summary */}
-                <div className="space-y-5">
+                <div className="space-y-5 min-w-0">
                   <Card className="border-border bg-card shadow-card">
-                    <CardBody className="p-5 text-center">
-                      <Avatar
-                        name={data.profile.name}
-                        color={data.profile.avatarColor}
-                        size={68}
-                        className="mx-auto shadow-xs"
-                      />
-                      <p className="mt-3.5 text-base font-bold font-heading text-heading">{data.profile.name}</p>
-                      <p className="text-xs font-mono text-muted-foreground mt-0.5">{data.profile.rollNumber}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                    <CardBody className="p-5 text-center min-w-0">
+                      <div className="relative mx-auto inline-block">
+                        <Avatar
+                          name={data.profile.name}
+                          color={data.profile.avatarColor}
+                          src={data.profile.avatarUrl || user?.avatarUrl}
+                          size={68}
+                          className="mx-auto shadow-xs"
+                        />
+                        {user && (
+                          <button
+                            type="button"
+                            onClick={() => setAvatarModalOpen(true)}
+                            aria-label="Change profile photo"
+                            className="absolute bottom-0 right-0 flex size-6.5 items-center justify-center rounded-full border-2 border-card bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 transition-transform active:scale-90"
+                          >
+                            <Camera className="size-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      <p className="mt-3.5 text-base font-bold font-heading text-heading break-words">{data.profile.name}</p>
+                      <p className="text-xs font-mono text-muted-foreground mt-0.5 break-all">{data.profile.rollNumber}</p>
+                      <p className="mt-1 text-xs text-muted-foreground break-words">
                         {data.profile.departmentName} · {data.profile.batchName}
                       </p>
                       <div className="mt-5 pt-4 border-t border-border text-left">
@@ -162,7 +181,7 @@ export default function StudentProfilePage() {
                   </Card>
 
                   <Card className="border-border bg-card shadow-card">
-                    <CardBody className="p-5 text-center">
+                    <CardBody className="p-5 text-center min-w-0">
                       <RadialScore
                         value={data.readiness.score}
                         label="Readiness"
@@ -182,9 +201,9 @@ export default function StudentProfilePage() {
                         </p>
                       )}
                       <Button asChild variant="ghost" size="sm" className="mt-3 w-full text-xs">
-                        <Link href="/student/progress" className="flex items-center justify-center gap-1.5">
-                          <TrendingUp className="size-3.5 text-accent" aria-hidden />
-                          View Detailed Analytics
+                        <Link href="/student/progress" className="flex items-center justify-center gap-1.5 truncate">
+                          <TrendingUp className="size-3.5 text-accent shrink-0" aria-hidden />
+                          <span className="truncate">View Detailed Analytics</span>
                         </Link>
                       </Button>
                     </CardBody>
@@ -194,50 +213,52 @@ export default function StudentProfilePage() {
                     <CardHeader className="pb-3 border-b border-border">
                       <CardTitle className="text-base font-bold font-heading text-heading">Resume Profile</CardTitle>
                     </CardHeader>
-                    <CardBody className="pt-4">
+                    <CardBody className="pt-4 min-w-0">
                       <p className="flex items-center gap-2 text-xs font-medium text-heading">
-                        <FileText className="size-4 text-accent" aria-hidden />
-                        {data.resume.status === 'missing' ? 'No resume uploaded yet' : 'Resume on file'}
+                        <FileText className="size-4 text-accent shrink-0" aria-hidden />
+                        <span className="break-words">{data.resume.status === 'missing' ? 'No resume uploaded yet' : 'Resume on file'}</span>
                       </p>
                       {data.resume.lastUpdatedAt && (
-                        <p className="mt-1 text-[11px] text-muted-foreground">
+                        <p className="mt-1 text-[11px] text-muted-foreground break-words">
                           Updated {formatDate(data.resume.lastUpdatedAt)}
                         </p>
                       )}
                       <Button asChild variant="secondary" size="sm" className="mt-4 w-full text-xs">
-                        <Link href="/student/resume-analyzer">Launch Resume Analyzer</Link>
+                        <Link href="/student/resume-analyzer" className="truncate">Launch Resume Analyzer</Link>
                       </Button>
                     </CardBody>
                   </Card>
                 </div>
 
                 {/* ----------------------------------------------------------- detail */}
-                <div>
-                  <Tabs defaultValue="details">
-                    <div className="mb-5">
-                      <TabsList className="bg-muted p-1 rounded-2xl border border-border">
-                        <TabsTrigger
-                          value="details"
-                          className="rounded-xl px-4 py-1.5 text-xs font-semibold data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs text-muted-foreground"
-                        >
-                          Personal Details
-                        </TabsTrigger>
-                        <TabsTrigger
-                          value="plan"
-                          className="rounded-xl px-4 py-1.5 text-xs font-semibold data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs text-muted-foreground"
-                        >
-                          Career Roadmap
-                        </TabsTrigger>
-                        <TabsTrigger
-                          value="week"
-                          className="rounded-xl px-4 py-1.5 text-xs font-semibold data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs text-muted-foreground"
-                        >
-                          Week Schedule
-                        </TabsTrigger>
-                      </TabsList>
+                <div className="min-w-0 w-full">
+                  <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0 w-full">
+                    <div className="mb-5 min-w-0 w-full">
+                      <HorizontalTabSlider activeTab={activeTab}>
+                        <TabsList className="bg-muted/70 p-1 rounded-2xl border border-border inline-flex w-auto max-w-full gap-1 border-b-0">
+                          <TabsTrigger
+                            value="details"
+                            className="rounded-xl px-4 py-2 text-xs font-semibold whitespace-nowrap shrink-0 border-b-0 data-[state=active]:bg-card data-[state=active]:text-heading data-[state=active]:shadow-xs text-muted-foreground hover:text-foreground transition-all"
+                          >
+                            Personal Details
+                          </TabsTrigger>
+                          <TabsTrigger
+                            value="plan"
+                            className="rounded-xl px-4 py-2 text-xs font-semibold whitespace-nowrap shrink-0 border-b-0 data-[state=active]:bg-card data-[state=active]:text-heading data-[state=active]:shadow-xs text-muted-foreground hover:text-foreground transition-all"
+                          >
+                            Career Roadmap
+                          </TabsTrigger>
+                          <TabsTrigger
+                            value="week"
+                            className="rounded-xl px-4 py-2 text-xs font-semibold whitespace-nowrap shrink-0 border-b-0 data-[state=active]:bg-card data-[state=active]:text-heading data-[state=active]:shadow-xs text-muted-foreground hover:text-foreground transition-all"
+                          >
+                            Week Schedule
+                          </TabsTrigger>
+                        </TabsList>
+                      </HorizontalTabSlider>
                     </div>
 
-                    <TabsContent value="details" className="space-y-5">
+                    <TabsContent value="details" className="space-y-5 min-w-0">
                       <Card className="border-border bg-card shadow-card">
                         <CardHeader className="pb-3 border-b border-border">
                           <div>
@@ -551,13 +572,13 @@ export default function StudentProfilePage() {
                             <CardBody className="pt-4">
                               <ol className="space-y-4">
                                 {(goal.roadmap ?? []).map((step: any) => (
-                                  <li key={step.step} className="flex items-start gap-3.5 p-3 rounded-2xl bg-muted/40 border border-border">
+                                  <li key={step.step} className="flex items-start gap-3 sm:gap-3.5 p-3 rounded-2xl bg-muted/40 border border-border min-w-0">
                                     <span className="tnum mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
                                       {step.step}
                                     </span>
                                     <div className="min-w-0 flex-1">
-                                      <p className="text-xs font-bold text-heading">{step.title}</p>
-                                      <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">{step.detail}</p>
+                                      <p className="text-xs font-bold text-heading break-words">{step.title}</p>
+                                      <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed break-words">{step.detail}</p>
                                       <ProgressBar
                                         value={step.percent}
                                         className="mt-2.5"
@@ -565,7 +586,7 @@ export default function StudentProfilePage() {
                                         thin
                                       />
                                     </div>
-                                    <Badge tone={step.state === 'completed' ? 'mustard' : 'neutral'} className="text-xs font-semibold">
+                                    <Badge tone={step.state === 'completed' ? 'mustard' : 'neutral'} className="text-xs font-semibold shrink-0">
                                       {step.percent}%
                                     </Badge>
                                   </li>
@@ -592,14 +613,14 @@ export default function StudentProfilePage() {
                               <li
                                 key={day.label}
                                 className={cn(
-                                  'rounded-2xl border p-4 transition-all duration-200',
+                                  'rounded-2xl border p-3.5 sm:p-4 transition-all duration-200 min-w-0',
                                   day.isToday ? 'border-accent bg-accent/20 shadow-xs' : 'border-border bg-muted/40',
                                 )}
                               >
-                                <p className="text-xs font-bold text-heading flex items-center">
-                                  {day.label}
+                                <p className="text-xs font-bold text-heading flex items-center flex-wrap gap-1.5">
+                                  <span>{day.label}</span>
                                   {day.isToday && (
-                                    <span className="ml-2 rounded-full bg-accent text-accent-foreground px-2 py-0.5 text-[10px] font-bold">
+                                    <span className="rounded-full bg-accent text-accent-foreground px-2 py-0.5 text-[10px] font-bold">
                                       Today
                                     </span>
                                   )}
@@ -609,9 +630,9 @@ export default function StudentProfilePage() {
                                 ) : (
                                   <ul className="mt-2 space-y-1.5">
                                     {day.items.map((item: any, index: number) => (
-                                      <li key={index} className="text-xs text-muted-foreground">
+                                      <li key={index} className="text-xs text-muted-foreground break-words min-w-0">
                                         <span className="font-semibold text-heading">{item.label}:</span>{' '}
-                                        {item.title}
+                                        <span>{item.title}</span>
                                       </li>
                                     ))}
                                   </ul>
@@ -629,6 +650,17 @@ export default function StudentProfilePage() {
           );
         }}
       </AsyncSection>
+
+      {user && (
+        <ProfileAvatarUploadModal
+          open={avatarModalOpen}
+          onClose={() => {
+            setAvatarModalOpen(false);
+            query.refetch();
+          }}
+          user={user}
+        />
+      )}
     </div>
   );
 }

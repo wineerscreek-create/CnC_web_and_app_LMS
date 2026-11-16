@@ -16,6 +16,10 @@ export default function VerifyEmailPage() {
   const params = useSearchParams();
   const email = params.get('email') ?? '';
   const token = params.get('token');
+  const redirectTarget = params.get('next') || params.get('redirect') || params.get('returnUrl');
+  const loginUrl = redirectTarget && redirectTarget.startsWith('/')
+    ? `/login?next=${encodeURIComponent(redirectTarget)}`
+    : '/login';
 
   const [otp, setOtp] = React.useState('');
   const [pending, setPending] = React.useState(false);
@@ -51,9 +55,9 @@ export default function VerifyEmailPage() {
 
   React.useEffect(() => {
     if (!done) return;
-    const timer = setTimeout(() => router.push('/login'), 2500);
+    const timer = setTimeout(() => router.push(loginUrl), 2500);
     return () => clearTimeout(timer);
-  }, [done, router]);
+  }, [done, router, loginUrl]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -93,7 +97,7 @@ export default function VerifyEmailPage() {
           Your account is ready. Taking you to sign in…
         </p>
         <Button asChild variant="primary" className="mt-5">
-          <Link href="/login">Sign in now</Link>
+          <Link href={loginUrl}>Sign in now</Link>
         </Button>
       </div>
     );
