@@ -177,6 +177,35 @@ export function MessagingApp({ role: propRole }: MessagingAppProps) {
   const wsManagerRef = React.useRef<MessagingWebSocketManager | null>(null);
 
   // --------------------------------------------------------------------------
+  // Data Loaders
+  // --------------------------------------------------------------------------
+  const loadSidebar = React.useCallback(async () => {
+    try {
+      const [groupsRes, convsRes, blocksRes] = await Promise.all([
+        api.get<any>('/messaging/groups'),
+        api.get<any>('/messaging/conversations'),
+        api.get<any>('/messaging/users/blocked').catch(() => ({ blockedUsers: [] })),
+      ]);
+
+      const gList: MessagingGroup[] = groupsRes?.groups ?? groupsRes?.data?.groups ?? [];
+      const cList: MessagingConversation[] = convsRes?.conversations ?? convsRes?.data?.conversations ?? [];
+      const bList: string[] = (blocksRes?.blockedUsers ?? blocksRes?.data?.blockedUsers ?? []).map(
+        (u: any) => u.id
+      );
+
+      setGroups(gList);
+      setConversations(cList);
+      setBlockedUsers(bList);
+      return { gList, cList };
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to load conversations.');
+      return { gList: [], cList: [] };
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // --------------------------------------------------------------------------
   // WebSocket Lifecycle
   // --------------------------------------------------------------------------
   React.useEffect(() => {
@@ -284,35 +313,6 @@ export function MessagingApp({ role: propRole }: MessagingAppProps) {
       return () => ws.unsubscribeRoom(room);
     }
   }, [activeGroupId, activeConvId]);
-
-  // --------------------------------------------------------------------------
-  // Data Loaders
-  // --------------------------------------------------------------------------
-  const loadSidebar = React.useCallback(async () => {
-    try {
-      const [groupsRes, convsRes, blocksRes] = await Promise.all([
-        api.get<any>('/messaging/groups'),
-        api.get<any>('/messaging/conversations'),
-        api.get<any>('/messaging/users/blocked').catch(() => ({ blockedUsers: [] })),
-      ]);
-
-      const gList: MessagingGroup[] = groupsRes?.groups ?? groupsRes?.data?.groups ?? [];
-      const cList: MessagingConversation[] = convsRes?.conversations ?? convsRes?.data?.conversations ?? [];
-      const bList: string[] = (blocksRes?.blockedUsers ?? blocksRes?.data?.blockedUsers ?? []).map(
-        (u: any) => u.id
-      );
-
-      setGroups(gList);
-      setConversations(cList);
-      setBlockedUsers(bList);
-      return { gList, cList };
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to load conversations.');
-      return { gList: [], cList: [] };
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   React.useEffect(() => {
     loadSidebar().then(({ gList, cList }) => {

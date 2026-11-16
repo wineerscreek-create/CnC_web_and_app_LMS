@@ -83,6 +83,9 @@ reports/
 !MESSAGING_SECURITY_AUDIT.md
 !MESSAGING_TEST_RESULTS.md
 !MESSAGING_DEPLOYMENT_GUIDE.md
+!ARYA_STUDENT_PASSWORD_RESET_REPORT.md
+!TRAINER_PROFILE_IMPLEMENTATION_REPORT.md
+!TRAINER_PROFILE_TEST_RESULTS.md
 
 # 7. Scratch & Temporary Development Directories
 scratch/
@@ -99,6 +102,7 @@ apps/api/tests/*
 !apps/api/tests/test_quiz_lms_integration.py
 !apps/api/tests/test_quiz_proctoring_integration.py
 !apps/api/tests/test_institute_messaging_system.py
+!apps/api/tests/test_trainer_profile_and_password_reset.py
 apps/api/test_*.py
 apps/api/audit_*.py
 apps/api/verify_*.py

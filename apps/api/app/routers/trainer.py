@@ -2986,65 +2986,26 @@ from app.routers.trainer_profile import (
     get_my_trainer_profile,
     update_my_trainer_profile,
     upload_trainer_photo,
+    upload_trainer_resume,
+    upload_trainer_teaching_photo,
+    set_trainer_testimonial_approval,
     TrainerProfileUpdateRequest,
+    TrainerTestimonialApprovalRequest,
 )
 
 @router.get("/profile")
 async def trainer_profile(ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
-    try:
-        uuid_val = UUID(str(ctx.user_id))
-    except Exception:
-        uuid_val = None
-
-    if settings.USE_POSTGRES and uuid_val:
-        res = await get_my_trainer_profile(ctx)
-        if "data" in res and isinstance(res["data"], dict):
-            res["data"].setdefault("name", res["data"].get("displayName"))
-            if "sessionsConducted" not in res["data"]:
-                res["data"]["sessionsConducted"] = res["data"].get("stats", {}).get("sessionsConducted", 0)
-            if "assignments" not in res["data"]:
-                assignments_list = await TrainerAssignmentRepo(ctx).find_all({"active": True}, limit=200)
-                res["data"]["assignments"] = serialize(assignments_list)
-        return res
-
-    user = await get_db().users.find_one({"_id": ctx.user_id})
-    assignments_list = await TrainerAssignmentRepo(ctx).find_all({"active": True}, limit=200)
-    sessions_conducted = await TrainingSessionRepo(ctx).count({})
-    feedback = await TrainerFeedbackRepo(ctx).aggregate(
-        [
-            {"$match": {"trainerUserId": ctx.user_id}},
-            {"$group": {"_id": None, "avg": {"$avg": "$rating"}, "n": {"$sum": 1}}},
-        ]
-    )
-    avg_fb = round(feedback[0]["avg"], 1) if feedback and feedback[0].get("avg") else 5.0
-    fb_cnt = feedback[0]["n"] if feedback else 0
-    return {
-        "success": True,
-        "data": {
-            "id": str(ctx.user_id),
-            "userId": str(ctx.user_id),
-            "name": (user or {}).get("name"),
-            "displayName": (user or {}).get("name"),
-            "email": (user or {}).get("email"),
-            "designation": (user or {}).get("designation") or "Corporate Trainer",
-            "departmentName": (user or {}).get("departmentName"),
-            "assignments": serialize(assignments_list),
-            "sessionsConducted": sessions_conducted,
-            "averageFeedback": avg_fb,
-            "feedbackEntries": fb_cnt,
-            "access": (user or {}).get("access", {}),
-            "stats": {
-                "sessionsConducted": sessions_conducted,
-                "averageFeedback": avg_fb,
-                "feedbackCount": fb_cnt,
-            },
-            "completionPercent": 85,
-            "rating": avg_fb,
-        },
-    }
+    return await get_my_trainer_profile(ctx)
 
 @router.patch("/profile")
 async def patch_trainer_profile(
+    payload: TrainerProfileUpdateRequest,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    return await update_my_trainer_profile(payload, ctx)
+
+@router.put("/profile")
+async def put_trainer_profile(
     payload: TrainerProfileUpdateRequest,
     ctx: ScopeContext = TrainerCtx,
 ) -> dict[str, Any]:
@@ -3056,6 +3017,28 @@ async def post_trainer_photo(
     ctx: ScopeContext = TrainerCtx,
 ) -> dict[str, Any]:
     return await upload_trainer_photo(file, ctx)
+
+@router.post("/profile/resume")
+async def post_trainer_resume(
+    file: UploadFile = File(...),
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    return await upload_trainer_resume(file, ctx)
+
+@router.post("/profile/teaching-photo")
+async def post_trainer_teaching_photo(
+    file: UploadFile = File(...),
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    return await upload_trainer_teaching_photo(file, ctx)
+
+@router.post("/profile/{target_user_id}/testimonial")
+async def post_trainer_testimonial(
+    target_user_id: str,
+    payload: TrainerTestimonialApprovalRequest,
+    ctx: ScopeContext = Depends(require_role(Role.SUPER_ADMIN)),
+) -> dict[str, Any]:
+    return await set_trainer_testimonial_approval(target_user_id, payload, ctx)
 
 
 # --------------------------------------------------------------------------- E-Books
