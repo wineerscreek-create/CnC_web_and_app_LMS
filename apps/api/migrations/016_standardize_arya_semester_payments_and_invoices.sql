@@ -33,8 +33,3 @@ SET semester_number = 3,
     academic_year = '2024-2025'
 FROM payments p
 WHERE inv.id = p.invoice_id AND p.semester = 3;
-
--- 5. Record migration
-INSERT INTO schema_migrations (version)
-VALUES ('016_standardize_arya_semester_payments_and_invoices.sql')
-ON CONFLICT DO NOTHING;
