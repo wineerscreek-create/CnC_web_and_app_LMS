@@ -3764,3 +3764,178 @@ async def delete_trainer_recording(recording_id: str, ctx: ScopeContext = Traine
     return {"success": False}
 
 
+# --------------------------------------------------------------------------- Course Invitations
+@router.get("/course-invitations")
+async def trainer_list_course_invitations(ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
+    """Lists all pending and past course teaching invitations offered to this trainer."""
+    if not ctx.user_id:
+        return {"success": True, "items": []}
+
+    try:
+        t_uuid = UUID(str(ctx.user_id))
+    except (ValueError, TypeError):
+        return {"success": True, "items": []}
+
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        async with get_pg_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT 
+                    ci.id, ci.course_id, c.title as course_title, c.code as course_code,
+                    c.category as course_category, c.delivery_mode,
+                    ci.institution_id, i.name as institution_name,
+                    ci.department_id, d.name as department_name,
+                    ci.batch_id, b.name as batch_name,
+                    ci.status, ci.notes, ci.proposed_start_date, ci.proposed_end_date,
+                    ci.response_notes, ci.responded_at, ci.created_at
+                FROM course_invitations ci
+                JOIN courses c ON ci.course_id = c.id
+                LEFT JOIN institutions i ON ci.institution_id = i.id
+                LEFT JOIN departments d ON ci.department_id = d.id
+                LEFT JOIN batches b ON ci.batch_id = b.id
+                WHERE ci.trainer_user_id = $1
+                ORDER BY 
+                    CASE WHEN ci.status = 'PENDING' THEN 1 ELSE 2 END,
+                    ci.created_at DESC
+                """,
+                t_uuid,
+            )
+            items = [
+                {
+                    "id": str(r["id"]),
+                    "courseId": str(r["course_id"]),
+                    "courseTitle": r["course_title"],
+                    "courseCode": r["course_code"],
+                    "category": r["course_category"],
+                    "deliveryMode": r["delivery_mode"],
+                    "institutionId": str(r["institution_id"]) if r["institution_id"] else None,
+                    "institutionName": r["institution_name"],
+                    "departmentId": str(r["department_id"]) if r["department_id"] else None,
+                    "departmentName": r["department_name"],
+                    "batchId": str(r["batch_id"]) if r["batch_id"] else None,
+                    "batchName": r["batch_name"],
+                    "status": r["status"],
+                    "notes": r["notes"],
+                    "proposedStartDate": r["proposed_start_date"].isoformat() if r["proposed_start_date"] else None,
+                    "proposedEndDate": r["proposed_end_date"].isoformat() if r["proposed_end_date"] else None,
+                    "responseNotes": r["response_notes"],
+                    "respondedAt": r["responded_at"].isoformat() if r["responded_at"] else None,
+                    "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
+                }
+                for r in rows
+            ]
+            return {"success": True, "items": items}
+    return {"success": True, "items": []}
+
+
+@router.post("/course-invitations/{invitation_id}/accept")
+async def trainer_accept_course_invitation(invitation_id: str, ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
+    """Trainer accepts an offered course invitation, making the course active on their profile."""
+    if not ctx.user_id:
+        from app.core.errors import ScopeForbidden
+        raise ScopeForbidden("Authentication required.")
+
+    try:
+        t_uuid = UUID(str(ctx.user_id))
+        inv_uuid = UUID(str(invitation_id))
+    except (ValueError, TypeError):
+        raise ValidationError("Invalid UUID format.")
+
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        async with get_pg_connection() as conn:
+            inv = await conn.fetchrow(
+                "SELECT * FROM course_invitations WHERE id = $1 AND trainer_user_id = $2",
+                inv_uuid, t_uuid
+            )
+            if not inv:
+                raise NotFound("Course invitation not found.")
+            if inv["status"] != "PENDING":
+                raise ValidationError(f"Cannot accept invitation in '{inv['status']}' state.")
+
+            # 1. Update invitation status to ACCEPTED
+            await conn.execute(
+                "UPDATE course_invitations SET status = 'ACCEPTED', responded_at = NOW(), updated_at = NOW() WHERE id = $1",
+                inv_uuid
+            )
+
+            # 2. Add to course_trainers
+            await conn.execute(
+                """
+                INSERT INTO course_trainers (course_id, trainer_user_id, assigned_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (course_id, trainer_user_id) DO NOTHING
+                """,
+                inv["course_id"], t_uuid
+            )
+
+            # 3. Add to course_trainer_assignments
+            existing_cta = await conn.fetchrow(
+                """
+                SELECT id FROM course_trainer_assignments 
+                WHERE course_id = $1 AND trainer_user_id = $2 
+                  AND ((department_id = $3) OR (department_id IS NULL AND $3 IS NULL))
+                """,
+                inv["course_id"], t_uuid, inv["department_id"]
+            )
+            if not existing_cta:
+                await conn.execute(
+                    """
+                    INSERT INTO course_trainer_assignments (course_id, trainer_user_id, institution_id, department_id, assigned_by)
+                    VALUES ($1, $2, $3, $4, $5)
+                    """,
+                    inv["course_id"], t_uuid, inv["institution_id"], inv["department_id"], inv["offered_by"]
+                )
+
+            # 4. If batch_id specified, add to batch_trainers
+            if inv["batch_id"]:
+                await conn.execute(
+                    """
+                    INSERT INTO batch_trainers (batch_id, trainer_user_id, institution_id, assigned_by, notes)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (batch_id, trainer_user_id) DO NOTHING
+                    """,
+                    inv["batch_id"], t_uuid, inv["institution_id"], inv["offered_by"], inv["notes"]
+                )
+
+        return {"success": True, "message": "Course invitation accepted. Course is now assigned to your profile."}
+    return {"success": False, "message": "Postgres mode required."}
+
+
+@router.post("/course-invitations/{invitation_id}/reject")
+async def trainer_reject_course_invitation(invitation_id: str, payload: dict[str, Any] = {}, ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
+    """Trainer declines an offered course invitation."""
+    if not ctx.user_id:
+        from app.core.errors import ScopeForbidden
+        raise ScopeForbidden("Authentication required.")
+
+    try:
+        t_uuid = UUID(str(ctx.user_id))
+        inv_uuid = UUID(str(invitation_id))
+    except (ValueError, TypeError):
+        raise ValidationError("Invalid UUID format.")
+
+    reason = (payload.get("reason") or "").strip()
+
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        async with get_pg_connection() as conn:
+            inv = await conn.fetchrow(
+                "SELECT * FROM course_invitations WHERE id = $1 AND trainer_user_id = $2",
+                inv_uuid, t_uuid
+            )
+            if not inv:
+                raise NotFound("Course invitation not found.")
+            if inv["status"] != "PENDING":
+                raise ValidationError(f"Cannot decline invitation in '{inv['status']}' state.")
+
+            await conn.execute(
+                "UPDATE course_invitations SET status = 'REJECTED', response_notes = $1, responded_at = NOW(), updated_at = NOW() WHERE id = $2",
+                reason or None, inv_uuid
+            )
+
+        return {"success": True, "message": "Course invitation declined."}
+    return {"success": False, "message": "Postgres mode required."}
+
+

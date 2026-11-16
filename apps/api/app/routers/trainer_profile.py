@@ -779,7 +779,7 @@ async def set_trainer_testimonial_approval(
                     is_testimonial_approved = $1,
                     testimonial_quote = COALESCE($2, testimonial_quote),
                     testimonial_approved_at = CASE WHEN $1 THEN NOW() ELSE NULL END,
-                    testimonial_approved_by = CASE WHEN $1 THEN $3 ELSE NULL END,
+                    testimonial_approved_by = CASE WHEN $1 THEN $3::uuid ELSE NULL END,
                     updated_at = NOW()
                 WHERE user_id = $4
                 RETURNING id, is_testimonial_approved, testimonial_quote, testimonial_approved_at

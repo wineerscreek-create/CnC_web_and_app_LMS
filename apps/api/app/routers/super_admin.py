@@ -10,6 +10,7 @@ import json
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
+import uuid as _uuid
 from bson import ObjectId
 from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
@@ -33,6 +34,15 @@ from app.services.storage import signed_url
 
 router = APIRouter()
 SuperAdminCtx = Depends(require_role(Role.SUPER_ADMIN))
+
+
+def _safe_uuid(val: Any) -> UUID | None:
+    if not val:
+        return None
+    try:
+        return UUID(str(val))
+    except (ValueError, TypeError):
+        return None
 
 
 def _now() -> datetime:
@@ -697,6 +707,8 @@ async def super_admin_list_users(
     role: str | None = Query(None),
     college_id: str | None = Query(None),
     search: str | None = Query(None),
+    status: str | None = Query(None),
+    affiliation_type: str | None = Query(None),
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
     ctx: ScopeContext = SuperAdminCtx,
@@ -721,10 +733,18 @@ async def super_admin_list_users(
                 except ValueError:
                     pass
 
+            if status and status.lower() != "all":
+                params.append(status.upper())
+                conds.append(f"u.status::text = ${len(params)}")
+
+            if affiliation_type and affiliation_type.upper() != "ALL":
+                params.append(affiliation_type.upper())
+                conds.append(f"COALESCE(u.affiliation_type, 'INSTITUTION') = ${len(params)}")
+
             if search:
                 s = f"%{search.strip()}%"
                 params.append(s)
-                conds.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)})")
+                conds.append(f"(u.name ILIKE ${len(params)} OR u.email ILIKE ${len(params)} OR COALESCE(u.phone, '') ILIKE ${len(params)} OR COALESCE(u.employee_id, '') ILIKE ${len(params)})")
 
             where_clause = " AND ".join(conds)
             total = await conn.fetchval(f"SELECT COUNT(*) FROM users u WHERE {where_clause}", *params) or 0
@@ -732,10 +752,12 @@ async def super_admin_list_users(
             offset = (page - 1) * pageSize
             query_sql = f"""
                 SELECT 
-                    u.id, u.name, u.email, u.phone, u.role, u.status, u.created_at,
+                    u.id, u.name, u.email, u.phone, u.role, u.status, u.created_at, u.last_login_at,
+                    u.must_change_password, u.affiliation_type, u.employee_id, u.designation as user_designation,
+                    u.qualification as user_qualification, u.specialization as user_specialization,
                     u.institution_id, i.name as college_name,
                     u.department_id, d.name as department_name,
-                    tp.title as designation, tp.specializations
+                    tp.title as trainer_title, tp.specializations, tp.qualification as trainer_qual
                 FROM users u
                 LEFT JOIN institutions i ON u.institution_id = i.id
                 LEFT JOIN departments d ON u.department_id = d.id
@@ -752,20 +774,24 @@ async def super_admin_list_users(
                     "name": r["name"] or "",
                     "email": r["email"] or "",
                     "mobile": r["phone"] or "",
-                    "employeeId": str(r["id"])[:8],
+                    "phone": r["phone"] or "",
+                    "employeeId": r["employee_id"] or str(r["id"])[:8],
                     "role": r["role"],
                     "collegeId": str(r["institution_id"]) if r["institution_id"] else None,
-                    "collegeName": r["college_name"] or ("Platform" if r["role"] == "SUPER_ADMIN" else "Unassigned"),
+                    "institutionId": str(r["institution_id"]) if r["institution_id"] else None,
+                    "collegeName": r["college_name"] or ("Platform" if r["role"] == "SUPER_ADMIN" else ("Independent / Online" if r["affiliation_type"] == "ONLINE" else "Unassigned")),
                     "departmentId": str(r["department_id"]) if r["department_id"] else None,
                     "departmentName": r["department_name"],
-                    "designation": r["designation"] or (r["role"].capitalize() if r["role"] else ""),
-                    "qualification": "",
-                    "specialization": ", ".join(r["specializations"]) if r["specializations"] else "",
+                    "designation": r["user_designation"] or r["trainer_title"] or (r["role"].capitalize() if r["role"] else ""),
+                    "qualification": r["user_qualification"] or r["trainer_qual"] or "",
+                    "specialization": r["user_specialization"] or (", ".join(r["specializations"]) if r["specializations"] else ""),
+                    "affiliationType": r["affiliation_type"] or "INSTITUTION",
                     "status": (r["status"] or "ACTIVE").lower(),
                     "accountStatus": (r["status"] or "ACTIVE").lower(),
                     "permissions": [],
-                    "mustChangePassword": False,
+                    "mustChangePassword": bool(r["must_change_password"]),
                     "activationToken": None,
+                    "lastLoginAt": r["last_login_at"].isoformat() if r["last_login_at"] else None,
                     "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
                 }
                 for r in rows
@@ -846,12 +872,12 @@ async def super_admin_list_users(
 
 @router.post("/users", status_code=status.HTTP_201_CREATED)
 async def super_admin_provision_user(payload: dict[str, Any], ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
-    """Super Admin provisions institutional users (ADMIN, HOD, TRAINER, SUPER_ADMIN).
+    """Super Admin provisions institutional/staff users (ADMIN, HOD, TRAINER, SUPER_ADMIN).
     
-    Account starts in PENDING_VERIFICATION status with a temporary password and mustChangePassword=True.
+    Account is provisioned with a secure temporary password and must_change_password=True.
     A single-use activation token is generated with a 7-day validity.
+    Supports ONLINE/Independent Trainers as well as institutionally-affiliated Trainers.
     """
-    db = get_db()
     name = (payload.get("name") or "").strip()
     email = (payload.get("email") or "").strip().lower()
     role_str = (payload.get("role") or "").strip().upper()
@@ -860,6 +886,7 @@ async def super_admin_provision_user(payload: dict[str, Any], ctx: ScopeContext 
     designation = (payload.get("designation") or "").strip()
     qualification = (payload.get("qualification") or "").strip()
     specialization = (payload.get("specialization") or "").strip()
+    affiliation_type = (payload.get("affiliationType") or payload.get("affiliation_type") or "INSTITUTION").strip().upper()
     college_id_raw = payload.get("collegeId")
     department_id_raw = payload.get("departmentId")
 
@@ -873,23 +900,27 @@ async def super_admin_provision_user(payload: dict[str, Any], ctx: ScopeContext 
     if role_str not in allowed_roles:
         raise ValidationError(f"Role must be one of: {', '.join(sorted(allowed_roles))}")
 
-    existing_email = await db.users.find_one({"email": email})
-    if existing_email:
-        raise Conflict("A user account with this email address already exists.")
-
+    # Check existing email in Postgres or Mongo
     if settings.USE_POSTGRES:
-        from app.db.postgres import get_pg_connection
         async with get_pg_connection() as conn:
             pg_user = await conn.fetchrow("SELECT id FROM users WHERE LOWER(email) = LOWER($1)", email)
             if pg_user:
                 raise Conflict("A user account with this email address already exists.")
+    else:
+        try:
+            db = get_db()
+            existing_email = await db.users.find_one({"email": email})
+            if existing_email:
+                raise Conflict("A user account with this email address already exists.")
+        except Exception:
+            pass
 
+    # Institution and Department resolution
     college = None
-    college_id = None
+    c_uuid = None
     college_name = None
-    if college_id_raw:
+    if college_id_raw and str(college_id_raw).strip() not in {"", "none", "null", "undefined", "ONLINE", "independent"}:
         if settings.USE_POSTGRES:
-            from app.db.postgres import get_pg_connection
             async with get_pg_connection() as conn:
                 try:
                     c_row = await conn.fetchrow(
@@ -898,32 +929,47 @@ async def super_admin_provision_user(payload: dict[str, Any], ctx: ScopeContext 
                         str(college_id_raw),
                     )
                     if c_row:
-                        college_id = str(c_row["id"])
+                        c_uuid = c_row["id"]
                         college_name = c_row["name"]
                         college = dict(c_row)
                 except Exception:
                     pass
-        if not college:
+        if not college and not settings.is_production:
             try:
-                college_oid = ObjectId(str(college_id_raw))
-                college = await db.colleges.find_one({"_id": college_oid, "deletedAt": None})
+                db = get_db()
+                try:
+                    college_oid = ObjectId(str(college_id_raw))
+                    college = await db.colleges.find_one({"_id": college_oid, "deletedAt": None})
+                except Exception:
+                    college = await db.colleges.find_one({"code": str(college_id_raw).upper(), "deletedAt": None})
+                if college:
+                    college_name = college.get("name")
             except Exception:
-                college = await db.colleges.find_one({"code": str(college_id_raw).upper(), "deletedAt": None})
-            if college:
-                college_id = college["_id"]
-                college_name = college.get("name")
-        if not college:
+                pass
+
+        if not college and not c_uuid:
             raise ValidationError("Specified institution was not found.")
 
-    if role_str in {"ADMIN", "HOD", "TRAINER"} and not college_id:
-        raise ValidationError("Institution/College selection is required for this role.")
+    # Affiliation handling
+    if role_str == "TRAINER":
+        if not c_uuid or affiliation_type == "ONLINE" or str(college_id_raw).lower() in {"online", "independent", ""}:
+            affiliation_type = "ONLINE"
+            c_uuid = None
+            college_name = "Independent / Online"
+        else:
+            affiliation_type = "INSTITUTION"
+    elif role_str in {"ADMIN", "HOD"}:
+        if not c_uuid:
+            raise ValidationError(f"Institution/College selection is required for {role_str} accounts.")
+        affiliation_type = "INSTITUTION"
+    elif role_str == "SUPER_ADMIN":
+        affiliation_type = "PLATFORM"
 
-    department = None
-    department_id = None
+    # Department resolution
+    d_uuid = None
     department_name = None
-    if department_id_raw:
+    if department_id_raw and str(department_id_raw).strip() not in {"", "none", "null", "undefined"}:
         if settings.USE_POSTGRES:
-            from app.db.postgres import get_pg_connection
             async with get_pg_connection() as conn:
                 try:
                     d_row = await conn.fetchrow(
@@ -932,231 +978,600 @@ async def super_admin_provision_user(payload: dict[str, Any], ctx: ScopeContext 
                         str(department_id_raw),
                     )
                     if d_row:
-                        department_id = str(d_row["id"])
+                        d_uuid = d_row["id"]
                         department_name = d_row["name"]
-                        department = dict(d_row)
                 except Exception:
                     pass
-        if not department:
-            try:
-                dep_oid = ObjectId(str(department_id_raw))
-                department = await db.departments.find_one({"_id": dep_oid, "deletedAt": None})
-            except Exception:
-                if college_id:
-                    department = await db.departments.find_one({"collegeId": college_id, "code": str(department_id_raw).upper(), "deletedAt": None})
-            if department:
-                department_id = department["_id"]
-                department_name = department.get("name")
 
-    if role_str == "HOD" and not department_id:
+    if role_str == "HOD" and not d_uuid:
         raise ValidationError("Department selection is required for HOD accounts.")
 
-    # Granular permissions
-    default_admin_perms = [
-        "VIEW_STUDENTS", "VIEW_TRAINERS", "MANAGE_TRAINERS", "ASSIGN_TRAINER",
-        "VIEW_ATTENDANCE", "MANAGE_ATTENDANCE", "VIEW_COURSES", "MANAGE_CLASSES",
-        "VIEW_COLLEGE_PAYMENTS", "VIEW_REPORTS"
-    ]
-    default_trainer_perms = [
-        "VIEW_ASSIGNED_CLASSES", "MARK_ATTENDANCE", "VIEW_ASSIGNED_STUDENTS",
-        "VIEW_ASSIGNED_COURSE", "MANAGE_ASSIGNED_CONTENT", "VIEW_ASSIGNED_ANALYTICS"
-    ]
-    default_hod_perms = [
-        "VIEW_DEPARTMENT_STUDENTS", "VIEW_DEPARTMENT_TRAINERS", "ASSIGN_DEPARTMENT_TRAINERS",
-        "VIEW_DEPARTMENT_ATTENDANCE", "VIEW_DEPARTMENT_REPORTS"
-    ]
-    
-    role_defaults = {
-        "ADMIN": default_admin_perms,
-        "TRAINER": default_trainer_perms,
-        "HOD": default_hod_perms,
-        "SUPER_ADMIN": ["ALL_PERMISSIONS"],
-    }
-
-    perms = payload.get("permissions")
-    if perms is None or not isinstance(perms, list):
-        perms = role_defaults.get(role_str, [])
-
     # Temporary password & activation token
-    raw_temp_password = payload.get("temporaryPassword") or f"Eedi@{secrets.token_hex(4)}!"
+    raw_temp_password = (payload.get("temporaryPassword") or "").strip()
+    if not raw_temp_password:
+        raw_temp_password = f"Staff@{secrets.token_hex(4).upper()}#!"
+    
+    hashed_pwd = hash_password(raw_temp_password)
     activation_token = secrets.token_urlsafe(32)
     now = _now()
     activation_expires_at = now + timedelta(days=7)
 
-    user_doc = {
-        "name": name,
-        "email": email,
-        "mobile": mobile,
-        "phone": mobile,
-        "institutionId": employee_id if employee_id else None,
-        "employeeId": employee_id if employee_id else None,
-        "role": role_str,
-        "permissions": perms,
-        "collegeId": college_id,
-        "collegeName": college_name,
-        "departmentId": department_id,
-        "departmentName": department_name,
-        "designation": designation,
-        "qualification": qualification,
-        "specialization": specialization,
-        "passwordHash": hash_password(raw_temp_password),
-        "mustChangePassword": True,
-        "emailVerified": False,
-        "status": "pending_verification",
-        "accountStatus": "pending_verification",
-        "activationToken": activation_token,
-        "activationTokenExpiresAt": activation_expires_at,
-        "avatarColor": f"#{abs(hash(email)) % 0xFFFFFF:06X}",
-        "preferences": {
-            "emailNotifications": True,
-            "pushNotifications": True,
-            "smsNotifications": False,
-        },
-        "createdAt": now,
-        "updatedAt": now,
-        "deletedAt": None,
-        "version": 1,
-    }
+    pg_user_id = UUID(str(payload.get("id"))) if payload.get("id") else _uuid.uuid4()
 
-    res = await db.users.insert_one(user_doc)
-    user_doc["_id"] = res.inserted_id
-
-    pg_user_id = None
     if settings.USE_POSTGRES:
-        import uuid as _uuid
-        pg_user_id = _uuid.uuid4()
-        c_uuid = None
-        if college_id:
-            try:
-                c_uuid = UUID(str(college_id))
-            except Exception:
-                pass
-        d_uuid = None
-        if department_id:
-            try:
-                d_uuid = UUID(str(department_id))
-            except Exception:
-                pass
-
-        from app.db.postgres import get_pg_connection
         async with get_pg_connection() as conn:
             await conn.execute(
                 """
-                INSERT INTO users (id, email, password_hash, name, role, institution_id, department_id, phone, status, activation_token, activation_token_expires_at, must_change_password)
-                VALUES ($1, LOWER($2), $3, $4, $5::user_role_enum, $6, $7, $8, 'ACTIVE'::record_status_enum, $9, $10, TRUE)
+                INSERT INTO users (
+                    id, email, password_hash, name, role, institution_id, department_id, phone,
+                    status, activation_token, activation_token_expires_at, must_change_password,
+                    affiliation_type, designation, employee_id, qualification, specialization,
+                    email_verified, created_at, updated_at
+                )
+                VALUES (
+                    $1, LOWER($2), $3, $4, $5::user_role_enum, $6, $7, $8,
+                    'ACTIVE'::record_status_enum, $9, $10, TRUE,
+                    $11, $12, $13, $14, $15,
+                    FALSE, NOW(), NOW()
+                )
                 """,
                 pg_user_id,
                 email,
-                hash_password(raw_temp_password),
+                hashed_pwd,
                 name,
                 role_str,
                 c_uuid,
                 d_uuid,
-                mobile,
+                mobile or None,
                 activation_token,
                 activation_expires_at,
+                affiliation_type,
+                designation or (role_str.capitalize()),
+                employee_id or str(pg_user_id)[:8],
+                qualification or None,
+                specialization or None,
             )
+
             if role_str == "TRAINER":
+                specs = [s.strip() for s in specialization.split(",") if s.strip()] if specialization else []
                 await conn.execute(
                     """
-                    INSERT INTO trainer_profiles (user_id, institution_id, department_id, title)
-                    VALUES ($1, $2, $3, $4)
-                    ON CONFLICT (user_id) DO NOTHING
+                    INSERT INTO trainer_profiles (
+                        user_id, institution_id, department_id, title, designation,
+                        qualification, specializations, affiliation_type, phone, created_at, updated_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        institution_id = EXCLUDED.institution_id,
+                        department_id = EXCLUDED.department_id,
+                        title = EXCLUDED.title,
+                        designation = EXCLUDED.designation,
+                        qualification = EXCLUDED.qualification,
+                        specializations = EXCLUDED.specializations,
+                        affiliation_type = EXCLUDED.affiliation_type,
+                        phone = EXCLUDED.phone,
+                        updated_at = NOW()
                     """,
                     pg_user_id,
                     c_uuid,
                     d_uuid,
                     designation or "Trainer",
+                    designation or "Trainer",
+                    qualification or None,
+                    specs,
+                    affiliation_type,
+                    mobile or None,
                 )
-        user_doc["id"] = str(pg_user_id)
+            elif role_str == "HOD" and c_uuid and d_uuid:
+                await conn.execute(
+                    """
+                    INSERT INTO spoc_branch_assignments (spoc_user_id, institution_id, department_id)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (spoc_user_id, department_id) DO NOTHING
+                    """,
+                    pg_user_id,
+                    c_uuid,
+                    d_uuid,
+                )
+    else:
+        # Fallback for dev without postgres
+        try:
+            db = get_db()
+            user_doc = {
+                "name": name,
+                "email": email,
+                "mobile": mobile,
+                "phone": mobile,
+                "institutionId": employee_id if employee_id else None,
+                "employeeId": employee_id if employee_id else None,
+                "role": role_str,
+                "collegeId": c_uuid,
+                "collegeName": college_name,
+                "departmentId": d_uuid,
+                "departmentName": department_name,
+                "designation": designation,
+                "qualification": qualification,
+                "specialization": specialization,
+                "affiliationType": affiliation_type,
+                "passwordHash": hashed_pwd,
+                "mustChangePassword": True,
+                "emailVerified": False,
+                "status": "active",
+                "accountStatus": "active",
+                "activationToken": activation_token,
+                "activationTokenExpiresAt": activation_expires_at,
+                "createdAt": now,
+                "updatedAt": now,
+            }
+            await db.users.insert_one(user_doc)
+        except Exception:
+            pass
 
-    # If trainer, upsert trainer_profile
-    if role_str == "TRAINER":
-        await db.trainer_profiles.update_one(
-            {"userId": res.inserted_id},
-            {
-                "$set": {
-                    "userId": res.inserted_id,
-                    "name": name,
-                    "email": email,
-                    "phone": mobile,
-                    "collegeId": college_id,
-                    "collegeName": college_name,
-                    "departmentId": department_id,
-                    "designation": designation or "Trainer",
-                    "qualification": qualification,
-                    "specialization": specialization,
-                    "status": "active",
-                    "updatedAt": now,
-                },
-                "$setOnInsert": {"createdAt": now, "deletedAt": None},
-            },
-            upsert=True,
+    try:
+        await write_audit(
+            ctx,
+            action="provision_user",
+            entity_type="users",
+            entity_id=str(pg_user_id),
+            detail=f"Super Admin provisioned {role_str} user {email} ({name})",
+            after={"role": role_str, "status": "active", "institutionId": str(c_uuid) if c_uuid else None, "affiliationType": affiliation_type},
         )
-
-    await write_audit(
-        ctx,
-        action="provision_user",
-        entity_type="users",
-        entity_id=user_doc["_id"],
-        detail=f"Super Admin provisioned {role_str} user {email} ({name})",
-        after={"role": role_str, "accountStatus": "pending_verification", "collegeId": college_id},
-    )
+    except Exception as e:
+        log.warning("provision_audit_warning", extra={"error": str(e)})
 
     activation_url = f"/activate?token={activation_token}"
     return {
         "success": True,
         "message": f"{role_str} account provisioned successfully.",
-        "data": serialize(user_doc),
+        "data": {
+            "id": str(pg_user_id),
+            "name": name,
+            "email": email,
+            "mobile": mobile,
+            "phone": mobile,
+            "employeeId": employee_id or str(pg_user_id)[:8],
+            "role": role_str,
+            "collegeId": str(c_uuid) if c_uuid else None,
+            "institutionId": str(c_uuid) if c_uuid else None,
+            "collegeName": college_name or ("Platform" if role_str == "SUPER_ADMIN" else ("Independent / Online" if affiliation_type == "ONLINE" else "Unassigned")),
+            "departmentId": str(d_uuid) if d_uuid else None,
+            "departmentName": department_name,
+            "designation": designation or (role_str.capitalize()),
+            "qualification": qualification,
+            "specialization": specialization,
+            "affiliationType": affiliation_type,
+            "status": "active",
+            "accountStatus": "active",
+            "mustChangePassword": True,
+            "createdAt": now.isoformat(),
+        },
         "activationToken": activation_token,
         "activationUrl": activation_url,
         "temporaryPassword": raw_temp_password,
     }
 
 
+@router.patch("/users/{user_id}")
+async def super_admin_update_user(user_id: str, payload: dict[str, Any], ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    u_uuid = UUID(str(user_id))
+    name = (payload.get("name") or "").strip()
+    phone = (payload.get("phone") or payload.get("mobile") or "").strip()
+    designation = (payload.get("designation") or "").strip()
+    qualification = (payload.get("qualification") or "").strip()
+    specialization = (payload.get("specialization") or "").strip()
+    affiliation_type = (payload.get("affiliationType") or "").strip().upper()
+    college_id = payload.get("collegeId") or payload.get("institutionId")
+    department_id = payload.get("departmentId")
+
+    c_uuid = UUID(str(college_id)) if college_id and len(str(college_id)) == 36 else None
+    d_uuid = UUID(str(department_id)) if department_id and len(str(department_id)) == 36 else None
+
+    if settings.USE_POSTGRES:
+        async with get_pg_connection() as conn:
+            user = await conn.fetchrow("SELECT id, role FROM users WHERE id = $1 AND deleted_at IS NULL", u_uuid)
+            if not user:
+                raise NotFound("User not found.")
+
+            sets = ["updated_at = NOW()"]
+            params: list[Any] = [u_uuid]
+
+            if name:
+                params.append(name)
+                sets.append(f"name = ${len(params)}")
+            if phone:
+                params.append(phone)
+                sets.append(f"phone = ${len(params)}")
+            if designation:
+                params.append(designation)
+                sets.append(f"designation = ${len(params)}")
+            if qualification:
+                params.append(qualification)
+                sets.append(f"qualification = ${len(params)}")
+            if specialization:
+                params.append(specialization)
+                sets.append(f"specialization = ${len(params)}")
+            if affiliation_type in {"ONLINE", "INSTITUTION", "PLATFORM"}:
+                params.append(affiliation_type)
+                sets.append(f"affiliation_type = ${len(params)}")
+            if c_uuid is not None or college_id == "":
+                params.append(c_uuid)
+                sets.append(f"institution_id = ${len(params)}")
+            if d_uuid is not None or department_id == "":
+                params.append(d_uuid)
+                sets.append(f"department_id = ${len(params)}")
+
+            set_clause = ", ".join(sets)
+            await conn.execute(f"UPDATE users SET {set_clause} WHERE id = $1", *params)
+
+            if user["role"] == "TRAINER":
+                specs = [s.strip() for s in specialization.split(",") if s.strip()] if specialization else []
+                await conn.execute(
+                    """
+                    UPDATE trainer_profiles
+                    SET designation = COALESCE($2, designation),
+                        title = COALESCE($2, title),
+                        qualification = COALESCE($3, qualification),
+                        specializations = CASE WHEN $4::text[] = '{}' THEN specializations ELSE $4::text[] END,
+                        affiliation_type = COALESCE($5, affiliation_type),
+                        institution_id = COALESCE($6, institution_id),
+                        department_id = COALESCE($7, department_id),
+                        updated_at = NOW()
+                    WHERE user_id = $1
+                    """,
+                    u_uuid, designation or None, qualification or None, specs, affiliation_type or None, c_uuid, d_uuid
+                )
+
+    await write_audit(
+        ctx,
+        action="update_staff_profile",
+        entity_type="users",
+        entity_id=str(u_uuid),
+        detail=f"Super Admin updated staff details for user {user_id}",
+    )
+    return {"success": True, "message": "User details updated successfully."}
+
+
+@router.post("/users/{user_id}/reset-password")
+async def super_admin_reset_user_password(user_id: str, payload: dict[str, Any] = {}, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    raw_pwd = (payload.get("temporaryPassword") or "").strip()
+    if not raw_pwd:
+        raw_pwd = f"Staff@{secrets.token_hex(4).upper()}#!"
+
+    hashed_pwd = hash_password(raw_pwd)
+
+    if settings.USE_POSTGRES:
+        u_uuid = UUID(str(user_id))
+        async with get_pg_connection() as conn:
+            user = await conn.fetchrow("SELECT id, email, name FROM users WHERE id = $1 AND deleted_at IS NULL", u_uuid)
+            if not user:
+                raise NotFound("User not found.")
+            await conn.execute(
+                "UPDATE users SET password_hash = $1, must_change_password = TRUE, password_changed_at = NOW(), updated_at = NOW() WHERE id = $2",
+                hashed_pwd, u_uuid
+            )
+    else:
+        db = get_db()
+        user_oid = ObjectId(str(user_id))
+        res = await db.users.update_one(
+            {"_id": user_oid, "deletedAt": None},
+            {"$set": {"passwordHash": hashed_pwd, "mustChangePassword": True, "updatedAt": _now()}}
+        )
+        if res.matched_count == 0:
+            raise NotFound("User not found.")
+
+    await write_audit(
+        ctx,
+        action="reset_password",
+        entity_type="users",
+        entity_id=str(user_id),
+        detail=f"Super Admin reset password for staff member {user_id}",
+    )
+    return {
+        "success": True,
+        "message": "Temporary password configured successfully. User must change password on first login.",
+        "temporaryPassword": raw_pwd,
+        "mustChangePassword": True,
+    }
+
+
 @router.post("/users/{user_id}/activate")
 async def super_admin_activate_user(user_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
-    uid = ObjectId(user_id)
     now = _now()
-    res = await get_db().users.update_one(
-        {"_id": uid, "deletedAt": None},
-        {"$set": {"status": "active", "accountStatus": "active", "emailVerified": True, "activatedAt": now, "updatedAt": now}}
-    )
-    if res.matched_count == 0:
-        raise NotFound("User not found.")
+    if settings.USE_POSTGRES:
+        u_uuid = UUID(str(user_id))
+        async with get_pg_connection() as conn:
+            res = await conn.execute(
+                "UPDATE users SET status = 'ACTIVE'::record_status_enum, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL",
+                u_uuid
+            )
+            if res == "UPDATE 0":
+                raise NotFound("User not found.")
+    else:
+        uid = ObjectId(user_id)
+        res = await get_db().users.update_one(
+            {"_id": uid, "deletedAt": None},
+            {"$set": {"status": "active", "accountStatus": "active", "emailVerified": True, "activatedAt": now, "updatedAt": now}}
+        )
+        if res.matched_count == 0:
+            raise NotFound("User not found.")
 
-    await write_audit(ctx, action="activate_user", entity_type="users", entity_id=uid, detail=f"Activated user {user_id}")
+    await write_audit(ctx, action="activate_user", entity_type="users", entity_id=str(user_id), detail=f"Activated user {user_id}")
     return {"success": True, "message": "User account activated successfully."}
 
 
 @router.post("/users/{user_id}/suspend")
 async def super_admin_suspend_user(user_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
-    uid = ObjectId(user_id)
     now = _now()
-    res = await get_db().users.update_one(
-        {"_id": uid, "deletedAt": None},
-        {"$set": {"status": "suspended", "accountStatus": "suspended", "suspendedAt": now, "updatedAt": now}}
-    )
-    if res.matched_count == 0:
-        raise NotFound("User not found.")
+    if settings.USE_POSTGRES:
+        u_uuid = UUID(str(user_id))
+        async with get_pg_connection() as conn:
+            res = await conn.execute(
+                "UPDATE users SET status = 'SUSPENDED'::record_status_enum, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL",
+                u_uuid
+            )
+            if res == "UPDATE 0":
+                raise NotFound("User not found.")
+    else:
+        uid = ObjectId(user_id)
+        res = await get_db().users.update_one(
+            {"_id": uid, "deletedAt": None},
+            {"$set": {"status": "suspended", "accountStatus": "suspended", "suspendedAt": now, "updatedAt": now}}
+        )
+        if res.matched_count == 0:
+            raise NotFound("User not found.")
 
-    await write_audit(ctx, action="suspend_user", entity_type="users", entity_id=uid, detail=f"Suspended user {user_id}")
+    await write_audit(ctx, action="suspend_user", entity_type="users", entity_id=str(user_id), detail=f"Suspended user {user_id}")
     return {"success": True, "message": "User account suspended successfully."}
 
 
 @router.post("/users/{user_id}/deactivate")
 async def super_admin_deactivate_user(user_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
-    uid = ObjectId(user_id)
     now = _now()
-    res = await get_db().users.update_one(
-        {"_id": uid, "deletedAt": None},
-        {"$set": {"status": "inactive", "accountStatus": "inactive", "deactivatedAt": now, "updatedAt": now}}
-    )
-    if res.matched_count == 0:
-        raise NotFound("User not found.")
+    if settings.USE_POSTGRES:
+        u_uuid = UUID(str(user_id))
+        async with get_pg_connection() as conn:
+            res = await conn.execute(
+                "UPDATE users SET status = 'INACTIVE'::record_status_enum, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL",
+                u_uuid
+            )
+            if res == "UPDATE 0":
+                raise NotFound("User not found.")
+    else:
+        uid = ObjectId(user_id)
+        res = await get_db().users.update_one(
+            {"_id": uid, "deletedAt": None},
+            {"$set": {"status": "inactive", "accountStatus": "inactive", "deactivatedAt": now, "updatedAt": now}}
+        )
+        if res.matched_count == 0:
+            raise NotFound("User not found.")
 
-    await write_audit(ctx, action="deactivate_user", entity_type="users", entity_id=uid, detail=f"Deactivated user {user_id}")
+    await write_audit(ctx, action="deactivate_user", entity_type="users", entity_id=str(user_id), detail=f"Deactivated user {user_id}")
     return {"success": True, "message": "User account deactivated successfully."}
+
+
+# --------------------------------------------------------------------------- Staff Management & Course Invitations
+@router.get("/staff/metrics")
+async def super_admin_staff_metrics(ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    if settings.USE_POSTGRES:
+        async with get_pg_connection() as conn:
+            row = await conn.fetchrow("""
+                SELECT 
+                    COUNT(*) FILTER (WHERE role IN ('ADMIN', 'HOD', 'TRAINER', 'SUPER_ADMIN') AND deleted_at IS NULL) as total_staff,
+                    COUNT(*) FILTER (WHERE role = 'ADMIN' AND deleted_at IS NULL) as total_admins,
+                    COUNT(*) FILTER (WHERE role = 'HOD' AND deleted_at IS NULL) as total_hods,
+                    COUNT(*) FILTER (WHERE role = 'TRAINER' AND deleted_at IS NULL) as total_trainers,
+                    COUNT(*) FILTER (WHERE status = 'ACTIVE' AND role IN ('ADMIN', 'HOD', 'TRAINER', 'SUPER_ADMIN') AND deleted_at IS NULL) as active_staff,
+                    COUNT(*) FILTER (WHERE must_change_password = TRUE AND role IN ('ADMIN', 'HOD', 'TRAINER', 'SUPER_ADMIN') AND deleted_at IS NULL) as pending_first_login,
+                    COUNT(*) FILTER (WHERE status = 'SUSPENDED' AND role IN ('ADMIN', 'HOD', 'TRAINER', 'SUPER_ADMIN') AND deleted_at IS NULL) as suspended_staff
+                FROM users
+            """)
+            invitations_count = await conn.fetchval("""
+                SELECT COUNT(*) FROM course_invitations WHERE status = 'PENDING'
+            """) or 0
+            return {
+                "success": True,
+                "data": {
+                    "totalStaff": row["total_staff"] or 0,
+                    "totalAdmins": row["total_admins"] or 0,
+                    "totalHods": row["total_hods"] or 0,
+                    "totalTrainers": row["total_trainers"] or 0,
+                    "activeStaff": row["active_staff"] or 0,
+                    "pendingFirstLogin": row["pending_first_login"] or 0,
+                    "pendingInvitations": invitations_count,
+                    "suspendedStaff": row["suspended_staff"] or 0,
+                }
+            }
+    return {
+        "success": True,
+        "data": {
+            "totalStaff": 0, "totalAdmins": 0, "totalHods": 0, "totalTrainers": 0,
+            "activeStaff": 0, "pendingFirstLogin": 0, "pendingInvitations": 0, "suspendedStaff": 0
+        }
+    }
+
+
+@router.post("/staff/course-invitations", status_code=status.HTTP_201_CREATED)
+async def super_admin_create_course_invitation(payload: dict[str, Any], ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    trainer_user_id_raw = payload.get("trainerUserId")
+    course_id_raw = payload.get("courseId")
+    institution_id_raw = payload.get("institutionId")
+    department_id_raw = payload.get("departmentId")
+    batch_id_raw = payload.get("batchId")
+    notes = (payload.get("notes") or "").strip()
+    proposed_start_date = payload.get("proposedStartDate")
+    proposed_end_date = payload.get("proposedEndDate")
+
+    if not trainer_user_id_raw or not course_id_raw:
+        raise ValidationError("trainerUserId and courseId are required.")
+
+    t_uuid = UUID(str(trainer_user_id_raw))
+    c_uuid = UUID(str(course_id_raw))
+    inst_uuid = UUID(str(institution_id_raw)) if institution_id_raw and len(str(institution_id_raw)) == 36 else None
+    dept_uuid = UUID(str(department_id_raw)) if department_id_raw and len(str(department_id_raw)) == 36 else None
+    b_uuid = UUID(str(batch_id_raw)) if batch_id_raw and len(str(batch_id_raw)) == 36 else None
+
+    async with get_pg_connection() as conn:
+        trainer = await conn.fetchrow("SELECT id, name, email, role FROM users WHERE id = $1 AND deleted_at IS NULL", t_uuid)
+        if not trainer or trainer["role"] != "TRAINER":
+            raise ValidationError("Target user must be an active Trainer.")
+
+        course = await conn.fetchrow("SELECT id, title, code FROM courses WHERE id = $1 AND deleted_at IS NULL", c_uuid)
+        if not course:
+            raise NotFound("Course not found.")
+
+        # Check existing pending invitation
+        existing = await conn.fetchrow(
+            "SELECT id FROM course_invitations WHERE trainer_user_id = $1 AND course_id = $2 AND status = 'PENDING'",
+            t_uuid, c_uuid
+        )
+        if existing:
+            raise Conflict("A pending invitation for this course already exists for this trainer.")
+
+        actor_id = _safe_uuid(ctx.user_id if ctx else None)
+        inv_id = _uuid.uuid4()
+        now = _now()
+        await conn.execute(
+            """
+            INSERT INTO course_invitations (
+                id, course_id, trainer_user_id, institution_id, department_id, batch_id,
+                status, notes, proposed_start_date, proposed_end_date, offered_by, created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', $7, $8, $9, $10, $11, $11)
+            """,
+            inv_id, c_uuid, t_uuid, inst_uuid, dept_uuid, b_uuid,
+            notes or None,
+            datetime.strptime(proposed_start_date, "%Y-%m-%d").date() if proposed_start_date else None,
+            datetime.strptime(proposed_end_date, "%Y-%m-%d").date() if proposed_end_date else None,
+            actor_id, now,
+        )
+
+    await write_audit(
+        ctx,
+        action="offer_course_invitation",
+        entity_type="course_invitations",
+        entity_id=str(inv_id),
+        detail=f"Offered course {course['title']} to trainer {trainer['name']} ({trainer['email']})",
+    )
+
+    return {
+        "success": True,
+        "message": f"Course invitation offered to {trainer['name']}.",
+        "data": {
+            "id": str(inv_id),
+            "courseId": str(c_uuid),
+            "courseTitle": course["title"],
+            "trainerUserId": str(t_uuid),
+            "trainerName": trainer["name"],
+            "trainerEmail": trainer["email"],
+            "status": "PENDING",
+            "notes": notes,
+            "createdAt": now.isoformat(),
+        }
+    }
+
+
+@router.get("/staff/course-invitations")
+async def super_admin_list_course_invitations(
+    trainerUserId: str | None = Query(None),
+    courseId: str | None = Query(None),
+    status: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    pageSize: int = Query(20, ge=1, le=100),
+    ctx: ScopeContext = SuperAdminCtx,
+) -> dict[str, Any]:
+    async with get_pg_connection() as conn:
+        conds = ["1=1"]
+        params: list[Any] = []
+        if trainerUserId:
+            params.append(UUID(str(trainerUserId)))
+            conds.append(f"ci.trainer_user_id = ${len(params)}")
+        if courseId:
+            params.append(UUID(str(courseId)))
+            conds.append(f"ci.course_id = ${len(params)}")
+        if status and status.upper() != "ALL":
+            params.append(status.upper())
+            conds.append(f"ci.status = ${len(params)}")
+
+        where = " AND ".join(conds)
+        total = await conn.fetchval(f"SELECT COUNT(*) FROM course_invitations ci WHERE {where}", *params) or 0
+        offset = (page - 1) * pageSize
+
+        query = f"""
+            SELECT 
+                ci.id, ci.course_id, c.title as course_title, c.code as course_code,
+                ci.trainer_user_id, u.name as trainer_name, u.email as trainer_email,
+                ci.institution_id, i.name as institution_name,
+                ci.department_id, d.name as department_name,
+                ci.batch_id, b.name as batch_name,
+                ci.status, ci.notes, ci.proposed_start_date, ci.proposed_end_date,
+                ci.response_notes, ci.responded_at, ci.created_at, ci.updated_at
+            FROM course_invitations ci
+            JOIN courses c ON ci.course_id = c.id
+            JOIN users u ON ci.trainer_user_id = u.id
+            LEFT JOIN institutions i ON ci.institution_id = i.id
+            LEFT JOIN departments d ON ci.department_id = d.id
+            LEFT JOIN batches b ON ci.batch_id = b.id
+            WHERE {where}
+            ORDER BY ci.created_at DESC
+            LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}
+        """
+        rows = await conn.fetch(query, *params, pageSize, offset)
+        items = [
+            {
+                "id": str(r["id"]),
+                "courseId": str(r["course_id"]),
+                "courseTitle": r["course_title"],
+                "courseCode": r["course_code"],
+                "trainerUserId": str(r["trainer_user_id"]),
+                "trainerName": r["trainer_name"],
+                "trainerEmail": r["trainer_email"],
+                "institutionId": str(r["institution_id"]) if r["institution_id"] else None,
+                "institutionName": r["institution_name"],
+                "departmentId": str(r["department_id"]) if r["department_id"] else None,
+                "departmentName": r["department_name"],
+                "batchId": str(r["batch_id"]) if r["batch_id"] else None,
+                "batchName": r["batch_name"],
+                "status": r["status"],
+                "notes": r["notes"],
+                "proposedStartDate": r["proposed_start_date"].isoformat() if r["proposed_start_date"] else None,
+                "proposedEndDate": r["proposed_end_date"].isoformat() if r["proposed_end_date"] else None,
+                "responseNotes": r["response_notes"],
+                "respondedAt": r["responded_at"].isoformat() if r["responded_at"] else None,
+                "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in rows
+        ]
+        return {
+            "success": True,
+            "items": items,
+            "pagination": {
+                "page": page,
+                "pageSize": pageSize,
+                "total": total,
+                "totalPages": max(1, (total + pageSize - 1) // pageSize),
+            }
+        }
+
+
+@router.delete("/staff/course-invitations/{invitation_id}")
+async def super_admin_withdraw_course_invitation(invitation_id: str, ctx: ScopeContext = SuperAdminCtx) -> dict[str, Any]:
+    inv_uuid = UUID(str(invitation_id))
+    async with get_pg_connection() as conn:
+        inv = await conn.fetchrow("SELECT id, status FROM course_invitations WHERE id = $1", inv_uuid)
+        if not inv:
+            raise NotFound("Course invitation not found.")
+        if inv["status"] != "PENDING":
+            raise ValidationError(f"Cannot withdraw invitation in '{inv['status']}' state.")
+        await conn.execute("UPDATE course_invitations SET status = 'WITHDRAWN', updated_at = NOW() WHERE id = $1", inv_uuid)
+
+    await write_audit(
+        ctx,
+        action="withdraw_course_invitation",
+        entity_type="course_invitations",
+        entity_id=str(inv_uuid),
+        detail=f"Withdrew course invitation {invitation_id}",
+    )
+    return {"success": True, "message": "Course invitation withdrawn successfully."}
 
 
 # --------------------------------------------------------------------------- Games Management
