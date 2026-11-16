@@ -3271,7 +3271,20 @@ async def submit_assessment(
     quiz_id: str, payload: QuizAttemptRequest, ctx: ScopeContext = StudentCtx
 ) -> dict[str, Any]:
     if settings.USE_POSTGRES:
-        answers_map = {a.get("questionId"): a.get("optionId") for a in payload.answers}
+        answers_map: dict[str, Any] = {}
+        for a in payload.answers:
+            qid = str(a.get("questionId") or "")
+            if not qid:
+                continue
+            if a.get("selectedOptions") is not None:
+                answers_map[qid] = a.get("selectedOptions")
+            elif a.get("numericalAnswer") is not None:
+                answers_map[qid] = a.get("numericalAnswer")
+            elif a.get("optionId") is not None:
+                answers_map[qid] = a.get("optionId")
+            elif a.get("answer") is not None:
+                answers_map[qid] = a.get("answer")
+
         res = await QuizRepository.submit_quiz_attempt(
             ctx,
             quiz_id,
@@ -3281,6 +3294,64 @@ async def submit_assessment(
         )
         await _award_xp(ctx, amount=int(res["score"] / 5), source="quiz", label="Assessment")
         return {"success": True, "data": res}
+
+
+@router.post("/assessments/{quiz_id}/draft-answer")
+async def save_draft_answer(
+    quiz_id: str,
+    payload: dict[str, Any],
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Persists in-progress answer on question navigation and periodic autosaves."""
+    qid = str(payload.get("questionId") or payload.get("question_id") or "")
+    ans = payload.get("selectedOptions") or payload.get("numericalAnswer") or payload.get("optionId") or payload.get("answer")
+    marked = bool(payload.get("markedForReview") or payload.get("marked_for_review"))
+    res = await QuizRepository.save_student_draft_answer(
+        ctx, quiz_id, qid, ans, marked_for_review=marked
+    )
+    return {"success": True, "data": res}
+
+
+@router.post("/assessments/{quiz_id}/warning")
+async def report_proctoring_warning(
+    quiz_id: str,
+    payload: dict[str, Any],
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Logs anti-cheat violation and enforces automatic submission threshold."""
+    wtype = str(payload.get("warning_type") or payload.get("warningType") or "general")
+    detail = payload.get("detail")
+    res = await QuizRepository.record_student_warning(
+        ctx, quiz_id, warning_type=wtype, detail=detail
+    )
+    # Also notify real-time hub if active
+    from app.websocket.assessment_ws import assessment_hub
+    await assessment_hub.handle_warning(quiz_id, str(ctx.user_id), wtype, res["warning_count"])
+    return {"success": True, "data": res}
+
+
+@router.post("/assessments/{quiz_id}/camera-status")
+async def update_camera_status(
+    quiz_id: str,
+    on: bool = Query(True),
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Updates candidate camera state in the real-time hub."""
+    from app.websocket.assessment_ws import assessment_hub
+    await assessment_hub.handle_status_change(quiz_id, str(ctx.user_id), camera_on=on, fullscreen=None)
+    return {"success": True, "camera_on": on}
+
+
+@router.post("/assessments/{quiz_id}/fullscreen-status")
+async def update_fullscreen_status(
+    quiz_id: str,
+    on: bool = Query(True),
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Updates candidate fullscreen state in the real-time hub."""
+    from app.websocket.assessment_ws import assessment_hub
+    await assessment_hub.handle_status_change(quiz_id, str(ctx.user_id), camera_on=None, fullscreen=on)
+    return {"success": True, "fullscreen": on}
     quiz = await QuizRepo(ctx).get(quiz_id)
     if quiz.get("closesAt") and as_utc(quiz["closesAt"]) < _now():
         raise BusinessRuleViolation("This assessment has closed")

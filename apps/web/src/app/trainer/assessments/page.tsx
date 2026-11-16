@@ -358,12 +358,22 @@ export default function TrainerAssessmentsPage() {
 
                     <div className="flex items-center gap-1.5">
                       <Button
+                        asChild
+                        variant="primary"
+                        size="sm"
+                        className="text-xs flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                      >
+                        <Link href={`/trainer/assessments/${quiz.id}/monitor`}>
+                          <Eye className="size-3" /> Monitor Live
+                        </Link>
+                      </Button>
+                      <Button
                         variant="secondary"
                         size="sm"
                         onClick={() => openResultsModal(quiz)}
                         className="text-xs flex items-center gap-1"
                       >
-                        <Eye className="size-3" /> Results
+                        <BarChart3 className="size-3" /> Results
                       </Button>
                       <Button
                         variant="secondary"
@@ -668,8 +678,40 @@ export default function TrainerAssessmentsPage() {
               </div>
             )}
           </DialogBody>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setResultsOpen(false)}>
+          <DialogFooter className="flex items-center justify-between sm:justify-between w-full">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={async () => {
+                if (!resultsData?.results?.length) return;
+                try {
+                  const { exportAssessmentResultsToExcel } = await import('@/lib/quiz/excelExport');
+                  await exportAssessmentResultsToExcel(
+                    activeQuiz?.title || 'Assessment',
+                    resultsData.results.map((r: any) => ({
+                      rank: r.rank,
+                      rollNumber: r.rollNumber || '—',
+                      name: r.name,
+                      batchName: r.batchName,
+                      marks: r.score,
+                      maxMarks: r.maxScore || 100,
+                      percentage: r.percentage || 0,
+                      passed: Boolean(r.passed),
+                      warnings: r.warnings || 0,
+                      sessionId: r.studentId || r.attemptId,
+                    }))
+                  );
+                  toast.success('Excel workbook exported successfully');
+                } catch (err) {
+                  toast.error('Failed to export Excel workbook');
+                }
+              }}
+              disabled={!resultsData?.results?.length}
+            >
+              <FileSpreadsheet className="mr-1.5 size-3.5 text-emerald-600" />
+              Export Excel
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setResultsOpen(false)}>
               Close
             </Button>
           </DialogFooter>

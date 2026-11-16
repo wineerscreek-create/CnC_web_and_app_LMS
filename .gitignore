@@ -71,6 +71,12 @@ reports/
 !QUIZ_LMS_SECURITY_AUDIT.md
 !QUIZ_LMS_TEST_REPORT.md
 !QUIZ_LMS_INTEGRATION_GUIDE.md
+!QUIZ_IMPLEMENTATION_REPORT.md
+!QUIZ_TEST_RESULTS.md
+!QUIZ_SECURITY_VERIFICATION.md
+!QUIZ_DEPLOYMENT_GUIDE.md
+!QUIZ_FEATURE_COMPARISON.md
+!QUIZ_LMS_IMPLEMENTATION_ROADMAP.md
 
 # 7. Scratch & Temporary Development Directories
 scratch/
@@ -85,6 +91,7 @@ audit_output.txt
 apps/api/tests/*
 !apps/api/tests/test_offline_first_backend.py
 !apps/api/tests/test_quiz_lms_integration.py
+!apps/api/tests/test_quiz_proctoring_integration.py
 apps/api/test_*.py
 apps/api/audit_*.py
 apps/api/verify_*.py
@@ -98,6 +105,7 @@ verify_assignment_flow.py
 # 9. Frontend Test Suites & Test Configs
 apps/web/e2e/
 **/*.test.ts
+!apps/web/src/lib/quiz/*.test.ts
 **/*.test.tsx
 **/*.spec.ts
 **/*.spec.tsx

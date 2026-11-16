@@ -1,259 +1,193 @@
 # QUIZ & LMS INTEGRATION ARCHITECTURE SPECIFICATION
 
 **Document:** `QUIZ_LMS_INTEGRATION_ARCHITECTURE.md`  
-**Status:** Approved Architectural Blueprint  
-**Primary Repository:** `C:\Users\SANDEEP\Desktop\skillsharp`  
-**Quiz System Path:** `C:\Users\SANDEEP\Desktop\skillsharp\apps\quiz-system-v17-cloudflare`  
+**Architecture Status:** Production Integration Blueprint  
+**Primary LMS Repository:** `C:\Users\SANDEEP\Desktop\skillsharp`  
+**Original Quiz Engine:** `apps/quiz-system-v17-cloudflare/quiz-system`  
 
 ---
 
-## 1. ARCHITECTURE OVERVIEW & DESIGN PRINCIPLES
+## 1. INTEGRATION OBJECTIVE & CORE ARCHITECTURAL INVARIANTS
 
-The integrated Quiz System operates as a modular, federated sub-system of the SkillSharp LMS.
+The objective is to integrate the Original Quiz Platform into Winners Creek LMS **without losing, simplifying, replacing, or breaking any existing functionality**:
 
-### Core Architectural Invariants:
-1. **Zero Degradation of Standalone Functionality:** The Quiz System can run autonomously via `start.bat` / `start.sh` or Cloudflare Worker deployment with zero dependence on the LMS.
-2. **Authoritative LMS Identity & Scope:** The LMS is the authoritative provider of users, roles, institutions, and batch memberships. The Quiz System never self-assigns batch access or invents user permissions.
-3. **Strict Server-Side Batch Isolation:** All quiz visibility, attempts, submissions, and analytics are scoped to explicit batch authorization rules enforced at the database level.
-4. **Trainer-Only EEDI Analytics:** EEDI scores calculated from question tags are strictly sequestered from students and unauthorized users.
+1. **Preserve the Original Quiz Engine:** The student-facing one-question-at-a-time interface (`QuizEngine.jsx`), question palette (`QuestionPalette.jsx`), autosave mechanism, and multi-format answer support are preserved in their entirety.
+2. **Preserve the Original Camera Proctoring System:** The client-side snapshot capture (`CameraFeed.jsx`), 640x480 resolution, 0.62 JPEG compression, and 5-second interval are preserved exactly as designed.
+3. **Preserve Live Supervisor Monitoring:** The real-time supervisor grid (`Monitor.jsx`) displaying student status, progress, proctoring warnings, and live camera thumbnails/gallery cards is preserved.
+4. **Preserve Rich Excel & Report Exports:** The client-side `exceljs` export embedding up to 10 reservoir-sampled camera photos per student is preserved.
+5. **Bridge LMS Identity, Multi-Tenancy & Batch RBAC:** Authentication, authorization, multi-batch assignment, and EEDI competency analytics are governed strictly by the LMS PostgreSQL database.
 
 ---
 
-## 2. INTEGRATED DATA FLOW & SEQUENCES
+## 2. INTEGRATED SYSTEM TOPOLOGY
 
-### 2.1 Trainer Workflow: Create, Configure, and Assign to Batches
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Trainer as Authorized Trainer
-    participant Web as LMS Web App (/trainer/assessments)
-    participant API as LMS FastAPI Backend
-    participant DB as PostgreSQL (cnc)
-    participant QuizSys as Quiz System Service
-
-    Trainer->>Web: Navigate to Assessments & click "New Assessment"
-    Web->>API: GET /trainer/batches (Fetch trainer's authorized batches)
-    API->>DB: Query batch_trainers WHERE trainer_user_id = :id AND status = 'ACTIVE'
-    DB-->>API: Authorized batches list
-    API-->>Web: Batches: [CSE-3A, CSE-3B]
-
-    Trainer->>Web: Enters details, sets proctoring rules, uploads CSV with EEDI tags, selects batches [CSE-3A, CSE-3B]
-    Web->>API: POST /trainer/assessments (Payload + batch_ids)
-    API->>API: Validate trainer is authorized for ALL selected batch_ids
-    API->>DB: INSERT INTO quizzes (title, settings, questions, creator_trainer_id, ...)
-    API->>DB: INSERT INTO quiz_batch_assignments (quiz_id, batch_id, institution_id, assigned_by) for each batch
-    DB-->>API: Assessment & Assignments persisted
-    API-->>Web: Assessment created successfully (quiz_id, code)
-    Web-->>Trainer: Render assessment with assigned batches and launch controls
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                                   CLIENT LAYER (Next.js)                                │
+│                                                                                         │
+│   STUDENT PORTAL (/student/assessments/[id])       TRAINER PORTAL (/trainer/assessments)│
+│   ├── Proctored Quiz Engine                        ├── Multi-Batch Quiz Manager         │
+│   ├── Question Palette Navigation                  ├── Live Proctoring Monitor Grid     │
+│   ├── CameraFeed (Webcam Snapshots)                ├── Live Camera Snapshot Gallery     │
+│   ├── useAntiCheat (Fullscreen, DevTools)          ├── ExcelJS Photo Export             │
+│   └── Dexie Offline Cache & Outbox                 └── Trainer EEDI Competency Report   │
+└───────────────────────────▲───────────────────────────────────────▲─────────────────────┘
+                            │                                       │
+                 (REST & Launch Tokens)                    (Real-Time WebSockets)
+                            │                                       │
+┌───────────────────────────▼───────────────────────────────────────▼─────────────────────┐
+│                                 SERVER & REAL-TIME LAYER                                │
+│                                                                                         │
+│   LMS FASTAPI BACKEND (apps/api)                    REAL-TIME RELAY SERVICE             │
+│   ├── ScopeContext & JWT Auth                       ├── WebSocket Room Hub              │
+│   ├── Multi-Batch Assignment Verification           ├── Low-Latency Camera Relays       │
+│   ├── Server-Side Answer Grading                    ├── Proctoring Warning Broadcasts   │
+│   ├── Authoritative Timer Enforcement               ├── Student Heartbeat & Presence    │
+│   └── EEDI Score Calculation                        └── Cloudflare DO / Socket.IO Hub   │
+└───────────────────────────▲─────────────────────────────────────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────────────────────────────────────┐
+│                               PERSISTENT DATABASE LAYER (PostgreSQL)                    │
+│                                                                                         │
+│   TABLES:                                                                               │
+│   ├── quizzes (Master quiz definitions, scheduling, proctoring settings)                │
+│   ├── quiz_batch_assignments (Many-to-many junction to batches with tenant isolation)   │
+│   ├── quiz_attempts (Student submissions, scores, warning counts, device locks)         │
+│   └── quiz_eedi_results (Trainer-only competency analytics by pillar & index)           │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.2 Student Workflow: Single Sign-On, Proctored Attempt, and Auto-Grading
+---
+
+## 3. END-TO-END WORKFLOW SEQUENCES
+
+### 3.1 Student Workflow: SSO Launch, Proctored Execution & Submission
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Student as Enrolled Student
-    participant Web as LMS Web App (/student/assessments)
+    participant Portal as LMS Student Portal (/student/assessments)
     participant API as LMS FastAPI Backend
-    participant DB as PostgreSQL (cnc)
-    participant QuizEngine as Proctored Quiz Engine (Anti-Cheat)
+    participant WS as Real-Time Relay
+    participant DB as PostgreSQL Database
+    participant Monitor as Trainer Monitor
 
-    Student->>Web: Access /student/assessments
-    Web->>API: GET /student/assessments
-    API->>DB: Query student_profiles FOR student's batch_id
-    API->>DB: SELECT quizzes JOIN quiz_batch_assignments ON batch_id = :student_batch_id
-    DB-->>API: Returns only quizzes assigned to student's batch
-    API-->>Web: List of assigned assessments with statuses
+    Student->>Portal: Navigate to /student/assessments
+    Portal->>API: GET /student/assessments
+    API->>DB: Query assigned quizzes for student's batch_id
+    DB-->>API: Returns authorized assessment list
+    API-->>Portal: Render assessments
 
-    Student->>Web: Clicks "Start Assessment"
-    Web->>API: POST /student/assessments/:id/launch-token
-    API->>API: Re-verify student belongs to an assigned batch AND quiz is open
-    API->>API: Generate signed SSO Launch Token (15-min TTL, HS256)
-    API-->>Web: Return launch token & redirect URL
-    Web->>QuizEngine: Launch Quiz Engine with SSO Launch Token
-    QuizEngine->>QuizEngine: Verify token signature, enforce Fullscreen + Camera rules
-    Student->>QuizEngine: Submits Answers
-    QuizEngine->>API: POST /student/assessments/:id/submit (Token + Answers)
-    API->>DB: Grade answers, calculate percentage & pass/fail
-    API->>DB: Calculate EEDI breakdown by (eedi_index, eedi_term)
-    API->>DB: INSERT INTO quiz_attempts & quiz_eedi_results
-    API-->>QuizEngine: Submission confirmed
-    QuizEngine-->>Student: Display Thank You / Completion screen (NO EEDI SCORES)
+    Student->>Portal: Click "Start Assessment"
+    Portal->>API: POST /student/assessments/:id/launch-token
+    API->>DB: Verify student is enrolled in assigned batch & window is open
+    API-->>Portal: Issue signed JWT SSO launch token (contains user_id, name, roll_number, batch_id)
+
+    Portal->>Portal: Mount Proctored Quiz Engine with full useAntiCheat guards
+    Portal->>Portal: Initialize CameraFeed (getUserMedia 640x480)
+    Portal->>WS: Connect WebSocket with SSO token
+    WS-->>Monitor: Broadcast student_joined event
+
+    loop Every 5 Seconds
+        Portal->>Portal: Capture canvas snapshot (JPEG 0.62)
+        Portal->>WS: Emit camera_snapshot { frame: base64 }
+        WS-->>Monitor: Relay camera_snapshot (Updates live thumbnail & gallery card)
+    end
+
+    loop Every 15 Seconds
+        Portal->>WS: Emit heartbeat {}
+        WS-->>Portal: Ack { remaining_seconds: authoritative_time }
+    end
+
+    opt Violation Occurs (Fullscreen exit / Tab switch / DevTools)
+        Portal->>API: POST /student/warning { warning_type }
+        API-->>Portal: Return warning_count
+        Portal->>WS: Emit warning event
+        WS-->>Monitor: Broadcast warning to trainer
+    end
+
+    Student->>Portal: Submit Assessment (or Auto-Submit on Timeout/Warnings)
+    Portal->>API: POST /student/assessments/:id/attempts { answers, device_id, warnings }
+    API->>DB: Record attempt in quiz_attempts & calculate EEDI in quiz_eedi_results
+    Portal->>WS: Emit submit event
+    WS-->>Monitor: Update student row to "submitted" with score
+    Portal-->>Student: Display completion & score summary
+```
+
+### 3.2 Trainer Workflow: Management, Live Monitoring & Excel Photo Export
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Trainer as Authorized Trainer
+    participant Portal as LMS Trainer Portal (/trainer/assessments)
+    participant API as LMS FastAPI Backend
+    participant WS as Real-Time Relay
+    participant DB as PostgreSQL Database
+
+    Trainer->>Portal: Open Assessments Dashboard
+    Portal->>API: GET /trainer/assessments
+    API->>DB: Query quizzes created by or assigned to trainer's batches (batch_trainers)
+    DB-->>API: Filtered assessments
+    API-->>Portal: Render quizzes table
+
+    Trainer->>Portal: Click "Monitor Live" on active assessment
+    Portal->>Portal: Open Live Monitor Dashboard (Monitor.jsx)
+    Portal->>API: GET /trainer/assessments/:id/monitor
+    API->>DB: Query current session states & attempt records
+    API-->>Portal: Initial students list
+    Portal->>WS: Connect WebSocket (role: trainer, quiz_id)
+
+    loop Exam in Progress
+        WS-->>Portal: Receive camera_snapshot -> Update blob URL in table & card gallery
+        WS-->>Portal: Receive warning -> Trigger toast & increment warning badge
+        WS-->>Portal: Receive answer_saved -> Invalidate and refresh current Q column
+        WS-->>Portal: Receive submit -> Display final score & passed badge
+    end
+
+    Trainer->>Portal: Click "Export Excel with Photos"
+    Portal->>Portal: Invoke ExcelJS in browser
+    Portal->>Portal: Fetch up to 10 reservoir-sampled frames per student (cameraSnapshots.js)
+    Portal->>Portal: Build "Results" sheet and "Camera Snapshots" sheet
+    Portal->>Portal: Embed JPEG photos into workbook cells (tl: { col, row }, ext: { 68, 88 })
+    Portal-->>Trainer: Trigger download results-with-camera-snapshots.xlsx
 ```
 
 ---
 
-## 3. DATABASE SCHEMA SPECIFICATION
+## 4. IDENTITY & DATA MAPPING SPECIFICATION
 
-The integration utilizes additive PostgreSQL tables and columns. Existing production tables (`institutions`, `batches`, `users`, `courses`, `departments`, `student_profiles`, `batch_trainers`) remain structurally unmodified.
+### 4.1 Token Bridge Claims Mapping
+When bridging LMS users into the Quiz Engine, the LMS issues a launch token (`POST /student/assessments/{quiz_id}/launch-token`):
+| Token Claim | Source in LMS | Purpose in Quiz Engine |
+| :--- | :--- | :--- |
+| `sub` | `users.id` (UUID) | Unique student identifier |
+| `name` | `users.name` (TEXT) | Displayed on exam engine & trainer monitor |
+| `roll_number` | `student_profiles.roll_number` | Key identifier on monitor table and Excel report |
+| `quiz_id` | `quizzes.id` (UUID) | Assessment boundary |
+| `quiz_code` | `quizzes.quiz_code` | Short code reference |
+| `batch_id` | `student_profiles.batch_id` | Scopes attempt to student's enrolled cohort |
+| `batch_name` | `batches.name` | Displayed on trainer reports |
+| `role` | `"student"` or `"trainer"` | Role-based WebSocket subscription |
 
-### 3.1 Migration: `021_quiz_batch_assignments_and_eedi.sql`
-
-```sql
--- ============================================================================
--- Migration: 021_quiz_batch_assignments_and_eedi.sql
--- Description: Additive schema for Quiz System integration:
---              - Multi-batch assignments (quiz_batch_assignments)
---              - Trainer ownership and Quiz System settings in quizzes
---              - Proctoring metadata and attempt state in quiz_attempts
---              - Trainer-only EEDI evaluation metrics in quiz_eedi_results
--- Database: PostgreSQL cnc
--- Idempotent: Yes
--- ============================================================================
-
--- 1. Extend quizzes table
-ALTER TABLE quizzes
-    ADD COLUMN IF NOT EXISTS creator_trainer_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    ADD COLUMN IF NOT EXISTS quiz_code VARCHAR(50) UNIQUE,
-    ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{
-        "duration_minutes": 30,
-        "random_questions": true,
-        "random_options": true,
-        "negative_marking": true,
-        "passing_marks": 0,
-        "maximum_students": null,
-        "camera_required": true,
-        "fullscreen_required": true,
-        "max_warnings": 3
-    }'::jsonb;
-
-CREATE INDEX IF NOT EXISTS idx_quizzes_creator ON quizzes(creator_trainer_id);
-CREATE INDEX IF NOT EXISTS idx_quizzes_code ON quizzes(quiz_code);
-
--- 2. Multi-batch assignments table
-CREATE TABLE IF NOT EXISTS quiz_batch_assignments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    quiz_id UUID NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
-    batch_id UUID NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
-    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-    assigned_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
-    CONSTRAINT uq_quiz_batch_assignment UNIQUE (quiz_id, batch_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_quiz_batch_assign_batch ON quiz_batch_assignments(batch_id, status);
-CREATE INDEX IF NOT EXISTS idx_quiz_batch_assign_quiz ON quiz_batch_assignments(quiz_id);
-CREATE INDEX IF NOT EXISTS idx_quiz_batch_assign_inst ON quiz_batch_assignments(institution_id);
-
--- 3. Extend quiz_attempts table
-ALTER TABLE quiz_attempts
-    ADD COLUMN IF NOT EXISTS batch_id UUID REFERENCES batches(id) ON DELETE SET NULL,
-    ADD COLUMN IF NOT EXISTS institution_id UUID REFERENCES institutions(id) ON DELETE SET NULL,
-    ADD COLUMN IF NOT EXISTS device_id VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS warnings JSONB DEFAULT '[]'::jsonb,
-    ADD COLUMN IF NOT EXISTS warning_count INT DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'completed',
-    ADD COLUMN IF NOT EXISTS percentage NUMERIC(5,2),
-    ADD COLUMN IF NOT EXISTS passed BOOLEAN DEFAULT FALSE;
-
-CREATE INDEX IF NOT EXISTS idx_quiz_attempts_batch ON quiz_attempts(batch_id);
-CREATE INDEX IF NOT EXISTS idx_quiz_attempts_inst ON quiz_attempts(institution_id);
-
--- 4. Isolated EEDI evaluation results table (TRAINER-ONLY)
-CREATE TABLE IF NOT EXISTS quiz_eedi_results (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    quiz_id UUID NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
-    attempt_id UUID NOT NULL REFERENCES quiz_attempts(id) ON DELETE CASCADE,
-    student_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    batch_id UUID NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
-    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-    eedi_index INT,
-    eedi_term VARCHAR(100) NOT NULL,
-    earned_marks NUMERIC(5,2) NOT NULL DEFAULT 0,
-    possible_marks NUMERIC(5,2) NOT NULL DEFAULT 0,
-    score_percentage NUMERIC(5,2) NOT NULL DEFAULT 0,
-    calculation_version VARCHAR(20) NOT NULL DEFAULT 'v1',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_quiz_attempt_eedi_term UNIQUE (attempt_id, eedi_term, eedi_index)
-);
-
-CREATE INDEX IF NOT EXISTS idx_quiz_eedi_trainer_view ON quiz_eedi_results(batch_id, quiz_id);
-CREATE INDEX IF NOT EXISTS idx_quiz_eedi_student ON quiz_eedi_results(student_user_id);
-CREATE INDEX IF NOT EXISTS idx_quiz_eedi_institution ON quiz_eedi_results(institution_id);
-```
+### 4.2 Database Schema Alignment
+The PostgreSQL database retains four core tables supporting the integrated architecture:
+1. `quizzes`: Master configuration (`id`, `creator_trainer_id`, `institution_id`, `title`, `duration_minutes`, `max_score`, `settings` JSONB, `quiz_code`, `status`, `opens_at`, `closes_at`).
+2. `quiz_batch_assignments`: Junction table binding assessments to multiple batches (`id`, `quiz_id`, `batch_id`, `institution_id`, `status`, `assigned_by`, `assigned_at`).
+3. `quiz_attempts`: Attempt records (`id`, `quiz_id`, `student_user_id`, `batch_id`, `institution_id`, `score`, `possible`, `percentage`, `passed`, `completed_at`, `warning_count`, `device_id`, `answers` JSONB).
+4. `quiz_eedi_results`: EEDI competency performance partitioned by student and batch (`id`, `quiz_id`, `student_user_id`, `batch_id`, `institution_id`, `eedi_index`, `eedi_term`, `earned_marks`, `possible_marks`, `score_percentage`).
 
 ---
 
-## 4. API SPECIFICATION & RBAC RULES
+## 5. REPOSITORY CODE PRESERVATION STRATEGY
 
-### 4.1 Trainer Endpoints (`/api/v1/trainer/assessments`)
-
-1. **`GET /trainer/assessments`**
-   - **Access:** `Role.TRAINER`
-   - **Behavior:** Returns all quizzes created by or assigned to batches managed by this trainer. Includes list of assigned batches and submission counts.
-2. **`POST /trainer/assessments`**
-   - **Access:** `Role.TRAINER`
-   - **Payload:** `{ title, description, durationMinutes, settings, batchIds, questions }`
-   - **Verification:** Every `batchId` in `batchIds` must exist in `batch_trainers` for `trainer_user_id == ctx.user_id` and have `status = 'ACTIVE'`.
-3. **`GET /trainer/assessments/{quiz_id}`**
-   - **Access:** `Role.TRAINER`
-   - **Verification:** Must be creator or authorized for at least one assigned batch.
-4. **`PUT /trainer/assessments/{quiz_id}`**
-   - **Access:** `Role.TRAINER`
-   - **Verification:** Must be creator. Cannot edit while `status == 'live'`.
-5. **`POST /trainer/assessments/{quiz_id}/assign-batches`**
-   - **Access:** `Role.TRAINER`
-   - **Payload:** `{ batchIds: string[] }`
-   - **Verification:** Verifies every target batch against `batch_trainers`. Performs atomic synchronization of `quiz_batch_assignments`.
-6. **`GET /trainer/assessments/{quiz_id}/results`**
-   - **Access:** `Role.TRAINER`
-   - **Behavior:** Returns student attempts for batches authorized to the calling trainer.
-7. **`GET /trainer/assessments/{quiz_id}/eedi-analytics`**
-   - **Access:** `Role.TRAINER` strictly (HTTP 403 for Students/Public)
-   - **Behavior:** Returns aggregated and student-level breakdown by `eedi_index` and `eedi_term` for authorized batches.
-
-### 4.2 Student Endpoints (`/api/v1/student/assessments`)
-
-1. **`GET /student/assessments`**
-   - **Access:** `Role.STUDENT`
-   - **Behavior:** Queries `student_profiles` to resolve student's `batch_id`. Filters `quizzes` via `quiz_batch_assignments`.
-2. **`GET /student/assessments/{quiz_id}`**
-   - **Access:** `Role.STUDENT`
-   - **Verification:** Validates `quiz_batch_assignments` for student's `batch_id`. Rejects with HTTP 403 if unassigned.
-3. **`POST /student/assessments/{quiz_id}/launch-token`**
-   - **Access:** `Role.STUDENT`
-   - **Behavior:** Generates signed single-use SSO token for proctored launcher.
-4. **`POST /student/assessments/{quiz_id}/submit`**
-   - **Access:** `Role.STUDENT`
-   - **Payload:** `{ answers, timeSpentSeconds, deviceId, warnings }`
-   - **Behavior:** Grades quiz, checks pass/fail, updates `quiz_attempts`, computes and stores EEDI results. Returns user-facing score only (no EEDI details).
-
----
-
-## 5. CSV FORMAT EXTENSION & EEDI INGESTION
-
-### 5.1 Extended Format Specification
-Columns:
-- `question`: Required string
-- `image`: Optional URL
-- `option_a`: Required string
-- `option_b`: Required string
-- `option_c`: Optional string
-- `option_d`: Optional string
-- `correct`: Required string (references option keys: `A`, `B`, `C`, or `D`)
-- `marks`: Required positive number
-- `negative`: Optional non-positive number ($\le 0$)
-- `eedi_index`: Optional positive integer ($\ge 0$)
-- `eedi_term`: Optional sanitized string matching known EEDI pillars or competencies
-
-### 5.2 Validation Rules:
-- If a CSV lacks `eedi_index` and `eedi_term`, the import succeeds as standard MCQs.
-- If `eedi_index` is non-numeric, a row-specific validation error is returned.
-- If `eedi_term` contains HTML or special script tags, it is sanitized or rejected.
-- During quiz export or cloning, `eedi_index` and `eedi_term` are preserved.
-
----
-
-## 6. VERIFICATION & QUALITY GATES
-
-1. **Multi-Tenant & Batch Isolation Tests:**
-   - Attempting to assign Batch D by Trainer A who only has Batches B & C $\rightarrow$ **HTTP 403 Forbidden**.
-   - Attempting to fetch Assessment X by Student in Batch D $\rightarrow$ **HTTP 403 Forbidden / HTTP 404**.
-   - Attempting to access EEDI scores via student token $\rightarrow$ **HTTP 403 Forbidden**.
-2. **Regression Verification:**
-   - Standalone Quiz System starts and runs with `start.bat` / `start.sh` or local Uvicorn/Wrangler.
-   - Vitest unit tests in `apps/web` pass.
-   - Pytest tests in `apps/api` pass.
-   - Next.js production build passes with 0 errors.
+| Component to Preserve | Source Location in Original Repo | Target in Integrated LMS | Integration Action |
+| :--- | :--- | :--- | :--- |
+| **`CameraFeed.jsx`** | `apps/quiz-system-v17-cloudflare/quiz-system/frontend/src/components/CameraFeed.jsx` | `apps/web/src/components/quiz/CameraFeed.tsx` | Preserve exact 640x480 capture, 0.62 JPEG, 5s interval, and canvas mechanics. Convert to TypeScript. |
+| **`useAntiCheat.js`** | `apps/quiz-system-v17-cloudflare/quiz-system/frontend/src/hooks/useAntiCheat.js` | `apps/web/src/hooks/useAntiCheat.ts` | Preserve fullscreen, visibilitychange, devtools heuristics, right-click, and shortcut guards. |
+| **`QuestionPalette.jsx`** | `apps/quiz-system-v17-cloudflare/quiz-system/frontend/src/components/QuestionPalette.jsx` | `apps/web/src/components/quiz/QuestionPalette.tsx` | Preserve question status coloring and instant jumping. |
+| **`QuizEngine.jsx`** | `apps/quiz-system-v17-cloudflare/quiz-system/frontend/src/pages/student/QuizEngine.jsx` | `apps/web/src/app/student/assessments/[quizId]/page.tsx` | Replace continuous scroll with sequential one-at-a-time engine, timer, and autosave. |
+| **`cameraSnapshots.js`** | `apps/quiz-system-v17-cloudflare/quiz-system/frontend/src/services/cameraSnapshots.js` | `apps/web/src/lib/quiz/cameraSnapshots.ts` | Preserve Algorithm R Reservoir Sampling (max 10 frames per student). |
+| **`Monitor.jsx`** | `apps/quiz-system-v17-cloudflare/quiz-system/frontend/src/pages/admin/Monitor.jsx` | `apps/web/src/components/quiz/TrainerMonitor.tsx` | Embed real-time monitor table and live camera gallery cards into trainer portal. |
+| **`Results.jsx` (ExcelJS)** | `apps/quiz-system-v17-cloudflare/quiz-system/frontend/src/pages/admin/Results.jsx` | `apps/web/src/lib/quiz/excelExport.ts` | Preserve client-side ExcelJS workbook generation embedding JPEG camera snapshots. |

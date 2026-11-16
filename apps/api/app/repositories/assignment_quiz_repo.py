@@ -217,7 +217,7 @@ class QuizRepository:
                     -- Explicitly assigned to the student's batch via quiz_batch_assignments
                     EXISTS (
                         SELECT 1 FROM quiz_batch_assignments qba
-                        WHERE qba.quiz_id = q.id AND qba.batch_id = $2 AND qba.status = 'ACTIVE'
+                        WHERE qba.quiz_id = q.id AND qba.batch_id = $2 AND UPPER(qba.status) = 'ACTIVE'
                     )
                     -- Fallback for legacy quizzes without quiz_batch_assignments
                     OR (
@@ -299,7 +299,7 @@ class QuizRepository:
                 is_authorized = bool(await conn.fetchval(
                     """
                     SELECT 1 FROM quiz_batch_assignments
-                    WHERE quiz_id = $1 AND batch_id = $2 AND status = 'ACTIVE'
+                    WHERE quiz_id = $1 AND batch_id = $2 AND UPPER(status) = 'ACTIVE'
                     """,
                     q_uuid, student_batch_id
                 ))
@@ -333,6 +333,7 @@ class QuizRepository:
                 "image": q.get("image"),
                 "options": opts,
                 "marks": q.get("marks", 1),
+                "question_type": q.get("question_type") or q.get("questionType") or ("mcq_multiple" if len(q.get("correct", [])) > 1 else "mcq_single"),
             })
 
         return {
@@ -396,7 +397,7 @@ class QuizRepository:
             is_authorized = False
             if has_assignments and int(has_assignments) > 0:
                 is_authorized = bool(await conn.fetchval(
-                    "SELECT 1 FROM quiz_batch_assignments WHERE quiz_id = $1 AND batch_id = $2 AND status = 'ACTIVE'",
+                    "SELECT 1 FROM quiz_batch_assignments WHERE quiz_id = $1 AND batch_id = $2 AND UPPER(status) = 'ACTIVE'",
                     q_uuid, student_batch_id
                 ))
             else:
@@ -409,10 +410,10 @@ class QuizRepository:
                 raise ScopeForbidden("This assessment is not assigned to your batch")
 
             existing = await conn.fetchrow(
-                "SELECT id, score FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                "SELECT id, score, status FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
                 q_uuid, u_uuid
             )
-            if existing and not quiz["allow_retake"]:
+            if existing and existing["status"] == "completed" and not quiz["allow_retake"]:
                 raise BusinessRuleViolation("You have already submitted this assessment")
 
             q_list = _parse_json_list(quiz["questions"])
@@ -427,31 +428,60 @@ class QuizRepository:
                 neg = float(q.get("negative", 0))
                 total_marks += m
                 qid = str(q.get("id"))
-                chosen = str(answers.get(qid, "")).strip().upper()
+                raw_ans = answers.get(qid)
+                q_type = q.get("question_type") or q.get("questionType") or "mcq_single"
 
-                # Determine correctness
-                correct_answers = q.get("correct", [])
-                if isinstance(correct_answers, str):
-                    correct_answers = [correct_answers.strip().upper()]
+                # Normalize candidate answer
+                chosen_list: list[str] = []
+                if isinstance(raw_ans, list):
+                    chosen_list = [str(c).strip().upper() for c in raw_ans if str(c).strip()]
+                elif isinstance(raw_ans, dict):
+                    chosen_list = [str(c).strip().upper() for c in raw_ans.get("selected", [])]
+                elif raw_ans is not None and str(raw_ans).strip():
+                    chosen_list = [str(raw_ans).strip().upper()]
+
+                # Normalize correct answers
+                correct_raw = q.get("correct") or q.get("correct_answer") or q.get("correctAnswer")
+                if not correct_raw and isinstance(q.get("options"), list):
+                    correct_raw = [opt.get("id") for opt in q.get("options", []) if opt.get("correct")]
+
+                if isinstance(correct_raw, str):
+                    correct_answers = [correct_raw.strip().upper()]
+                elif isinstance(correct_raw, list):
+                    correct_answers = [str(c).strip().upper() for c in correct_raw if str(c).strip()]
                 else:
-                    correct_answers = [str(c).strip().upper() for c in correct_answers]
+                    correct_answers = []
 
                 is_correct = False
-                if isinstance(q.get("options"), list):
-                    for opt in q.get("options", []):
-                        opt_id = str(opt.get("id", "")).strip().upper()
-                        if opt_id == chosen and (opt.get("correct") or opt_id in correct_answers):
+                has_attempted = False
+
+                if q_type == "numerical":
+                    val = str(raw_ans).strip().lower() if raw_ans is not None else ""
+                    expected = str(q.get("correct_answer") or q.get("correctAnswer") or (correct_answers[0] if correct_answers else "")).strip().lower()
+                    has_attempted = bool(val)
+                    is_correct = bool(val and val == expected)
+                elif q_type == "mcq_multiple":
+                    has_attempted = bool(chosen_list)
+                    is_correct = bool(chosen_list and set(chosen_list) == set(correct_answers))
+                else:
+                    # Single choice
+                    chosen = chosen_list[0] if chosen_list else ""
+                    has_attempted = bool(chosen)
+                    if isinstance(q.get("options"), list):
+                        for opt in q.get("options", []):
+                            opt_id = str(opt.get("id", "")).strip().upper()
+                            if opt_id == chosen and (opt.get("correct") or opt_id in correct_answers):
+                                is_correct = True
+                                break
+                    elif isinstance(q.get("options"), dict):
+                        if chosen in correct_answers:
                             is_correct = True
-                            break
-                elif isinstance(q.get("options"), dict):
-                    if chosen in correct_answers:
-                        is_correct = True
 
                 q_earned = 0.0
                 if is_correct:
                     q_earned = m
-                elif chosen:
-                    q_earned = neg if neg < 0 else 0.0
+                elif has_attempted:
+                    q_earned = neg if neg < 0 else (-abs(neg) if neg > 0 else 0.0)
                 earned += q_earned
 
                 # EEDI metadata tracking (supports both camelCase and snake_case)
@@ -537,6 +567,142 @@ class QuizRepository:
             "passed": passed,
         }
 
+    @classmethod
+    async def record_student_warning(
+        cls,
+        ctx: ScopeContext,
+        quiz_id: str,
+        warning_type: str,
+        detail: str | None = None,
+    ) -> dict[str, Any]:
+        q_uuid = _safe_uuid(quiz_id)
+        u_uuid = _safe_uuid(ctx.user_id)
+        if not q_uuid:
+            raise NotFound("Assessment not found")
+
+        async with get_pg_connection() as conn:
+            quiz = await conn.fetchrow(
+                "SELECT id, settings FROM quizzes WHERE id = $1", q_uuid
+            )
+            if not quiz:
+                raise NotFound("Assessment not found")
+
+            settings_dict = quiz["settings"] or {}
+            if isinstance(settings_dict, str):
+                try:
+                    settings_dict = json.loads(settings_dict)
+                except Exception:
+                    settings_dict = {}
+            max_warnings = int(settings_dict.get("max_warnings", 3))
+
+            existing = await conn.fetchrow(
+                "SELECT id, warnings, warning_count FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                q_uuid, u_uuid,
+            )
+
+            current_warnings: list[dict[str, Any]] = []
+            if existing and existing["warnings"]:
+                current_warnings = _parse_json_list(existing["warnings"])
+
+            current_warnings.append({
+                "type": str(warning_type)[:50],
+                "detail": str(detail or "")[:300],
+                "timestamp": _now().isoformat(),
+            })
+            new_count = len(current_warnings)
+            auto_submit = new_count >= max_warnings
+
+            if existing:
+                await conn.execute(
+                    """
+                    UPDATE quiz_attempts
+                    SET warnings = $1::jsonb, warning_count = $2
+                    WHERE id = $3
+                    """,
+                    json.dumps(current_warnings), new_count, existing["id"]
+                )
+            else:
+                b_row = await conn.fetchrow(
+                    "SELECT batch_id, institution_id FROM student_profiles WHERE user_id = $1",
+                    u_uuid
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO quiz_attempts (
+                        id, quiz_id, student_user_id, score, possible, answers, created_at,
+                        batch_id, institution_id, warnings, warning_count, status
+                    ) VALUES (
+                        gen_random_uuid(), $1, $2, 0, 100, '{}'::jsonb, NOW(),
+                        $3, $4, $5::jsonb, $6, 'in_progress'
+                    )
+                    """,
+                    q_uuid, u_uuid,
+                    b_row["batch_id"] if b_row else None,
+                    b_row["institution_id"] if b_row else None,
+                    json.dumps(current_warnings), new_count
+                )
+
+        return {
+            "warning_count": new_count,
+            "max_warnings": max_warnings,
+            "auto_submit": auto_submit,
+        }
+
+    @classmethod
+    async def save_student_draft_answer(
+        cls,
+        ctx: ScopeContext,
+        quiz_id: str,
+        question_id: str,
+        answer: Any,
+        marked_for_review: bool = False,
+    ) -> dict[str, Any]:
+        q_uuid = _safe_uuid(quiz_id)
+        u_uuid = _safe_uuid(ctx.user_id)
+        if not q_uuid:
+            raise NotFound("Assessment not found")
+
+        async with get_pg_connection() as conn:
+            existing = await conn.fetchrow(
+                "SELECT id, answers FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                q_uuid, u_uuid,
+            )
+            answers_dict: dict[str, Any] = {}
+            if existing and existing["answers"]:
+                try:
+                    answers_dict = json.loads(existing["answers"]) if isinstance(existing["answers"], str) else dict(existing["answers"])
+                except Exception:
+                    answers_dict = {}
+
+            answers_dict[str(question_id)] = answer
+
+            if existing:
+                await conn.execute(
+                    "UPDATE quiz_attempts SET answers = $1::jsonb WHERE id = $2",
+                    json.dumps(answers_dict), existing["id"]
+                )
+            else:
+                b_row = await conn.fetchrow(
+                    "SELECT batch_id, institution_id FROM student_profiles WHERE user_id = $1",
+                    u_uuid
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO quiz_attempts (
+                        id, quiz_id, student_user_id, score, possible, answers, created_at,
+                        batch_id, institution_id, warnings, warning_count, status
+                    ) VALUES (
+                        gen_random_uuid(), $1, $2, 0, 100, $3::jsonb, NOW(),
+                        $4, $5, '[]'::jsonb, 0, 'in_progress'
+                    )
+                    """,
+                    q_uuid, u_uuid, json.dumps(answers_dict),
+                    b_row["batch_id"] if b_row else None,
+                    b_row["institution_id"] if b_row else None,
+                )
+
+        return {"saved": True, "questionId": question_id}
+
     # =========================================================================
     # TRAINER ASSESSMENT & MULTI-BATCH ASSIGNMENT METHODS
     # =========================================================================
@@ -581,7 +747,7 @@ class QuizRepository:
                     SELECT qba.quiz_id, qba.batch_id, b.name as batch_name, b.code as batch_code
                     FROM quiz_batch_assignments qba
                     JOIN batches b ON b.id = qba.batch_id
-                    WHERE qba.quiz_id = ANY($1::uuid[]) AND qba.status = 'ACTIVE'
+                    WHERE qba.quiz_id = ANY($1::uuid[]) AND UPPER(qba.status) = 'ACTIVE'
                     ORDER BY b.name ASC
                     """,
                     quiz_ids
@@ -727,7 +893,7 @@ class QuizRepository:
                 SELECT qba.batch_id, b.name as batch_name, b.code as batch_code
                 FROM quiz_batch_assignments qba
                 JOIN batches b ON b.id = qba.batch_id
-                WHERE qba.quiz_id = $1 AND qba.status = 'ACTIVE'
+                WHERE qba.quiz_id = $1 AND UPPER(qba.status) = 'ACTIVE'
                 ORDER BY b.name ASC
                 """,
                 q_uuid

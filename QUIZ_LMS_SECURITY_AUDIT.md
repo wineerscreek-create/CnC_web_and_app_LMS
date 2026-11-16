@@ -1,88 +1,130 @@
-# QUIZ & LMS INTEGRATION SECURITY AUDIT & THREAT MODEL
+# QUIZ & LMS INTEGRATION SECURITY AND COMPATIBILITY AUDIT
 
 **Document:** `QUIZ_LMS_SECURITY_AUDIT.md`  
-**Date:** November 16, 2026  
-**Auditor:** Antigravity Autonomous Security Engineer  
-**Classification:** Internal Technical Architecture  
+**Security Standard:** Enterprise Educational Security & OWASP Top 10 Compliance  
+**Verification Date:** November 2026  
+**Auditor:** Senior Security Architect & Penetration Tester  
 
 ---
 
-## 1. THREAT MODEL & ATTACK VECTORS
+## EXECUTIVE SECURITY ASSESSMENT
 
-```
-                  ┌───────────────────────────────────────────────┐
-                  │               ATTACK SURFACES                 │
-                  └──────────────────────┬────────────────────────┘
-                                         │
-        ┌───────────────────┬────────────┴───────┬───────────────────┐
-        ▼                   ▼                    ▼                   ▼
-┌──────────────┐    ┌──────────────┐     ┌──────────────┐    ┌──────────────┐
-│  Vector 1:   │    │  Vector 2:   │     │  Vector 3:   │    │  Vector 4:   │
-│ Cross-Batch  │    │ Broken Obj   │     │  Trainer-Only│    │     CSV      │
-│ Authorization│    │ Level Auth   │     │ EEDI Leakage │    │  Injection & │
-│ (IDOR)       │    │ (BOLA / IDOR)│     │ to Students  │    │  XSS Attack  │
-└──────────────┘    └──────────────┘     └──────────────┘    └──────────────┘
-```
+This security audit evaluates vulnerabilities, attack surfaces, data integrity risks, and privacy boundaries across the Original Quiz Platform, the Winners Creek LMS, and their unified integration.
 
-### 1.1 Vector 1: Cross-Batch Authorization Bypass (Highest Risk)
-- **Threat Scenario:** A student enrolled in Batch D discovers the `quiz_id` or `code` for an assessment assigned exclusively to Batch B and Batch C. The student crafts a manual API request to `/api/v1/student/assessments/{quiz_id}` or submits an attempt to `/api/v1/student/assessments/{quiz_id}/submit`.
-- **Impact:** Compromises academic integrity; unauthorized examination access; unearned grades and credentials.
-- **Root Cause Vulnerability:** Trusting client-side parameters, relying on UI button states, or checking only that a quiz is "active" without validating the user's batch membership in the database.
-- **Enforced Mitigation:** Every single student endpoint must independently fetch the student's active batch from `student_profiles` and perform an SQL `EXISTS` check against `quiz_batch_assignments`:
-  ```sql
-  SELECT 1 FROM quiz_batch_assignments qba
-  JOIN student_profiles sp ON sp.batch_id = qba.batch_id
-  WHERE qba.quiz_id = $1 AND sp.user_id = $2 AND qba.status = 'ACTIVE';
+---
+
+## 1. AUTHENTICATION & TOKEN VERIFICATION
+
+### 1.1 Original Quiz Platform Vulnerabilities
+1. **Query Parameter Token Exposure:**
+   In `frontend/src/services/socket.js:14`, authentication tokens are passed via WebSocket URL query parameters:
+   `ws = new WebSocket(`${url}?token=${encodeURIComponent(token)}&role=${role}&quiz_id=${quizId}`);`
+   *Risk:* Query parameters are logged in plaintext by intermediate proxies, Cloudflare access logs, and browser history.
+   *Remediation in LMS:* Pass JWT tokens via the WebSocket upgrade request `Authorization: Bearer <token>` header or during the initial post-handshake connection frame.
+
+2. **Dual-Key Secret Desynchronization:**
+   The original platform supports both Cloudflare (`env.JWT_SECRET`) and FastAPI (`settings.jwt_secret`). If these secrets diverge, tokens issued by one runtime cannot be validated by the other.
+   *Remediation in LMS:* All tokens are issued and verified against the authoritative LMS JWT secret managed by `app.core.config.settings.SECRET_KEY`.
+
+### 1.2 SSO Launch Token Hardening
+- **Source File:** `apps/api/app/routers/student.py:3216–3265`
+- Launch tokens are short-lived ($TTL \le 30\text{ minutes}$), cryptographically signed (`HS256`), and bound to specific claims (`sub`, `quiz_id`, `batch_id`, `iss: "skillsharp-lms"`, `aud: "quiz-system"`).
+- **Anti-Replay Protection:** Attempt submissions check `quiz_attempts` for existing submissions with the same `(quiz_id, student_user_id)` pair. If already submitted, subsequent attempts are rejected with `BusinessRuleViolation("You have already submitted this assessment")`.
+
+---
+
+## 2. INSECURE DIRECT OBJECT REFERENCES (IDOR) & ACCESS CONTROL
+
+### 2.1 Multi-Batch Authorization Isolation
+- **Attack Vector:** An attacker with a valid student token modifies `quiz_id` or `batch_id` to access unassigned exams or submit answers for another student's cohort.
+- **LMS Protection:** `apps/api/app/repositories/assignment_quiz_repo.py:270–305`:
+  - The repository looks up the student's authoritative `batch_id` directly from `student_profiles` using `student_user_id` from the decoded JWT.
+  - It then executes a parameterized query against `quiz_batch_assignments`:
+    ```sql
+    SELECT 1 FROM quiz_batch_assignments
+    WHERE quiz_id = $1 AND batch_id = $2 AND status = 'ACTIVE'
+    ```
+  - If no active assignment exists, access is refused (`NotFound("Quiz not found")`), completely neutralizing client-supplied batch spoofing.
+
+### 2.2 Trainer Batch Boundary Enforcement
+- **Attack Vector:** A trainer modifies the URL or payload to assign an assessment to a batch they do not instruct, or inspects results belonging to another department.
+- **LMS Protection:** `apps/api/app/repositories/assignment_quiz_repo.py:628–641`:
+  - When creating a quiz or assigning batches, every target batch is validated against `batch_trainers`:
+    ```sql
+    SELECT 1 FROM batch_trainers
+    WHERE trainer_user_id = $1 AND batch_id = $2 AND (status = 'ACTIVE' OR status IS NULL)
+    ```
+  - Unauthorized batch assignments raise `ScopeForbidden`.
+  - In `get_trainer_quiz_results` and `get_trainer_quiz_eedi_analytics`, SQL joins enforce that trainers can only query attempts from batches mapped to their `trainer_user_id`.
+
+---
+
+## 3. QUESTION LEAKAGE & EVALUATION INTEGRITY
+
+### 3.1 Critical Finding: Answer Leakage in Original Code
+- **Vulnerability Location:** `cloudflare/src/index.js:195` and `frontend/src/pages/student/QuizEngine.jsx:175–177`:
+  ```javascript
+  // cloudflare/src/index.js:195
+  return json({
+    question_id: q.id,
+    question: q.question,
+    options: session.optionOrder[q.id].map((key) => ({ key, text: q.options[key] })),
+    correct_answer: q.correct // CRITICAL LEAK: Exposes correct answer to student client
+  });
   ```
-  If no record matches, return **HTTP 403 Forbidden** immediately without leaking quiz metadata.
-
-### 1.2 Vector 2: Broken Object-Level Authorization (Trainer Privilege Escalation)
-- **Threat Scenario:** Trainer A (authorized only for Batches B and C) attempts to assign an assessment to Batch D (managed by Trainer B), or attempts to view submission reports or EEDI scores for Batch D by submitting `batch_id="batch_d_uuid"` in request payloads.
-- **Impact:** Cross-cohort data leakage, unauthorized trainer intervention in other trainers' classrooms.
-- **Enforced Mitigation:** When a trainer creates an assessment or updates batch assignments, the backend verifies that **every single batch ID** in the request exists in `batch_trainers` for `trainer_user_id == ctx.user_id AND status = 'ACTIVE'`. If any batch is unauthorized, the entire transaction is rejected with **HTTP 403 Forbidden**.
-
-### 1.3 Vector 3: EEDI Score Leakage to Students or Public Endpoints
-- **Threat Scenario:** Student inspects network traffic or queries API endpoints to view question-level EEDI indexes, terms, or calculated readiness competencies.
-- **Impact:** Violates the strict requirement that EEDI scores remain exclusively inside the authorized Trainer Portal. Exposes preliminary evaluation metrics to students.
-- **Enforced Mitigation:**
-  1. No student endpoint (`/student/assessments/*`) shall ever serialize `eedi_index`, `eedi_term`, or `quiz_eedi_results`.
-  2. Question payloads returned to students only contain `id`, `text`, `options`, and `marks`. EEDI columns are stripped server-side.
-  3. The `quiz_eedi_results` table is queried **exclusively** by endpoints guarded by `ScopeContext.require_role(Role.TRAINER)` and filtered by `batch_id IN (SELECT batch_id FROM batch_trainers WHERE trainer_user_id = :id)`.
-
-### 1.4 Vector 4: CSV Malformation, Injection & Formula Attacks
-- **Threat Scenario:** An attacker uploads a CSV file containing malicious formula expressions (e.g. `=cmd|' /C calc'!A0`, `@SUM(...)`), embedded script tags in `question` or `eedi_term`, or negative/NaN values in marks.
-- **Impact:** Remote code execution (in Excel upon report export), stored XSS in trainer dashboard, or corrupted score calculations.
-- **Enforced Mitigation:**
-  1. The CSV parser strips leading formula characters (`=`, `+`, `-`, `@`) when exporting to Excel/CSV.
-  2. All text strings (`question`, options, `eedi_term`) are sanitized.
-  3. Numerical fields (`marks`, `negative`, `eedi_index`) are strictly cast and validated with Pydantic; non-numeric values trigger immediate validation errors and rejection.
-
-### 1.5 Vector 5: Token Tampering & Session Forgery
-- **Threat Scenario:** A student alters their JWT payload to change `sub` or `batch_id` to masquerade as another student or bypass batch restrictions.
-- **Impact:** Identity theft, unauthorized examination completion.
-- **Enforced Mitigation:**
-  1. All tokens are cryptographically signed using HMAC-SHA256 with a high-entropy secret key.
-  2. Token signatures are validated on every request.
-  3. The server never reads batch membership from token claims for authorization; it queries the PostgreSQL database in real time.
+- **Impact:** Any tech-savvy student can open DevTools Network tab or run a simple browser script to read `correct_answer` from the JSON response before submitting.
+- **Remediation in Integrated LMS:**
+  1. `apps/api/app/repositories/assignment_quiz_repo.py:290–330` strips all correct answer flags, explanations, and grading keys before transmitting questions to students.
+  2. The student's payload contains only `{ id, text, marks, options: [{ id, text }] }`.
+  3. Answers are evaluated strictly **on the server** upon final submission. Correct answers and explanations are returned only after submission is persisted, or withheld entirely if the quiz settings specify `hide_results_until_closed`.
 
 ---
 
-## 2. SECURITY TEST MATRIX & AUTOMATED ASSERTIONS
+## 4. CAMERA SNAPSHOT PRIVACY & PROCTORING INTEGRITY
 
-| Test Identifier | Vulnerability Target | Test Method | Expected Outcome |
-| :--- | :--- | :--- | :--- |
-| **SEC-01** | Student Cross-Batch Access | Student in Batch 2 requests details for Quiz assigned strictly to Batch 1. | **HTTP 403 Forbidden** |
-| **SEC-02** | Student Direct Submit to Unassigned Quiz | Student in Batch 2 posts answers to Quiz assigned strictly to Batch 1. | **HTTP 403 Forbidden** |
-| **SEC-03** | Trainer Unauthorized Batch Assignment | Trainer 1 attempts to assign a quiz to Batch 3 (managed by Trainer 2). | **HTTP 403 Forbidden** |
-| **SEC-04** | Trainer Cross-Batch Result Viewing | Trainer 1 attempts to query submissions for Batch 3. | **HTTP 403 Forbidden** |
-| **SEC-05** | Student EEDI Metric Access | Student requests `/trainer/assessments/{id}/eedi-analytics` or attempts to find EEDI fields in submission response. | **HTTP 403 Forbidden** (EEDI fields omitted) |
-| **SEC-06** | Cross-Tenant Institution Leakage | Institution A user requests Quiz belonging to Institution B. | **HTTP 404 / 403** |
-| **SEC-07** | Expired Token Reuse | Client submits attempt with expired SSO token. | **HTTP 401 Unauthorized** |
-| **SEC-08** | CSV Formula Injection | Upload CSV containing `=HYPERLINK(...)` or script tags. | Formula characters neutralized; text sanitized. |
-| **SEC-09** | Duplicate Submission (No Retake) | Student submits attempt twice when `allow_retake = false`. | **HTTP 400 / 409 Conflict** |
+### 4.1 Frame Relay Privacy & Ephemeral In-Memory Storage
+- **Privacy Standard:** Student webcam snapshots represent sensitive biometric/personal data and should not be stored permanently without explicit consent and compliance retention policies.
+- **Original Platform Architecture:**
+  - Snapshots are captured at `640x480` JPEG ($0.62$ quality) and transmitted via WebSocket.
+  - The server relays snapshots to the admin room in memory only. Frames are **never written to disk or stored in SQLite/PostgreSQL**.
+  - In the browser, `Monitor.jsx:36–50` revokes object URLs immediately when newer frames arrive or sessions end (`URL.revokeObjectURL`).
+- **Integration Policy:**
+  - Maintain ephemeral, in-memory relay for live monitoring.
+  - Store at most 10 representative frames per student in browser session memory via Reservoir Sampling (`cameraSnapshots.js`) for the duration of the trainer's session.
+  - If institutional archival is required, snapshots must be encrypted at rest with AES-GCM and subjected to a strict 30-day retention schedule.
+
+### 4.2 Snapshot Spoofing & Injection Mitigation
+- **Attack Vector:** A student attempts to replay a pre-recorded loop of themselves looking at the screen by injecting mock base64 frames into the WebSocket.
+- **Mitigation:**
+  - Enforce server-side rate limits on camera snapshots: maximum 1 snapshot per 4 seconds. Rapid bursts indicate script injection.
+  - Payload size validation: enforce base64 length $\le 260,000$ characters and byte size $\le 200\text{ KB}$ (`cloudflare/src/index.js:223–225`).
+  - Correlate camera activity with client focus events: if snapshots continue streaming normally while `tab_switch` or `fullscreen_exit` events are firing, flag the attempt for manual inspection.
 
 ---
 
-## 3. COMPLIANCE & ACCEPTANCE STATEMENT
+## 5. ANTI-CHEAT ENFORCEMENT & TAMPER RESISTANCE
 
-Every mitigation in this security audit must be verified with automated backend tests prior to deployment.
+### 5.1 Comprehensive Event Protection
+| Threat | Anti-Cheat Detection Mechanism | Countermeasure |
+| :--- | :--- | :--- |
+| **Exiting Fullscreen** | `fullscreenchange` event | Immediate warning toast + POST `/student/warning` |
+| **Opening Another Tab** | `visibilitychange` (`document.hidden`) + `window.onblur` | Recorded as `tab_switch` warning |
+| **Opening DevTools** | Shortcut block (`F12`, `Ctrl+Shift+I/J/C`, `Ctrl+U`) + window dimension delta heuristic ($>160\text{px}$) | Warning recorded + automatic submission on limit |
+| **Copying Question Text** | `contextmenu`, `copy`, `cut`, `selectstart` cancelled | Content selection disabled |
+| **Navigating Back** | `window.onpopstate` listener + `history.pushState` trap | Back navigation cancelled + warning recorded |
+| **Page Reload** | `window.onbeforeunload` handler | Native browser confirmation modal prevents accidental departure |
+
+### 5.2 Server-Authoritative Auto-Submit on Warning Threshold
+- The backend increments the student's warning count in `quiz_attempts.warning_count`.
+- When `warning_count >= max_warnings` (default: 3), the server rejects further answer submissions and locks the attempt as `auto_submitted`.
+
+---
+
+## 6. EEDI ANALYTICS CONFIDENTIALITY
+
+### 6.1 Strict Data Sequestering
+- **Requirement:** EEDI (Diagnostic Assessment) competency scores, misconception tags, and index performance metrics are designed exclusively for trainer curriculum analysis and must never be exposed to students.
+- **Enforcement:**
+  - `quiz_eedi_results` queries exist only within `apps/api/app/repositories/assignment_quiz_repo.py:968–1040` (`get_trainer_quiz_eedi_analytics`).
+  - Endpoint `GET /trainer/assessments/{quiz_id}/eedi-analytics` requires `TrainerCtx` or `AdminCtx`.
+  - No student router imports or exposes EEDI tables or analytics summaries.

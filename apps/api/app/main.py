@@ -218,6 +218,13 @@ def create_app() -> FastAPI:
         tags=["offline-sync"],
     )
 
+    from app.routers import assessment_realtime
+    app.include_router(
+        assessment_realtime.router,
+        prefix=f"{prefix}/assessments",
+        tags=["assessment-realtime"],
+    )
+
     from fastapi.staticfiles import StaticFiles
     from app.routers.user_banner import BANNER_UPLOAD_DIR
     from app.routers.user_avatar import AVATAR_UPLOAD_DIR
