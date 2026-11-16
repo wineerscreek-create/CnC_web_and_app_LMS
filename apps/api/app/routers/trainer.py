@@ -67,6 +67,9 @@ from app.schemas.requests import (
     FeedbackRequest,
     ReportRequest,
     SubmissionReview,
+    TrainerQuizCreateRequest,
+    TrainerQuizUpdateRequest,
+    BatchAssignRequest,
 )
 from app.services import analytics
 from app.services import analytics, chat_service
@@ -74,7 +77,7 @@ from app.services.notifications import Kind, notify
 from app.services.scoring import PILLAR_LABELS, PILLARS, pillar_scores_from_parameters
 from app.services.storage import signed_url
 from app.services.storage import Keys, get_storage, put_object, signed_url
-from app.repositories.assignment_quiz_repo import AssignmentRepository, _safe_uuid
+from app.repositories.assignment_quiz_repo import AssignmentRepository, QuizRepository, _safe_uuid
 from app.workers.queue import enqueue
 
 router = APIRouter()
@@ -2212,6 +2215,207 @@ async def add_feedback(payload: FeedbackRequest, ctx: ScopeContext = TrainerCtx)
         department_id=(profile or {}).get("departmentId"),
     )
     return {"success": True, "message": "Feedback recorded", "data": serialize(saved)}
+
+
+# --------------------------------------------------------------------------- assessments (quizzes & tests)
+@router.get("/assessments")
+async def trainer_assessments(
+    batchId: str | None = Query(None),
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    items = await QuizRepository.list_trainer_quizzes(ctx, batch_id=batchId)
+    return {"success": True, "data": items, "items": items}
+
+
+@router.post("/assessments", status_code=status.HTTP_201_CREATED)
+async def create_trainer_assessment(
+    payload: TrainerQuizCreateRequest,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    res = await QuizRepository.create_trainer_quiz(
+        ctx,
+        title=payload.title,
+        duration_minutes=payload.durationMinutes,
+        max_score=payload.maxScore,
+        opens_at=payload.opensAt,
+        closes_at=payload.closesAt,
+        questions=payload.questions,
+        settings=payload.settings,
+        batch_ids=payload.batchIds,
+        quiz_code=payload.quizCode,
+    )
+    return {"success": True, "data": res, "message": "Assessment created successfully"}
+
+
+@router.get("/assessments/{quiz_id}")
+async def get_trainer_assessment(
+    quiz_id: str,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    data = await QuizRepository.get_trainer_quiz(ctx, quiz_id)
+    return {"success": True, "data": data}
+
+
+@router.put("/assessments/{quiz_id}")
+async def update_trainer_assessment(
+    quiz_id: str,
+    payload: TrainerQuizUpdateRequest,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    res = await QuizRepository.update_trainer_quiz(
+        ctx,
+        quiz_id=quiz_id,
+        title=payload.title,
+        duration_minutes=payload.durationMinutes,
+        max_score=payload.maxScore,
+        opens_at=payload.opensAt,
+        closes_at=payload.closesAt,
+        questions=payload.questions,
+        settings=payload.settings,
+        batch_ids=payload.batchIds,
+        status=payload.status,
+    )
+    return {"success": True, "data": res, "message": "Assessment updated"}
+
+
+@router.delete("/assessments/{quiz_id}")
+async def delete_trainer_assessment(
+    quiz_id: str,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    res = await QuizRepository.delete_trainer_quiz(ctx, quiz_id)
+    return {"success": True, "data": res, "message": "Assessment deleted"}
+
+
+@router.post("/assessments/{quiz_id}/assign-batches")
+async def assign_assessment_batches(
+    quiz_id: str,
+    payload: BatchAssignRequest,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    res = await QuizRepository.assign_quiz_batches(ctx, quiz_id, payload.batchIds)
+    return {"success": True, "data": res, "message": "Batches assigned successfully"}
+
+
+@router.get("/assessments/{quiz_id}/results")
+async def get_trainer_assessment_results(
+    quiz_id: str,
+    batchId: str | None = Query(None),
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    data = await QuizRepository.get_trainer_quiz_results(ctx, quiz_id, batch_id=batchId)
+    return {"success": True, "data": data}
+
+
+@router.get("/assessments/{quiz_id}/eedi-analytics")
+async def get_trainer_assessment_eedi(
+    quiz_id: str,
+    batchId: str | None = Query(None),
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    data = await QuizRepository.get_trainer_quiz_eedi_analytics(ctx, quiz_id, batch_id=batchId)
+    return {"success": True, "data": data}
+
+
+@router.post("/assessments/{quiz_id}/upload-csv")
+async def upload_trainer_assessment_csv(
+    quiz_id: str,
+    file: UploadFile = File(...),
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    content = await file.read()
+    import csv
+    import io
+
+    try:
+        text_content = content.decode("utf-8-sig")
+        reader = list(csv.DictReader(io.StringIO(text_content)))
+    except Exception as exc:
+        raise ValidationError(f"Could not parse CSV: {exc}")
+
+    if not reader:
+        raise ValidationError("CSV is empty or invalid")
+
+    normalized_rows = []
+    for row in reader:
+        norm_row = {}
+        for k, v in row.items():
+            if k is not None:
+                norm_row[str(k).strip().lower().replace(" ", "_")] = str(v).strip()
+        normalized_rows.append(norm_row)
+
+    sample_keys = normalized_rows[0].keys()
+    for col in ["question", "option_a", "option_b", "correct"]:
+        if col not in sample_keys and col.replace("_", "") not in sample_keys:
+            found = any(c in sample_keys for c in [col, col.replace("_", ""), f"option{col[-1]}"])
+            if not found:
+                raise ValidationError(f"Missing required column: {col}")
+
+    questions = []
+    for idx, row in enumerate(normalized_rows):
+        q_text = str(row.get("question", "")).strip()
+        if not q_text:
+            continue
+        opt_a = str(row.get("option_a", row.get("optiona", ""))).strip()
+        opt_b = str(row.get("option_b", row.get("optionb", ""))).strip()
+        opt_c = str(row.get("option_c", row.get("optionc", ""))).strip()
+        opt_d = str(row.get("option_d", row.get("optiond", ""))).strip()
+        correct_raw = str(row.get("correct", row.get("answer", ""))).strip().upper()
+        marks_raw = str(row.get("marks", row.get("mark", "1"))).strip()
+        neg_raw = str(row.get("negative", row.get("negative_marks", "0"))).strip() or "0"
+        image_raw = str(row.get("image", row.get("img", ""))).strip() or None
+        eedi_idx_raw = str(row.get("eedi_index", row.get("index", ""))).strip()
+        eedi_term_raw = str(row.get("eedi_term", row.get("term", ""))).strip()
+
+        options = [
+            {"id": "A", "text": opt_a, "correct": "A" in correct_raw},
+            {"id": "B", "text": opt_b, "correct": "B" in correct_raw},
+        ]
+        if opt_c:
+            options.append({"id": "C", "text": opt_c, "correct": "C" in correct_raw})
+        if opt_d:
+            options.append({"id": "D", "text": opt_d, "correct": "D" in correct_raw})
+
+        try:
+            marks = float(marks_raw) if marks_raw else 1.0
+        except ValueError:
+            marks = 1.0
+
+        try:
+            negative = float(neg_raw) if neg_raw else 0.0
+        except ValueError:
+            negative = 0.0
+
+        eedi_idx = None
+        if eedi_idx_raw:
+            try:
+                eedi_idx = int(eedi_idx_raw)
+            except ValueError:
+                eedi_idx = None
+
+        questions.append({
+            "id": f"q_{idx + 1}",
+            "text": q_text,
+            "image": image_raw,
+            "options": options,
+            "correct": [c.strip() for c in correct_raw.split(",") if c.strip()],
+            "marks": marks,
+            "negative": negative,
+            "eediIndex": eedi_idx,
+            "eediTerm": eedi_term_raw if eedi_term_raw else None,
+            "eedi_index": eedi_idx,
+            "eedi_term": eedi_term_raw if eedi_term_raw else None,
+        })
+
+    if not questions:
+        raise ValidationError("CSV contained no valid questions")
+
+    await QuizRepository.update_trainer_quiz(ctx, quiz_id, questions=questions)
+    return {
+        "success": True,
+        "message": f"Successfully imported {len(questions)} questions",
+        "questionCount": len(questions),
+    }
 
 
 # --------------------------------------------------------------------------- assignments

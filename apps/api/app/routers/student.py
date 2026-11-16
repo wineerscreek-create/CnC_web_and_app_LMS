@@ -3213,13 +3213,72 @@ async def assessment_detail(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dic
     }
 
 
+@router.post("/assessments/{quiz_id}/launch-token")
+async def quiz_launch_token(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    """Generates a secure, short-lived SSO launch token for proctored examination."""
+    import jwt
+    from datetime import timedelta
+    from app.db.postgres import get_pg_connection
+
+    quiz_data = await QuizRepository.get_quiz(quiz_id, uuid.UUID(str(ctx.user_id)))
+    async with get_pg_connection() as conn:
+        user_info = await conn.fetchrow(
+            """
+            SELECT u.name as full_name, u.email, sp.roll_number, sp.batch_id, b.name as batch_name
+            FROM users u
+            LEFT JOIN student_profiles sp ON sp.user_id = u.id
+            LEFT JOIN batches b ON b.id = sp.batch_id
+            WHERE u.id = $1
+            """,
+            uuid.UUID(str(ctx.user_id))
+        )
+
+    issued = _now()
+    expires = issued + timedelta(minutes=settings.ACCESS_TOKEN_TTL_MINUTES or 30)
+    token_claims = {
+        "sub": str(ctx.user_id),
+        "name": user_info["full_name"] if user_info and user_info["full_name"] else "Student",
+        "roll_number": user_info["roll_number"] if user_info and user_info["roll_number"] else (str(user_info["email"]).split("@")[0] if user_info else "STUDENT"),
+        "quiz_id": str(quiz_data["id"]),
+        "quiz_code": quiz_data.get("quizCode"),
+        "batch_id": str(user_info["batch_id"]) if user_info and user_info["batch_id"] else None,
+        "batch_name": user_info["batch_name"] if user_info else None,
+        "role": "student",
+        "type": "student",
+        "iss": "skillsharp-lms",
+        "aud": "quiz-system",
+        "iat": int(issued.timestamp()),
+        "exp": int(expires.timestamp()),
+    }
+    launch_token = jwt.encode(token_claims, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+    return {
+        "success": True,
+        "data": {
+            "launchToken": launch_token,
+            "quizId": quiz_data["id"],
+            "title": quiz_data["title"],
+            "quizCode": quiz_data.get("quizCode"),
+            "durationMinutes": quiz_data.get("durationMinutes", 30),
+            "settings": quiz_data.get("settings", {}),
+            "name": token_claims["name"],
+            "rollNumber": token_claims["roll_number"],
+        },
+    }
+
+
 @router.post("/assessments/{quiz_id}/attempts", status_code=status.HTTP_201_CREATED)
 async def submit_assessment(
     quiz_id: str, payload: QuizAttemptRequest, ctx: ScopeContext = StudentCtx
 ) -> dict[str, Any]:
     if settings.USE_POSTGRES:
         answers_map = {a.get("questionId"): a.get("optionId") for a in payload.answers}
-        res = await QuizRepository.submit_quiz_attempt(ctx, quiz_id, answers_map)
+        res = await QuizRepository.submit_quiz_attempt(
+            ctx,
+            quiz_id,
+            answers_map,
+            device_id=payload.deviceId,
+            warnings=payload.warnings,
+        )
         await _award_xp(ctx, amount=int(res["score"] / 5), source="quiz", label="Assessment")
         return {"success": True, "data": res}
     quiz = await QuizRepo(ctx).get(quiz_id)

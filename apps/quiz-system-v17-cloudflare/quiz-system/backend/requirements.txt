@@ -1,0 +1,32 @@
+# A few of these packages (pandas, cryptography, pydantic, uvicorn[standard]
+# via uvloop/httptools, reportlab, bcrypt) have compiled C/Rust extensions,
+# which means pip needs an exact prebuilt wheel for your Python version --
+# if the pinned version predates your Python release, there's no wheel and
+# pip silently falls back to compiling from source, which then fails on
+# Windows with something like "Could not find vswhere.exe" (it's asking for
+# Visual Studio Build Tools). That's a stale-pin problem, not something you
+# actually need Visual Studio to fix. These are intentionally left as
+# minimum-version (>=) rather than exact (==) pins so pip always resolves to
+# whatever recent build already has a wheel for your Python -- if you still
+# hit a source-build error after `pip install -r requirements.txt`, it means
+# even the latest release of that one package doesn't have a wheel for your
+# Python version yet (very new Python release) -- installing an older,
+# supported Python (3.11/3.12 are always safe bets) is the real fix then,
+# not installing a compiler.
+fastapi==0.115.0
+uvicorn[standard]>=0.32.0
+python-socketio==5.11.4
+pandas>=2.2.3
+PyJWT==2.9.0
+# Password hashing uses bcrypt directly (app/security/password.py), not
+# passlib -- passlib 1.7.4 (its last release) is incompatible with modern
+# bcrypt and will crash app startup. See that file's module docstring.
+bcrypt>=4.2.0
+APScheduler==3.10.4
+cryptography>=44.0.0
+python-multipart==0.0.9
+pydantic>=2.9.2,<3.0.0
+pydantic-settings>=2.5.2,<3.0.0
+openpyxl==3.1.5
+reportlab>=4.2.5
+python-dotenv==1.0.1

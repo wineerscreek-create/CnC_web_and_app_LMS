@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+backend/.env
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# Runtime scratch (RAM-only system -- nothing here should be committed)
+uploads/*
+!uploads/.gitkeep
+exports/*
+!exports/.gitkeep
+temp/*
+!temp/.gitkeep
+logs/*
+!logs/.gitkeep
+
+.DS_Store

@@ -131,6 +131,36 @@ class GameAttemptRequest(Base):
 class QuizAttemptRequest(Base):
     answers: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
     durationSeconds: Annotated[int, Field(ge=0, le=14400)] = 0
+    deviceId: str | None = None
+    warnings: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class TrainerQuizCreateRequest(Base):
+    title: Annotated[str, Field(min_length=2, max_length=255)]
+    durationMinutes: Annotated[int, Field(ge=1, le=360)] = 30
+    maxScore: Annotated[int, Field(ge=1, le=1000)] = 100
+    opensAt: datetime | None = None
+    closesAt: datetime | None = None
+    questions: list[dict[str, Any]] = Field(default_factory=list)
+    settings: dict[str, Any] = Field(default_factory=dict)
+    batchIds: list[str] = Field(default_factory=list)
+    quizCode: str | None = None
+
+
+class TrainerQuizUpdateRequest(Base):
+    title: Annotated[str, Field(min_length=2, max_length=255)] | None = None
+    durationMinutes: Annotated[int, Field(ge=1, le=360)] | None = None
+    maxScore: Annotated[int, Field(ge=1, le=1000)] | None = None
+    opensAt: datetime | None = None
+    closesAt: datetime | None = None
+    questions: list[dict[str, Any]] | None = None
+    settings: dict[str, Any] | None = None
+    batchIds: list[str] | None = None
+    status: str | None = None
+
+
+class BatchAssignRequest(Base):
+    batchIds: list[str] = Field(default_factory=list)
 
 
 class ProfileUpdate(Base):

@@ -40,6 +40,7 @@ export default function AssessmentAttemptPage() {
   const [submitting, setSubmitting] = React.useState(false);
   const [result, setResult] = React.useState<any>(null);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [warnings, setWarnings] = React.useState<Array<{ type: string; timestamp: string; detail?: string }>>([]);
 
   // If query failed or offline, load from local IndexedDB
   React.useEffect(() => {
@@ -87,6 +88,7 @@ export default function AssessmentAttemptPage() {
   const alreadyDone = Boolean(quiz?.alreadyAttempted);
   const limit = (quiz?.durationMinutes ?? 0) * 60;
   const remaining = Math.max(0, limit - elapsed);
+  const maxWarnings = quiz?.settings?.max_warnings ?? 3;
 
   React.useEffect(() => {
     if (alreadyDone || result || !quiz) return;
@@ -121,12 +123,22 @@ export default function AssessmentAttemptPage() {
     }
 
     try {
+      const deviceId = typeof window !== 'undefined'
+        ? (localStorage.getItem('skillsharp_device_id') || (() => {
+            const id = crypto.randomUUID();
+            localStorage.setItem('skillsharp_device_id', id);
+            return id;
+          })())
+        : undefined;
+
       const response = await api.post(`/student/assessments/${params.quizId}/attempts`, {
         answers: Object.entries(answers).map(([questionId, optionId]) => ({
           questionId,
           optionId,
         })),
         durationSeconds: elapsed,
+        deviceId,
+        warnings,
       });
       setResult(response.data);
       toast.success(`Submitted — you scored ${response.data.score}/100`);
@@ -157,13 +169,37 @@ export default function AssessmentAttemptPage() {
       setSubmitting(false);
       setConfirmOpen(false);
     }
-  }, [answers, elapsed, params.quizId, isOnline, user?.id, user?.institutionId]);
+  }, [answers, elapsed, params.quizId, isOnline, user?.id, user?.institutionId, warnings]);
 
   // Auto-submit when the clock runs out, so an unfinished paper is still recorded.
   React.useEffect(() => {
     if (!limit || result || alreadyDone || submitting) return;
     if (remaining === 0) void submit();
   }, [remaining, limit, result, alreadyDone, submitting, submit]);
+
+  // Anti-cheat tab switch monitoring
+  React.useEffect(() => {
+    if (alreadyDone || result || !quiz) return;
+
+    function handleVisibility() {
+      if (document.hidden) {
+        setWarnings((prev) => {
+          const next = [...prev, { type: 'tab_switch', timestamp: new Date().toISOString(), detail: 'Tab switched or backgrounded' }];
+          toast.error(`Warning ${next.length}/${maxWarnings}: Tab switching is prohibited during proctored examinations.`);
+          if (next.length >= maxWarnings) {
+            toast.error('Maximum warnings exceeded. Auto-submitting assessment now.');
+            void submit();
+          }
+          return next;
+        });
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [alreadyDone, result, quiz, maxWarnings, submit]);
 
   const effectiveQuery = React.useMemo(() => {
     if (offlineQuiz) {

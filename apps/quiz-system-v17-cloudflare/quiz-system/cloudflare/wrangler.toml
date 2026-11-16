@@ -1,0 +1,26 @@
+name = "aceit-quiz"
+main = "src/index.js"
+compatibility_date = "2026-09-05"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "../frontend/dist"
+not_found_handling = "single-page-application"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "aceit-quiz"
+database_id = "0a416eac-0476-441c-a962-df4ab6a01115"
+migrations_dir = "migrations"
+
+[[durable_objects.bindings]]
+name = "QUIZ_SESSION"
+class_name = "QuizSession"
+
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["QuizSession", "RateLimiter"]

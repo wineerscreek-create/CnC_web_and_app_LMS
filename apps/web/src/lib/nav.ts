@@ -81,6 +81,7 @@ const TRAINER: NavGroup[] = [
       { label: 'Attendance', href: '/trainer/attendance', icon: CalendarCheck },
       { label: 'Participants', href: '/trainer/students', icon: GraduationCap },
       { label: 'Evaluations', href: '/trainer/evaluations', icon: ClipboardCheck },
+      { label: 'Assessments', href: '/trainer/assessments', icon: Target },
       { label: 'Assignments', href: '/trainer/assignments', icon: ClipboardList },
       { label: 'E-Books', href: '/trainer/ebooks', icon: BookOpen },
       { label: 'Messages', href: '/trainer/chat', icon: MessageSquare },

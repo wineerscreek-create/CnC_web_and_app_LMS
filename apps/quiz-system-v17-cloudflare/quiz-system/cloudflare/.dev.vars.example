@@ -1,0 +1,4 @@
+# Set these with `npx wrangler secret put ...` before production deployment.
+JWT_SECRET=replace-with-32-random-bytes-or-more
+BOOTSTRAP_ADMIN_USERNAME=superadmin
+BOOTSTRAP_ADMIN_PASSWORD=change-this-before-deploying

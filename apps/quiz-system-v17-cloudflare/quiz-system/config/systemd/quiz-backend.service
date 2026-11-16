@@ -1,0 +1,52 @@
+# systemd unit for the FastAPI + Socket.IO backend.
+#
+# Copy to /etc/systemd/system/quiz-backend.service, edit the paths/user
+# below, then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now quiz-backend
+#   sudo systemctl status quiz-backend
+#   journalctl -u quiz-backend -f          # live logs
+#
+# IMPORTANT -- exactly one worker, always:
+#   The whole point of this system is a RAM-only store (no MySQL/Postgres/
+#   Redis) -- app/memory/store.py is one Python dict guarded by one lock,
+#   living inside one process. `uvicorn ... --workers N` with N>1 spawns N
+#   *separate* processes, each with its own empty copy of that store. A
+#   student whose request lands on worker 2 after joining via worker 1
+#   simply wouldn't exist there -- random 401s/404s under real load, not a
+#   performance win. Do NOT add --workers > 1 here. If you outgrow one
+#   process (well past the ~500-student target this was built for), the
+#   real fix is swapping the in-memory store for Redis, not adding uvicorn
+#   workers -- see README.md "Scaling beyond one process".
+#
+# Restart=always + a short RestartSec gives you automatic recovery from a
+# crash; combined with ENABLE_CRASH_RECOVERY_BACKUP=true (.env), a restart
+# mid-quiz restores live sessions from the last encrypted snapshot (up to
+# BACKUP_INTERVAL_SECONDS of answers may need re-saving by the student,
+# same as any brief network blip).
+
+[Unit]
+Description=Secure Online Quiz System - FastAPI/Socket.IO backend
+After=network.target
+
+[Service]
+Type=simple
+User=quizapp
+Group=quizapp
+WorkingDirectory=/opt/quiz-system/backend
+EnvironmentFile=/opt/quiz-system/backend/.env
+ExecStart=/opt/quiz-system/backend/.venv/bin/uvicorn app.main:socket_app \
+    --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers \
+    --forwarded-allow-ips=127.0.0.1
+Restart=always
+RestartSec=3
+
+# Basic hardening -- relax if your deployment path needs something these
+# block (e.g. NoNewPrivileges is fine here, ProtectHome is fine since the
+# app only reads/writes its own WorkingDirectory).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
