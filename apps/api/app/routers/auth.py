@@ -292,40 +292,41 @@ async def signup(payload: SignupRequest, request: Request) -> dict[str, Any]:
         logger.error(f"Error creating user {email}: {exc}", exc_info=True)
         raise ValidationError(f"Registration could not be completed: {str(exc)}") from exc
 
-    try:
-        from app.db.mongo import get_db
-        db = get_db()
-        m_user = {
-            "name": payload.name,
-            "email": email,
-            "passwordHash": pwd_hash,
-            "role": str(role),
-            "collegeId": college["id"] if college else None,
-            "collegeName": college.get("name") if college else "Winners Creek Online Platform",
-            "departmentId": department["id"] if department else None,
-            "departmentName": department.get("name") if department else None,
-            "phone": payload.phone,
-            "emailVerified": False,
-            "status": "active",
-            "createdAt": datetime.now(timezone.utc),
-            "updatedAt": datetime.now(timezone.utc),
-        }
-        res_m = await db.users.insert_one(m_user)
-        if role is Role.STUDENT:
-            await db.student_profiles.insert_one({
-                "userId": res_m.inserted_id,
+    if not settings.USE_POSTGRES and not settings.is_production:
+        try:
+            from app.db.mongo import get_db
+            db = get_db()
+            m_user = {
                 "name": payload.name,
                 "email": email,
+                "passwordHash": pwd_hash,
+                "role": str(role),
                 "collegeId": college["id"] if college else None,
                 "collegeName": college.get("name") if college else "Winners Creek Online Platform",
                 "departmentId": department["id"] if department else None,
                 "departmentName": department.get("name") if department else None,
-                "isOnlineDirect": college is None,
+                "phone": payload.phone,
+                "emailVerified": False,
+                "status": "active",
                 "createdAt": datetime.now(timezone.utc),
                 "updatedAt": datetime.now(timezone.utc),
-            })
-    except Exception:
-        pass
+            }
+            res_m = await db.users.insert_one(m_user)
+            if role is Role.STUDENT:
+                await db.student_profiles.insert_one({
+                    "userId": res_m.inserted_id,
+                    "name": payload.name,
+                    "email": email,
+                    "collegeId": college["id"] if college else None,
+                    "collegeName": college.get("name") if college else "Winners Creek Online Platform",
+                    "departmentId": department["id"] if department else None,
+                    "departmentName": department.get("name") if department else None,
+                    "isOnlineDirect": college is None,
+                    "createdAt": datetime.now(timezone.utc),
+                    "updatedAt": datetime.now(timezone.utc),
+                })
+        except Exception:
+            pass
 
     user_id_str = str(user_record["id"])
     otp = await rate_limit.issue_otp(VERIFY, email)
