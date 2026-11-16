@@ -110,13 +110,17 @@ class Settings(BaseSettings):
 
     # ---------- email ----------
     EMAIL_VERIFICATION_ENABLED: bool = True
-    EMAIL_PROVIDER: Literal["console", "smtp"] = "console"
+    EMAIL_PROVIDER: Literal["console", "smtp", "nodemailer"] = "console"
     SMTP_HOST: str | None = None
     SMTP_PORT: int = 587
     SMTP_USER: str | None = None
     SMTP_PASSWORD: str | None = None
     EMAIL_FROM: str = "no-reply@eedilms.app"
     PUBLIC_WEB_URL: str = "http://localhost:3000"
+    # Node.js Nodemailer microservice (EMAIL_PROVIDER=nodemailer)
+    EMAIL_SERVICE_URL: str | None = None          # e.g. https://cnc-email-service.onrender.com
+    EMAIL_SERVICE_API_KEY: str | None = None       # Shared secret — set this in both services
+    EMAIL_SERVICE_TIMEOUT_SECONDS: int = 10
 
     # ---------- push ----------
     FCM_ENABLED: bool = False

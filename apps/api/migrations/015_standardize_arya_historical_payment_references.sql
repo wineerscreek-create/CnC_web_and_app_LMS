@@ -20,7 +20,3 @@ LEFT JOIN student_profiles sp ON sp.user_id = u.id
 WHERE p.participant_user_id = u.id
   AND (p.utr LIKE 'TXN_ARYA_%' OR p.utr LIKE 'HIST_ARYA_%')
   AND (p.legacy_reference IS NULL OR p.verification_source != 'INSTITUTIONAL_LEGACY_CONFIRMATION');
-
-INSERT INTO schema_migrations (version)
-VALUES ('015_standardize_arya_historical_payment_references.sql')
-ON CONFLICT DO NOTHING;

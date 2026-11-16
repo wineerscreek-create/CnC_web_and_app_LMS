@@ -9,6 +9,8 @@ import { OtpInput } from '@/components/auth/otp-input';
 import { Button } from '@/components/ui/button';
 import { ApiError, api } from '@/lib/api';
 
+const RESEND_COOLDOWN_SECONDS = 60;
+
 export default function VerifyEmailPage() {
   const router = useRouter();
   const params = useSearchParams();
@@ -24,6 +26,15 @@ export default function VerifyEmailPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [done, setDone] = React.useState(false);
   const [resent, setResent] = React.useState(false);
+
+  // Resend cooldown: counts down from RESEND_COOLDOWN_SECONDS to 0
+  const [countdown, setCountdown] = React.useState(0);
+
+  React.useEffect(() => {
+    if (countdown <= 0) return;
+    const id = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(id);
+  }, [countdown]);
 
   // One-click verification from the emailed link.
   const verifyToken = React.useCallback(async (linkToken: string) => {
@@ -63,11 +74,13 @@ export default function VerifyEmailPage() {
   }
 
   async function resend() {
+    if (countdown > 0) return;
     setError(null);
     setResent(false);
     try {
       await api.post('/auth/resend-otp', { email, purpose: 'verify' });
       setResent(true);
+      setCountdown(RESEND_COOLDOWN_SECONDS);
     } catch (caught) {
       setError((caught as ApiError).message);
     }
@@ -99,7 +112,8 @@ export default function VerifyEmailPage() {
       <p className="mt-1.5 text-base text-muted-foreground">
         {email ? (
           <>
-            Enter the 6-digit code we sent to <strong className="font-semibold text-foreground">{email}</strong>.
+            Enter the 6-digit code we sent to{' '}
+            <strong className="font-semibold text-foreground">{email}</strong>.
           </>
         ) : (
           'Enter the 6-digit code from your verification email.'
@@ -115,13 +129,19 @@ export default function VerifyEmailPage() {
         </div>
 
         {error && (
-          <p role="alert" className="flex items-start gap-2 rounded-xl bg-destructive/10 border border-destructive/30 px-3.5 py-2.5 text-sm font-semibold text-destructive">
+          <p
+            role="alert"
+            className="flex items-start gap-2 rounded-xl bg-destructive/10 border border-destructive/30 px-3.5 py-2.5 text-sm font-semibold text-destructive"
+          >
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             {error}
           </p>
         )}
         {resent && (
-          <p role="status" className="rounded-xl bg-primary/10 border border-primary/20 px-3.5 py-2.5 text-sm font-semibold text-primary">
+          <p
+            role="status"
+            className="rounded-xl bg-primary/10 border border-primary/20 px-3.5 py-2.5 text-sm font-semibold text-primary"
+          >
             A new code is on its way.
           </p>
         )}
@@ -139,9 +159,19 @@ export default function VerifyEmailPage() {
       </form>
 
       <p className="mt-5 text-base text-muted-foreground">
-        Didn’t get it?{' '}
-        <button type="button" onClick={resend} className="font-semibold text-foreground hover:underline">
-          Send another code
+        Didn&apos;t get it?{' '}
+        <button
+          type="button"
+          onClick={resend}
+          disabled={countdown > 0}
+          className={
+            countdown > 0
+              ? 'font-semibold text-muted-foreground cursor-not-allowed'
+              : 'font-semibold text-foreground hover:underline'
+          }
+          aria-disabled={countdown > 0}
+        >
+          {countdown > 0 ? `Resend in ${countdown}s` : 'Send another code'}
         </button>
       </p>
     </>

@@ -1,0 +1,19 @@
+{
+  "name": "cnc-email-service",
+  "version": "1.0.0",
+  "description": "Nodemailer email microservice for CnC LMS — called by FastAPI for SMTP delivery",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test src/tests/mailer.test.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "nodemailer": "^10.5.0"
+  }
+}

@@ -1,9 +1,17 @@
 """Transactional email behind a provider interface.
 
-`console` writes the message to the log and keeps the last delivery in memory so a developer (or
-the test suite) can complete verification without an SMTP server. `smtp` is the production driver
-and uses Gmail SMTP with STARTTLS (configure SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, and
-EMAIL_FROM via environment variables — never hardcode credentials).
+Providers
+---------
+``console``    — writes to log; keeps last 200 deliveries in memory for tests.
+``smtp``       — production Python SMTP/STARTTLS via smtplib (Gmail-compatible).
+``nodemailer`` — delegates delivery to the Node.js email microservice
+                 (apps/email-service) via authenticated HTTP POST. This is the
+                 recommended production provider — it uses Nodemailer with the
+                 latest security patches and is decoupled from the Python process.
+
+Configuration
+-------------
+All credentials come from environment variables only.
 """
 from __future__ import annotations
 
@@ -97,12 +105,63 @@ class SmtpEmailProvider(EmailProvider):
 _provider: EmailProvider | None = None
 
 
+class NodemailerEmailProvider(EmailProvider):
+    """Production email provider that delegates to the Node.js Nodemailer microservice.
+
+    FastAPI builds the template, then POSTs to the email service's generic /send endpoint
+    so that SMTP credentials live only in the Node.js service's environment.
+
+    Required environment variables (FastAPI side):
+        EMAIL_SERVICE_URL       — base URL of the Node.js service
+                                  e.g. https://cnc-email-service.onrender.com
+        EMAIL_SERVICE_API_KEY   — shared secret; Node.js service validates this as Bearer token
+        EMAIL_SERVICE_TIMEOUT_SECONDS — HTTP request timeout (default 10)
+    """
+
+    @property
+    def name(self) -> str:
+        return "nodemailer"
+
+    async def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> None:
+        import httpx  # already in requirements.txt (httpx>=0.28.1)
+
+        url = (settings.EMAIL_SERVICE_URL or "").rstrip("/")
+        api_key = settings.EMAIL_SERVICE_API_KEY or ""
+        timeout = settings.EMAIL_SERVICE_TIMEOUT_SECONDS
+
+        if not url:
+            raise RuntimeError(
+                "EMAIL_SERVICE_URL is not configured. "
+                "Set it to the base URL of the Node.js email service."
+            )
+        if not api_key:
+            raise RuntimeError(
+                "EMAIL_SERVICE_API_KEY is not configured. "
+                "Set it to the shared secret for the Node.js email service."
+            )
+
+        payload = {"to": to, "subject": subject, "text": body, "html": html}
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(f"{url}/send", json=payload, headers=headers)
+            response.raise_for_status()
+
+        log.info("email_sent_via_nodemailer", extra={"to": to, "subject": subject})
+
+
 def get_email_provider() -> EmailProvider:
     global _provider
     if _provider is None:
-        _provider = (
-            SmtpEmailProvider() if settings.EMAIL_PROVIDER == "smtp" else ConsoleEmailProvider()
-        )
+        if settings.EMAIL_PROVIDER == "smtp":
+            _provider = SmtpEmailProvider()
+        elif settings.EMAIL_PROVIDER == "nodemailer":
+            _provider = NodemailerEmailProvider()
+        else:
+            _provider = ConsoleEmailProvider()
     return _provider
 
 
