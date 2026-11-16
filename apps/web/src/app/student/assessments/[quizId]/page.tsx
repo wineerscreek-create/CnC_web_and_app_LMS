@@ -94,9 +94,10 @@ export default function AssessmentAttemptPage() {
   const currentIndexRef = React.useRef<number>(0);
   const revealedAnswersRef = React.useRef<Record<string, RevealData>>({});
   const answersRef = React.useRef<Record<string, any>>({});
+  const submitAssessmentRef = React.useRef<(reason?: string) => Promise<void>>(() => Promise.resolve());
 
   const quiz = query.data || offlineQuiz;
-  const questions: AssessmentQuestion[] = quiz?.questions ?? [];
+  const questions: AssessmentQuestion[] = React.useMemo(() => quiz?.questions ?? [], [quiz?.questions]);
   const currentQuestion = questions[currentIndex];
   const alreadyDone = Boolean(quiz?.alreadyAttempted || quiz?.attempt);
   const limitSeconds = (quiz?.durationMinutes ?? 30) * 60;
@@ -115,6 +116,45 @@ export default function AssessmentAttemptPage() {
   const autoAdvance = settings.auto_advance !== false;
   const allowPrevious = enableTimedQuestions ? Boolean(settings.allow_previous) : true;
   const allowModification = enableTimedQuestions ? Boolean(settings.allow_modification) : true;
+
+  // Connect to native FastAPI WebSocket Hub
+  const connectAssessmentSocket = React.useCallback(
+    (token: string) => {
+      if (typeof window === 'undefined') return;
+
+      const wsUrl = getAssessmentWsUrl(params.quizId);
+
+      try {
+        const ws = new WebSocket(wsUrl);
+        socketRef.current = ws;
+
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ type: 'auth', token }));
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'ack' && msg.data?.remaining_seconds != null) {
+              setRemaining(msg.data.remaining_seconds);
+            } else if (msg.event === 'quiz_end') {
+              toast.error('The supervisor has concluded this assessment. Submitting now...');
+              void submitAssessmentRef.current('forced_by_admin');
+            }
+          } catch (e) {
+            // Ignore parse errors
+          }
+        };
+
+        ws.onerror = (err) => {
+          console.warn('Assessment WebSocket connection notice:', err);
+        };
+      } catch (err) {
+        console.warn('Failed to establish assessment WebSocket', err);
+      }
+    },
+    [params.quizId]
+  );
 
   // Initialize launch token and WebSocket
   React.useEffect(() => {
@@ -140,46 +180,7 @@ export default function AssessmentAttemptPage() {
         socketRef.current = null;
       }
     };
-  }, [params.quizId, alreadyDone, result]);
-
-  // Connect to native FastAPI WebSocket Hub
-  const connectAssessmentSocket = React.useCallback(
-    (token: string) => {
-      if (typeof window === 'undefined') return;
-
-      const wsUrl = getAssessmentWsUrl(params.quizId);
-
-      try {
-        const ws = new WebSocket(wsUrl);
-        socketRef.current = ws;
-
-        ws.onopen = () => {
-          ws.send(JSON.stringify({ type: 'auth', token }));
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'ack' && msg.data?.remaining_seconds != null) {
-              setRemaining(msg.data.remaining_seconds);
-            } else if (msg.event === 'quiz_end') {
-              toast.error('The supervisor has concluded this assessment. Submitting now...');
-              void submitAssessment('forced_by_admin');
-            }
-          } catch (e) {
-            // Ignore parse errors
-          }
-        };
-
-        ws.onerror = (err) => {
-          console.warn('Assessment WebSocket connection notice:', err);
-        };
-      } catch (err) {
-        console.warn('Failed to establish assessment WebSocket', err);
-      }
-    },
-    [params.quizId]
-  );
+  }, [params.quizId, alreadyDone, result, connectAssessmentSocket]);
 
   // Heartbeat every 15 seconds to resync authoritative timer
   React.useEffect(() => {
@@ -253,7 +254,7 @@ export default function AssessmentAttemptPage() {
         setServerStartTime(sStart);
 
         if (ts.is_completed) {
-          void submitAssessment('timed_completed');
+          void submitAssessmentRef.current('timed_completed');
         } else if (enableTimedQuestions) {
           const idx = Math.min(Math.max(0, questions.length - 1), ts.current_question_index || 0);
           currentIndexRef.current = idx;
@@ -290,7 +291,7 @@ export default function AssessmentAttemptPage() {
       setRemaining((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          void submitAssessment('auto_timeout');
+          void submitAssessmentRef.current('auto_timeout');
           return 0;
         }
         return prev - 1;
@@ -339,7 +340,7 @@ export default function AssessmentAttemptPage() {
 
       // Check if total assessment time has elapsed
       if (totalElapsedSec >= totalExamSeconds) {
-        void submitAssessment('timed_completed');
+        void submitAssessmentRef.current('timed_completed');
         return;
       }
 
@@ -556,6 +557,7 @@ export default function AssessmentAttemptPage() {
     },
     [isOnline, params.quizId, answers, elapsed, user?.id, user?.institutionId, questions]
   );
+  submitAssessmentRef.current = submitAssessment;
 
   // Wire Anti-Cheat Subsystem
   const { warningCount, requestFullscreen } = useAntiCheat({
