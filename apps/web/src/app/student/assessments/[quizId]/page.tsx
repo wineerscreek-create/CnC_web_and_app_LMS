@@ -46,6 +46,8 @@ interface AssessmentQuestion {
   image?: string | null;
   marks: number;
   question_type?: 'mcq_single' | 'mcq_multiple' | 'numerical';
+  time_limit?: number;
+  duration_seconds?: number;
   options: QuestionOption[];
 }
 
@@ -90,9 +92,13 @@ export default function AssessmentAttemptPage() {
   const [revealedAnswers, setRevealedAnswers] = React.useState<Record<string, RevealData>>({});
   const [serverStartTime, setServerStartTime] = React.useState<number | null>(null);
   const [serverTimeOffset, setServerTimeOffset] = React.useState<number>(0);
+  const [lockedQuestions, setLockedQuestions] = React.useState<Record<string, boolean>>({});
 
   const socketRef = React.useRef<WebSocket | null>(null);
   const submittedRef = React.useRef<boolean>(false);
+  const isSubmittingRef = React.useRef<boolean>(false);
+  const activeTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const lockedQuestionsRef = React.useRef<Record<string, boolean>>({});
   const questionStartRef = React.useRef<number>(Date.now());
   const currentIndexRef = React.useRef<number>(0);
   const revealedAnswersRef = React.useRef<Record<string, RevealData>>({});
@@ -107,19 +113,43 @@ export default function AssessmentAttemptPage() {
   const totalExamSeconds = configuredMinutes * 60;
   const settings = quiz?.settings ?? {};
 
+  // Timing Mode: strictly mutually exclusive
+  const timingMode: 'FIXED_TOTAL' | 'PER_QUESTION' = React.useMemo(() => {
+    const raw = (
+      quiz?.timing_mode ||
+      quiz?.timingMode ||
+      quiz?.settings?.timing_mode ||
+      (quiz?.settings?.enable_timed_questions ? 'PER_QUESTION' : 'FIXED_TOTAL')
+    );
+    return String(raw).toUpperCase() === 'PER_QUESTION' ? 'PER_QUESTION' : 'FIXED_TOTAL';
+  }, [quiz]);
+
+  const clearActiveTimer = React.useCallback(() => {
+    if (activeTimerRef.current) {
+      clearInterval(activeTimerRef.current);
+      activeTimerRef.current = null;
+    }
+  }, []);
+
+  React.useEffect(() => {
+    return () => {
+      clearActiveTimer();
+    };
+  }, [clearActiveTimer]);
+
   // Settings parsing
   const cameraRequired = Boolean(settings.camera_required ?? true);
   const fullscreenRequired = Boolean(settings.fullscreen_required ?? true);
   const maxWarnings = Number(settings.max_warnings ?? 3);
 
   // Timed question settings
-  const enableTimedQuestions = Boolean(settings.enable_timed_questions);
+  const enableTimedQuestions = timingMode === 'PER_QUESTION';
   const questionDuration = Math.max(2, Number(settings.question_duration || 10));
-  const answerRevealDuration = Math.max(1, Number(settings.answer_reveal_duration || 2));
+  const answerRevealDuration = Math.max(0, Number(settings.answer_reveal_duration || 0));
   const answeringDuration = Math.max(1, questionDuration - answerRevealDuration);
-  const autoAdvance = settings.auto_advance !== false;
-  const allowPrevious = enableTimedQuestions ? Boolean(settings.allow_previous) : true;
-  const allowModification = enableTimedQuestions ? Boolean(settings.allow_modification) : true;
+  const autoAdvance = true;
+  const allowPrevious = false;
+  const allowModification = false;
 
   // Connect to native FastAPI WebSocket Hub
   const connectAssessmentSocket = React.useCallback(
@@ -139,9 +169,7 @@ export default function AssessmentAttemptPage() {
         ws.onmessage = (event) => {
           try {
             const msg = JSON.parse(event.data);
-            if (msg.type === 'connected' && msg.data?.remaining_seconds != null) {
-              setRemaining(msg.data.remaining_seconds);
-            } else if (msg.type === 'ack' && msg.data?.remaining_seconds != null) {
+            if (timingMode === 'FIXED_TOTAL' && msg.data?.remaining_seconds != null) {
               setRemaining(msg.data.remaining_seconds);
             } else if (msg.event === 'quiz_end') {
               toast.error('The supervisor has concluded this assessment. Submitting now...');
@@ -159,7 +187,7 @@ export default function AssessmentAttemptPage() {
         console.warn('Failed to establish assessment WebSocket', err);
       }
     },
-    [params.quizId]
+    [params.quizId, timingMode]
   );
 
   // Initialize launch token and WebSocket
@@ -259,18 +287,37 @@ export default function AssessmentAttemptPage() {
         setServerTimeOffset(sOffset);
         setServerStartTime(sStart);
 
-        if (ts.remaining_seconds != null) {
-          setRemaining(Math.max(0, Math.floor(ts.remaining_seconds)));
+        if (ts.question_states) {
+          const lMap: Record<string, boolean> = {};
+          Object.keys(ts.question_states).forEach((k) => {
+            if (ts.question_states[k]?.is_locked) lMap[k] = true;
+          });
+          lockedQuestionsRef.current = lMap;
+          setLockedQuestions(lMap);
         }
 
         if (ts.is_completed) {
-          void submitAssessmentRef.current('timed_completed');
-        } else if (enableTimedQuestions) {
+          void submitAssessmentRef.current('server_marked_completed');
+          return;
+        }
+
+        if (timingMode === 'FIXED_TOTAL') {
+          if (ts.remaining_seconds != null) {
+            setRemaining(Math.max(0, Math.floor(ts.remaining_seconds)));
+          }
+        } else {
+          // PER_QUESTION
           const idx = Math.min(Math.max(0, questions.length - 1), ts.current_question_index || 0);
           currentIndexRef.current = idx;
           setCurrentIndex(idx);
           setQuestionPhase(ts.phase === 'revealing' ? 'revealing' : 'answering');
-          setQuestionTimeLeft(ts.phase_remaining_seconds ?? answeringDuration);
+          if (ts.question_remaining_seconds != null) {
+            setQuestionTimeLeft(Math.max(0, Math.floor(ts.question_remaining_seconds)));
+          } else {
+            const curQ = questions[idx];
+            const lim = Number(curQ?.time_limit || curQ?.duration_seconds || settings.question_duration || 30);
+            setQuestionTimeLeft(lim);
+          }
         }
       }
     }
@@ -279,37 +326,10 @@ export default function AssessmentAttemptPage() {
     alreadyDone,
     result,
     started,
-    enableTimedQuestions,
-    questions.length,
-    answeringDuration,
+    timingMode,
+    questions,
+    settings.question_duration,
   ]);
-
-  // Initialize overall countdown timer from configured duration
-  React.useEffect(() => {
-    if (quiz && remaining === 0) {
-      const initialRemaining = Math.max(0, totalExamSeconds - elapsed);
-      setRemaining(initialRemaining);
-    }
-  }, [quiz, totalExamSeconds, elapsed, remaining]);
-
-  // 1-second countdown clock for overall assessment
-  React.useEffect(() => {
-    if (!started || alreadyDone || result || !quiz) return;
-
-    const timer = setInterval(() => {
-      setElapsed((val) => val + 1);
-      setRemaining((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          void submitAssessmentRef.current('auto_timeout');
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [started, alreadyDone, result, quiz]);
 
   // Fetch question reveal data from backend securely
   const fetchQuestionReveal = React.useCallback(
@@ -327,76 +347,6 @@ export default function AssessmentAttemptPage() {
     },
     [params.quizId]
   );
-
-  // High-Precision Timing Engine for Timed Questions (internal question phases)
-  React.useEffect(() => {
-    if (
-      !enableTimedQuestions ||
-      !started ||
-      alreadyDone ||
-      result ||
-      !serverStartTime ||
-      questions.length === 0
-    ) {
-      return;
-    }
-
-    const tick = () => {
-      if (submittedRef.current) return;
-
-      const nowServerMs = Date.now() + serverTimeOffset;
-      const totalElapsedSec = Math.max(0, (nowServerMs - serverStartTime) / 1000);
-      const totalTimedSeconds = questions.length * questionDuration;
-
-      // Check if all timed questions have elapsed
-      if (totalElapsedSec >= totalTimedSeconds) {
-        void submitAssessmentRef.current('timed_completed');
-        return;
-      }
-
-      const calculatedIdx = Math.min(questions.length - 1, Math.floor(totalElapsedSec / questionDuration));
-      const timeInCurrentQ = totalElapsedSec % questionDuration;
-
-      const inRevealPhase = timeInCurrentQ >= answeringDuration;
-      const nextPhase: 'answering' | 'revealing' = inRevealPhase ? 'revealing' : 'answering';
-      const phaseSecondsLeft = inRevealPhase
-        ? Math.max(0, Math.ceil(questionDuration - timeInCurrentQ))
-        : Math.max(0, Math.ceil(answeringDuration - timeInCurrentQ));
-
-      setQuestionPhase(nextPhase);
-      setQuestionTimeLeft(phaseSecondsLeft);
-
-      // Automatic Question Advancement without manual user interaction
-      if (calculatedIdx !== currentIndexRef.current) {
-        if (autoAdvance) {
-          currentIndexRef.current = calculatedIdx;
-          setCurrentIndex(calculatedIdx);
-        }
-      }
-
-      // In reveal phase: fetch reveal for active question if not yet loaded
-      const activeQ = questions[calculatedIdx];
-      if (inRevealPhase && activeQ && !revealedAnswersRef.current[activeQ.id]) {
-        void fetchQuestionReveal(activeQ.id);
-      }
-    };
-
-    tick();
-    const interval = setInterval(tick, 250);
-    return () => clearInterval(interval);
-  }, [
-    enableTimedQuestions,
-    started,
-    alreadyDone,
-    result,
-    serverStartTime,
-    serverTimeOffset,
-    questions,
-    questionDuration,
-    answeringDuration,
-    autoAdvance,
-    fetchQuestionReveal,
-  ]);
 
   // Instant Answer Saving
   const saveCurrentDraft = React.useCallback(
@@ -447,6 +397,78 @@ export default function AssessmentAttemptPage() {
     [currentQuestion, answers, reviews, elapsed, user?.id, params.quizId, isOnline, currentIndex]
   );
 
+  // Auto-advance or auto-submit when a question timer expires in PER_QUESTION mode
+  const handleQuestionTimeout = React.useCallback(async () => {
+    if (isSubmittingRef.current || submittedRef.current) return;
+    const curQ = questions[currentIndexRef.current];
+    if (!curQ) return;
+
+    // 1. Permanently lock expired question
+    lockedQuestionsRef.current[curQ.id] = true;
+    setLockedQuestions((prev) => ({ ...prev, [curQ.id]: true }));
+
+    // 2. Auto-save current answer (saves whatever is selected, or null)
+    await saveCurrentDraft();
+
+    // 3. If on the final question, auto-submit the entire assessment!
+    if (currentIndexRef.current >= questions.length - 1) {
+      clearActiveTimer();
+      toast.info('Time expired on final question. Submitting assessment...');
+      void submitAssessmentRef.current('per_question_final_timeout');
+    } else {
+      // 4. Automatically advance to next question
+      const nextIdx = currentIndexRef.current + 1;
+      currentIndexRef.current = nextIdx;
+      setCurrentIndex(nextIdx);
+      const nextQ = questions[nextIdx];
+      const nextLimit = Number(nextQ?.time_limit || nextQ?.duration_seconds || settings.question_duration || 30);
+      setQuestionTimeLeft(nextLimit);
+    }
+  }, [questions, saveCurrentDraft, settings.question_duration, clearActiveTimer]);
+
+  // Centralized Timer Controller: Strictly Mutually Exclusive Execution
+  React.useEffect(() => {
+    if (!started || alreadyDone || result || !quiz || isSubmittingRef.current || submittedRef.current) {
+      clearActiveTimer();
+      return;
+    }
+
+    // MODE 1: Fixed Duration Mode (Total Quiz Timer)
+    if (timingMode === 'FIXED_TOTAL') {
+      clearActiveTimer();
+      activeTimerRef.current = setInterval(() => {
+        if (isSubmittingRef.current || submittedRef.current) return;
+        setElapsed((val) => val + 1);
+        setRemaining((prev) => {
+          if (prev <= 1) {
+            clearActiveTimer();
+            void submitAssessmentRef.current('auto_timeout');
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearActiveTimer();
+    }
+
+    // MODE 2: Variable Duration Mode (Per-Question Timer)
+    if (timingMode === 'PER_QUESTION') {
+      clearActiveTimer();
+      activeTimerRef.current = setInterval(() => {
+        if (isSubmittingRef.current || submittedRef.current) return;
+        setElapsed((val) => val + 1);
+        setQuestionTimeLeft((prev) => {
+          if (prev <= 1) {
+            void handleQuestionTimeout();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearActiveTimer();
+    }
+  }, [started, alreadyDone, result, quiz, timingMode, clearActiveTimer, handleQuestionTimeout]);
+
   // Autosave interval every 5 seconds
   React.useEffect(() => {
     if (!started || alreadyDone || result || !currentQuestion) return;
@@ -467,9 +489,11 @@ export default function AssessmentAttemptPage() {
 
   // Submission handler
   const submitAssessment = React.useCallback(
-    async (reason = 'manual') => {
-      if (submittedRef.current) return;
+    async (reason = 'student_submitted') => {
+      if (isSubmittingRef.current || submittedRef.current) return;
+      isSubmittingRef.current = true;
       submittedRef.current = true;
+      clearActiveTimer();
       setSubmitting(true);
 
       const deviceId =
@@ -482,6 +506,8 @@ export default function AssessmentAttemptPage() {
             })()
           : undefined;
 
+      const curAnswers = { ...answers, ...answersRef.current };
+
       // Handle offline submission
       if (!isOnline) {
         try {
@@ -489,7 +515,7 @@ export default function AssessmentAttemptPage() {
           await syncEngine.recordAssessmentAttemptLocally({
             attemptId,
             quizId: params.quizId,
-            answers,
+            answers: curAnswers,
             durationSeconds: elapsed,
             eventSequence: [],
             userId: user?.id || 'anonymous',
@@ -510,7 +536,7 @@ export default function AssessmentAttemptPage() {
 
       // Online submission
       try {
-        const formattedAnswers = Object.entries(answers).map(([questionId, ans]) => {
+        const formattedAnswers = Object.entries(curAnswers).map(([questionId, ans]) => {
           if (Array.isArray(ans)) {
             return { questionId, selectedOptions: ans };
           }
@@ -558,7 +584,7 @@ export default function AssessmentAttemptPage() {
           await syncEngine.recordAssessmentAttemptLocally({
             attemptId,
             quizId: params.quizId,
-            answers,
+            answers: curAnswers,
             durationSeconds: elapsed,
             eventSequence: [],
             userId: user?.id || 'anonymous',
@@ -576,7 +602,7 @@ export default function AssessmentAttemptPage() {
         exitFullscreen();
       }
     },
-    [isOnline, params.quizId, answers, elapsed, user?.id, user?.institutionId, questions, exitFullscreen]
+    [isOnline, params.quizId, answers, elapsed, user?.id, user?.institutionId, questions, exitFullscreen, clearActiveTimer]
   );
   submitAssessmentRef.current = submitAssessment;
 
@@ -612,68 +638,101 @@ export default function AssessmentAttemptPage() {
         setServerTimeOffset(sOffset);
         setServerStartTime(sStart);
 
-        if (ts.remaining_seconds != null) {
-          setRemaining(Math.max(0, Math.floor(ts.remaining_seconds)));
+        if (ts.question_states) {
+          const lMap: Record<string, boolean> = {};
+          Object.keys(ts.question_states).forEach((k) => {
+            if (ts.question_states[k]?.is_locked) lMap[k] = true;
+          });
+          lockedQuestionsRef.current = lMap;
+          setLockedQuestions(lMap);
         }
 
-        if (enableTimedQuestions) {
+        if (timingMode === 'FIXED_TOTAL') {
+          if (ts.remaining_seconds != null) {
+            setRemaining(Math.max(0, Math.floor(ts.remaining_seconds)));
+          } else {
+            setRemaining(totalExamSeconds);
+          }
+        } else {
+          // PER_QUESTION
           const idx = Math.min(Math.max(0, questions.length - 1), ts.current_question_index || 0);
           currentIndexRef.current = idx;
           setCurrentIndex(idx);
           setQuestionPhase(ts.phase === 'revealing' ? 'revealing' : 'answering');
-          setQuestionTimeLeft(ts.phase_remaining_seconds ?? answeringDuration);
+          const firstLimit = Number(questions[idx]?.time_limit || questions[idx]?.duration_seconds || settings.question_duration || 30);
+          setQuestionTimeLeft(ts.question_remaining_seconds ?? firstLimit);
         }
       } else {
         setServerStartTime(Date.now());
-        setRemaining(totalExamSeconds);
+        if (timingMode === 'FIXED_TOTAL') {
+          setRemaining(totalExamSeconds);
+        } else {
+          const firstLimit = Number(questions[0]?.time_limit || questions[0]?.duration_seconds || settings.question_duration || 30);
+          setQuestionTimeLeft(firstLimit);
+        }
       }
     } catch (err) {
       console.warn('Could not register attempt start on server', err);
       setServerStartTime(Date.now());
-      setRemaining(totalExamSeconds);
+      if (timingMode === 'FIXED_TOTAL') {
+        setRemaining(totalExamSeconds);
+      } else {
+        const firstLimit = Number(questions[0]?.time_limit || questions[0]?.duration_seconds || settings.question_duration || 30);
+        setQuestionTimeLeft(firstLimit);
+      }
     }
     setStarted(true);
     questionStartRef.current = Date.now();
   };
 
-  // Navigation actions (only active in manual navigation mode)
-  const handleNext = () => {
-    if (questionPhase === 'revealing') return;
-    void saveCurrentDraft();
-    if (currentIndex < questions.length - 1) {
-      setCurrentIndex((prev) => prev + 1);
-      questionStartRef.current = Date.now();
-    }
-  };
-
-  const handlePrev = () => {
-    if (enableTimedQuestions && !allowPrevious) {
-      toast.error('Previous navigation is disabled for this timed assessment');
+  // Navigation actions: Mutually Exclusive per Timing Mode
+  const handleFixedTotalNext = async () => {
+    if (!currentQuestion) return;
+    const curAns = answersRef.current[currentQuestion.id] ?? answers[currentQuestion.id];
+    const hasSelected = curAns !== undefined && curAns !== null && String(curAns).trim() !== '' && (!Array.isArray(curAns) || curAns.length > 0);
+    if (!hasSelected) {
+      toast.error('Please select an answer before proceeding to the next question');
       return;
     }
-    void saveCurrentDraft();
-    if (currentIndex > 0) {
-      setCurrentIndex((prev) => prev - 1);
-      questionStartRef.current = Date.now();
+    // Lock current question permanently
+    lockedQuestionsRef.current[currentQuestion.id] = true;
+    setLockedQuestions((prev) => ({ ...prev, [currentQuestion.id]: true }));
+    // Save answer immediately
+    await saveCurrentDraft();
+    if (currentIndex < questions.length - 1) {
+      const nextIdx = currentIndex + 1;
+      currentIndexRef.current = nextIdx;
+      setCurrentIndex(nextIdx);
     }
   };
 
-  const toggleMarkReview = () => {
+  const handlePerQuestionNext = async () => {
     if (!currentQuestion) return;
-    const qid = currentQuestion.id;
-    const nextVal = !reviews[qid];
-    setReviews((prev) => ({ ...prev, [qid]: nextVal }));
-    void saveCurrentDraft(undefined, nextVal);
+    // Lock current question permanently
+    lockedQuestionsRef.current[currentQuestion.id] = true;
+    setLockedQuestions((prev) => ({ ...prev, [currentQuestion.id]: true }));
+    // Save answer immediately
+    await saveCurrentDraft();
+    if (currentIndex < questions.length - 1) {
+      const nextIdx = currentIndex + 1;
+      currentIndexRef.current = nextIdx;
+      setCurrentIndex(nextIdx);
+      const nextQ = questions[nextIdx];
+      const nextLimit = Number(nextQ?.time_limit || nextQ?.duration_seconds || settings.question_duration || 30);
+      setQuestionTimeLeft(nextLimit);
+    }
   };
+
+  const isCurrentQuestionLocked = Boolean(currentQuestion && lockedQuestions[currentQuestion.id]);
 
   // Option selection logic
   const handleOptionSelect = (optionId: string) => {
     if (!currentQuestion) return;
-    if (questionPhase === 'revealing') return; // Locked during reveal
-    if (enableTimedQuestions && !allowModification && answers[currentQuestion.id] !== undefined) {
-      toast.error('Modifying answered questions is locked');
+    if (isCurrentQuestionLocked) {
+      toast.error('This question is locked and cannot be modified');
       return;
     }
+    if (timingMode === 'PER_QUESTION' && questionPhase === 'revealing') return; // Locked during reveal
 
     const qid = currentQuestion.id;
     const qtype = currentQuestion.question_type || 'mcq_single';
@@ -694,7 +753,7 @@ export default function AssessmentAttemptPage() {
   };
 
   const handleNumericalChange = (value: string) => {
-    if (!currentQuestion || questionPhase === 'revealing') return;
+    if (!currentQuestion || isCurrentQuestionLocked || (timingMode === 'PER_QUESTION' && questionPhase === 'revealing')) return;
     const qid = currentQuestion.id;
     setAnswers((prev) => ({ ...prev, [qid]: value }));
     answersRef.current = { ...answersRef.current, [qid]: value };
@@ -807,11 +866,18 @@ export default function AssessmentAttemptPage() {
                       <Maximize2 className="size-4 text-primary shrink-0" />
                       <span>Dedicated fullscreen mode is required during the examination.</span>
                     </div>
-                    {enableTimedQuestions && (
+                    {timingMode === 'PER_QUESTION' ? (
                       <div className="flex items-center gap-2.5 font-medium text-amber-600 dark:text-amber-400">
                         <Clock className="size-4 shrink-0" />
                         <span>
-                          Timed Questions: {answeringDuration}s answering period, {answerRevealDuration}s answer reveal.
+                          Per-Question Timing: Each question has an independent timer. Attempted or expired questions lock immediately.
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2.5 font-medium text-primary">
+                        <Clock className="size-4 shrink-0" />
+                        <span>
+                          Fixed Duration: Total {data.durationMinutes} minutes countdown. Previous questions cannot be revisited.
                         </span>
                       </div>
                     )}
@@ -856,20 +922,35 @@ export default function AssessmentAttemptPage() {
                 )}
               </div>
 
-              {/* Center: Assessment Remaining Time */}
+              {/* Center: Authoritative Timer Display */}
               <div className="flex items-center gap-2">
-                <div
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1 rounded-lg text-sm sm:text-base font-mono font-bold tracking-wider',
-                    remaining < 180
-                      ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 animate-pulse'
-                      : 'bg-muted/60 text-foreground'
-                  )}
-                  title="Assessment Remaining Time"
-                >
-                  <Clock className="size-4 text-muted-foreground shrink-0" />
-                  <span>{formatExamTimer(remaining)}</span>
-                </div>
+                {timingMode === 'FIXED_TOTAL' ? (
+                  <div
+                    className={cn(
+                      'flex items-center gap-1.5 px-3 py-1 rounded-lg text-sm sm:text-base font-mono font-bold tracking-wider',
+                      remaining < 180
+                        ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 animate-pulse'
+                        : 'bg-muted/60 text-foreground'
+                    )}
+                    title="Total Assessment Time Remaining"
+                  >
+                    <Clock className="size-4 text-muted-foreground shrink-0" />
+                    <span>{formatExamTimer(remaining)}</span>
+                  </div>
+                ) : (
+                  <div
+                    className={cn(
+                      'flex items-center gap-1.5 px-3 py-1 rounded-lg text-sm sm:text-base font-mono font-bold tracking-wider',
+                      questionTimeLeft < 10
+                        ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 animate-pulse'
+                        : 'bg-muted/60 text-foreground'
+                    )}
+                    title="Question Time Remaining"
+                  >
+                    <Clock className="size-4 text-amber-500 shrink-0" />
+                    <span>Question Time: {formatExamTimer(questionTimeLeft)}</span>
+                  </div>
+                )}
               </div>
 
               {/* Right: Submit Assessment Action */}
@@ -887,8 +968,8 @@ export default function AssessmentAttemptPage() {
               </div>
             </header>
 
-            {/* Micro-Progress Bar for Timed Questions (Subtle and non-intrusive) */}
-            {enableTimedQuestions && (
+            {/* Micro-Progress Bar for Timed Questions (Only in PER_QUESTION mode) */}
+            {timingMode === 'PER_QUESTION' && (
               <div className="h-1 w-full bg-muted overflow-hidden shrink-0">
                 <div
                   className={cn(
@@ -937,7 +1018,7 @@ export default function AssessmentAttemptPage() {
                           </label>
                           <input
                             type="text"
-                            disabled={questionPhase === 'revealing' || submitting}
+                            disabled={isCurrentQuestionLocked || questionPhase === 'revealing' || submitting}
                             value={answers[currentQuestion.id] || ''}
                             onChange={(e) => handleNumericalChange(e.target.value)}
                             onBlur={() => void saveCurrentDraft()}
@@ -973,7 +1054,7 @@ export default function AssessmentAttemptPage() {
                               key={option.id}
                               className={cn(
                                 'flex items-start gap-4 rounded-xl border p-4 transition-all text-sm sm:text-base select-none',
-                                questionPhase === 'revealing'
+                                isCurrentQuestionLocked || questionPhase === 'revealing'
                                   ? 'cursor-default'
                                   : 'cursor-pointer hover:border-primary/60 hover:bg-muted/40',
                                 isSelected && questionPhase !== 'revealing'
@@ -987,7 +1068,7 @@ export default function AssessmentAttemptPage() {
                                 name={currentQuestion.id}
                                 value={option.id}
                                 checked={isSelected}
-                                disabled={questionPhase === 'revealing' || submitting}
+                                disabled={isCurrentQuestionLocked || questionPhase === 'revealing' || submitting}
                                 onChange={() => handleOptionSelect(option.id)}
                                 className="mt-1 size-4 shrink-0 accent-primary"
                               />
@@ -1024,75 +1105,70 @@ export default function AssessmentAttemptPage() {
                       </div>
                     )}
 
-                    {/* Standard navigation buttons (only when manual navigation is configured) */}
-                    {(!enableTimedQuestions || !autoAdvance || allowPrevious) && (
-                      <div className="flex items-center justify-between pt-6 border-t border-border mt-8">
-                        <Button
-                          variant="secondary"
-                          size="md"
-                          onClick={handlePrev}
-                          disabled={currentIndex === 0 || (enableTimedQuestions && !allowPrevious) || questionPhase === 'revealing'}
-                          className="h-10 px-4"
-                        >
-                          <ChevronLeft className="size-4 mr-1" />
-                          <span>Previous</span>
-                        </Button>
+                    {/* Active Question Navigation Controls */}
+                    {(() => {
+                      const curAns = answers[currentQuestion.id];
+                      const hasSelectedAnswer =
+                        curAns !== undefined &&
+                        curAns !== null &&
+                        String(curAns).trim() !== '' &&
+                        (!Array.isArray(curAns) || curAns.length > 0);
 
-                        <div className="flex items-center gap-2">
-                          {!enableTimedQuestions && (
-                            <>
-                              <Button
-                                variant="secondary"
-                                size="md"
-                                onClick={() => void saveCurrentDraft()}
-                                className="h-10 px-3 hidden sm:inline-flex"
-                              >
-                                <Save className="size-4 mr-1.5" />
-                                <span>Save Draft</span>
-                              </Button>
-                              <Button
-                                variant={reviews[currentQuestion.id] ? 'primary' : 'secondary'}
-                                size="md"
-                                onClick={toggleMarkReview}
-                                className={cn(
-                                  'h-10 px-3',
-                                  reviews[currentQuestion.id] && 'bg-amber-500 hover:bg-amber-600 text-white'
-                                )}
-                              >
-                                <Bookmark className="size-4 sm:mr-1.5" />
-                                <span className="hidden sm:inline">
-                                  {reviews[currentQuestion.id] ? 'Marked for Review' : 'Mark Review'}
+                      return (
+                        <div className="flex items-center justify-between pt-6 border-t border-border mt-8">
+                          {/* Left: Attempt status indicator */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground font-medium">
+                              Question {currentIndex + 1} of {questions.length}
+                              {isCurrentQuestionLocked ? (
+                                <span className="ml-2 text-rose-500 font-semibold">(Locked)</span>
+                              ) : hasSelectedAnswer ? (
+                                <span className="ml-2 text-emerald-500 font-semibold">(Answer Selected)</span>
+                              ) : (
+                                <span className="ml-2 text-amber-500 font-medium">
+                                  {timingMode === 'FIXED_TOTAL' ? '(Select an answer to proceed)' : '(Awaiting answer)'}
                                 </span>
-                              </Button>
-                            </>
-                          )}
+                              )}
+                            </span>
+                          </div>
 
-                          {currentIndex < questions.length - 1 ? (
-                            <Button
-                              variant="primary"
-                              size="md"
-                              onClick={handleNext}
-                              disabled={questionPhase === 'revealing'}
-                              className="h-10 px-5 font-semibold"
-                            >
-                              <span>Next</span>
-                              <ChevronRight className="size-4 ml-1" />
-                            </Button>
-                          ) : (
-                            <Button
-                              variant="danger"
-                              size="md"
-                              onClick={() => setConfirmOpen(true)}
-                              disabled={submitting}
-                              className="h-10 px-5 font-semibold"
-                            >
-                              <Send className="size-4 mr-1.5" />
-                              <span>Submit Assessment</span>
-                            </Button>
-                          )}
+                          {/* Right: Next / Submit Action */}
+                          <div className="flex items-center gap-3">
+                            {currentIndex < questions.length - 1 ? (
+                              <Button
+                                variant="primary"
+                                size="md"
+                                onClick={timingMode === 'FIXED_TOTAL' ? handleFixedTotalNext : handlePerQuestionNext}
+                                disabled={
+                                  submitting ||
+                                  (timingMode === 'FIXED_TOTAL' && !hasSelectedAnswer) ||
+                                  (timingMode === 'PER_QUESTION' && questionPhase === 'revealing')
+                                }
+                                className="h-10 px-6 font-semibold shadow-xs"
+                              >
+                                <span>Next Question</span>
+                                <ChevronRight className="size-4 ml-1" />
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="danger"
+                                size="md"
+                                onClick={() => setConfirmOpen(true)}
+                                disabled={
+                                  submitting ||
+                                  (timingMode === 'FIXED_TOTAL' && !hasSelectedAnswer) ||
+                                  (timingMode === 'PER_QUESTION' && questionPhase === 'revealing')
+                                }
+                                className="h-10 px-6 font-semibold shadow-xs"
+                              >
+                                <Send className="size-4 mr-1.5" />
+                                <span>Submit Assessment</span>
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 )}
               </div>

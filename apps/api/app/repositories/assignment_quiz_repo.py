@@ -12,7 +12,7 @@ from typing import Any
 from app.authz.context import ScopeContext
 from app.authz.roles import Role
 from app.core.config import settings
-from app.core.errors import BusinessRuleViolation, NotFound, ScopeForbidden, ValidationError
+from app.core.errors import BusinessRuleViolation, Conflict, NotFound, ScopeForbidden, ValidationError
 from app.core.logging import get_logger
 from app.db.postgres import get_pg_connection
 from app.services.storage import Keys, put_object, signed_url
@@ -340,6 +340,15 @@ class QuizRepository:
             )
 
         q_list = _parse_json_list(quiz["questions"])
+        settings_dict = _parse_json_dict(quiz["settings"]) if quiz["settings"] else {}
+        timing_mode = (
+            settings_dict.get("timing_mode")
+            or ("PER_QUESTION" if settings_dict.get("enable_timed_questions") else "FIXED_TOTAL")
+        )
+        settings_dict["timing_mode"] = timing_mode
+        settings_dict["enable_timed_questions"] = (timing_mode == "PER_QUESTION")
+        default_q_dur = int(settings_dict.get("question_duration", 30))
+
         questions = []
         for q in q_list:
             opts = []
@@ -349,12 +358,15 @@ class QuizRepository:
             elif isinstance(q.get("options"), dict):
                 for k, v in q.get("options", {}).items():
                     opts.append({"id": k, "text": str(v)})
+            q_time_limit = int(q.get("time_limit") or q.get("duration_seconds") or q.get("timeLimitSeconds") or default_q_dur)
             questions.append({
                 "id": str(q.get("id")),
                 "text": q.get("text") or q.get("question"),
                 "image": q.get("image"),
                 "options": opts,
                 "marks": q.get("marks", 1),
+                "time_limit": q_time_limit,
+                "duration_seconds": q_time_limit,
                 "question_type": q.get("question_type") or q.get("questionType") or ("mcq_multiple" if len(q.get("correct", [])) > 1 else "mcq_single"),
             })
 
@@ -362,12 +374,14 @@ class QuizRepository:
             "id": str(quiz["id"]),
             "title": quiz["title"],
             "kind": quiz["kind"],
+            "timingMode": timing_mode,
+            "timing_mode": timing_mode,
             "durationMinutes": quiz["duration_minutes"],
             "maxScore": quiz["max_score"],
             "opensAt": quiz["opens_at"].isoformat() if quiz["opens_at"] else None,
             "closesAt": quiz["closes_at"].isoformat() if quiz["closes_at"] else None,
             "quizCode": quiz["quiz_code"],
-            "settings": _parse_json_dict(quiz["settings"]),
+            "settings": settings_dict,
             "questions": questions,
             "attempt": {
                 "score": attempt["score"],
@@ -436,7 +450,7 @@ class QuizRepository:
                 q_uuid, u_uuid
             )
             if existing and existing["status"] == "completed" and not quiz["allow_retake"]:
-                raise BusinessRuleViolation("You have already submitted this assessment")
+                raise Conflict("You have already submitted this assessment")
 
             q_list = _parse_json_list(quiz["questions"])
             earned = 0.0
@@ -683,7 +697,7 @@ class QuizRepository:
 
         async with get_pg_connection() as conn:
             quiz = await conn.fetchrow(
-                "SELECT settings, duration_minutes, max_score, questions FROM quizzes WHERE id = $1",
+                "SELECT settings, duration_minutes, max_score, questions, timing_mode FROM quizzes WHERE id = $1",
                 q_uuid,
             )
             if not quiz:
@@ -693,49 +707,65 @@ class QuizRepository:
             q_list = _parse_json_list(quiz["questions"])
             total_questions = len(q_list)
 
+            # Determine timing mode: strictly FIXED_TOTAL or PER_QUESTION
+            timing_mode = (
+                quiz["timing_mode"]
+                or settings_dict.get("timing_mode")
+                or ("PER_QUESTION" if settings_dict.get("enable_timed_questions") else "FIXED_TOTAL")
+            ).upper()
+            if timing_mode not in ("FIXED_TOTAL", "PER_QUESTION"):
+                timing_mode = "FIXED_TOTAL"
+
+            default_q_dur = int(settings_dict.get("question_duration", 30))
+            q_limits: list[int] = []
+            for q in q_list:
+                lim = q.get("time_limit") or q.get("duration_seconds") or q.get("timeLimitSeconds") or default_q_dur
+                try:
+                    q_limits.append(max(5, int(lim)))
+                except (ValueError, TypeError):
+                    q_limits.append(default_q_dur)
+
+            ans_rev_dur = int(settings_dict.get("answer_reveal_duration", 0))
+            auto_advance = True
+            overall_duration_minutes = int(quiz["duration_minutes"] or 30)
+            overall_duration_seconds = overall_duration_minutes * 60
+
             attempt = await conn.fetchrow(
-                "SELECT id, created_at, completed_at, score, answers, status FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                "SELECT id, created_at, completed_at, score, answers, status, question_states FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
                 q_uuid, student_user_id,
             )
 
             now_utc = datetime.now(timezone.utc)
-            is_timed = bool(settings_dict.get("enable_timed_questions"))
-            q_dur = int(settings_dict.get("question_duration", 10))
-            ans_rev_dur = int(settings_dict.get("answer_reveal_duration", 2))
-            ans_dur = max(1, q_dur - ans_rev_dur)
-            auto_advance = bool(settings_dict.get("auto_advance", True))
-            allow_prev = bool(settings_dict.get("allow_previous", False))
-            allow_mod = bool(settings_dict.get("allow_modification", False))
-            overall_duration_minutes = int(quiz["duration_minutes"] or 30)
-            overall_duration_seconds = overall_duration_minutes * 60
-            total_duration_seconds = overall_duration_seconds
 
             if not attempt:
+                first_q_limit = q_limits[0] if q_limits else default_q_dur
                 return {
                     "hasStarted": False,
                     "status": "not_started",
                     "answers": {},
                     "timingState": {
-                        "is_timed": is_timed,
+                        "timing_mode": timing_mode,
+                        "is_timed": (timing_mode == "PER_QUESTION"),
                         "started_at": None,
                         "server_time": int(now_utc.timestamp()),
                         "elapsed_seconds": 0,
-                        "total_duration_seconds": total_duration_seconds,
-                        "remaining_seconds": total_duration_seconds,
-                        "overall_remaining_seconds": total_duration_seconds,
-                        "duration_minutes": overall_duration_minutes,
+                        "total_duration_seconds": overall_duration_seconds if timing_mode == "FIXED_TOTAL" else None,
+                        "remaining_seconds": overall_duration_seconds if timing_mode == "FIXED_TOTAL" else None,
+                        "overall_remaining_seconds": overall_duration_seconds if timing_mode == "FIXED_TOTAL" else None,
+                        "duration_minutes": overall_duration_minutes if timing_mode == "FIXED_TOTAL" else None,
                         "total_questions": total_questions,
                         "current_question_index": 0,
+                        "question_limits": q_limits,
                         "phase": "answering",
-                        "phase_remaining_seconds": ans_dur if is_timed else total_duration_seconds,
-                        "question_remaining_seconds": q_dur if is_timed else total_duration_seconds,
-                        "question_duration": q_dur,
-                        "answer_reveal_duration": ans_rev_dur,
-                        "answering_duration": ans_dur,
+                        "phase_remaining_seconds": None if timing_mode == "FIXED_TOTAL" else (max(1, first_q_limit - ans_rev_dur) if ans_rev_dur > 0 else first_q_limit),
+                        "question_remaining_seconds": None if timing_mode == "FIXED_TOTAL" else first_q_limit,
+                        "question_duration": first_q_limit if timing_mode == "PER_QUESTION" else None,
+                        "answer_reveal_duration": ans_rev_dur if timing_mode == "PER_QUESTION" else 0,
                         "auto_advance": auto_advance,
-                        "allow_previous": allow_prev,
-                        "allow_modification": allow_mod,
+                        "allow_previous": False,
+                        "allow_modification": False,
                         "is_completed": False,
+                        "question_states": {},
                     }
                 }
 
@@ -743,64 +773,121 @@ class QuizRepository:
             started_at = as_utc(attempt["created_at"])
             status = attempt["status"] or ("completed" if attempt["completed_at"] else "in_progress")
             answers = _parse_json_dict(attempt["answers"]) if attempt["answers"] else {}
+            q_states = _parse_json_dict(attempt["question_states"]) if attempt["question_states"] else {}
 
             elapsed_seconds = max(0.0, (now_utc - started_at).total_seconds())
-            overall_remaining_seconds = max(0.0, overall_duration_seconds - elapsed_seconds)
-            timed_exam_limit_seconds = (total_questions * q_dur) if is_timed else overall_duration_seconds
-
             is_expired = False
-            if elapsed_seconds >= overall_duration_seconds:
-                is_expired = True
-            elif is_timed and elapsed_seconds >= timed_exam_limit_seconds:
-                is_expired = True
 
-            if status != "completed" and is_expired:
-                status = "completed"
-                await conn.execute(
-                    "UPDATE quiz_attempts SET status = 'completed', completed_at = $1 WHERE id = $2",
-                    now_utc, att_id,
-                )
+            if timing_mode == "FIXED_TOTAL":
+                overall_remaining_seconds = max(0.0, overall_duration_seconds - elapsed_seconds)
+                if overall_remaining_seconds <= 0:
+                    is_expired = True
 
-            if is_timed:
-                current_q_idx = min(total_questions - 1, int(elapsed_seconds // q_dur)) if total_questions > 0 else 0
-                time_in_q = elapsed_seconds % q_dur
-                phase = "answering" if time_in_q < ans_dur else "revealing"
-                phase_time_left = max(0.0, ans_dur - time_in_q) if phase == "answering" else max(0.0, q_dur - time_in_q)
-                question_time_left = max(0.0, q_dur - time_in_q)
-            else:
-                current_q_idx = 0
-                phase = "answering"
-                phase_time_left = overall_remaining_seconds
-                question_time_left = overall_remaining_seconds
+                if status != "completed" and is_expired:
+                    status = "completed"
+                    await conn.execute(
+                        "UPDATE quiz_attempts SET status = 'completed', completed_at = $1 WHERE id = $2",
+                        now_utc, att_id,
+                    )
 
-            return {
-                "hasStarted": True,
-                "attemptId": str(att_id),
-                "status": status,
-                "answers": answers,
-                "timingState": {
-                    "is_timed": is_timed,
-                    "started_at": int(started_at.timestamp()),
-                    "server_time": int(now_utc.timestamp()),
-                    "elapsed_seconds": round(elapsed_seconds, 2),
-                    "total_duration_seconds": total_duration_seconds,
-                    "remaining_seconds": round(overall_remaining_seconds, 1),
-                    "overall_remaining_seconds": round(overall_remaining_seconds, 1),
-                    "duration_minutes": overall_duration_minutes,
-                    "total_questions": total_questions,
-                    "current_question_index": current_q_idx,
-                    "phase": phase,
-                    "phase_remaining_seconds": round(phase_time_left, 1),
-                    "question_remaining_seconds": round(question_time_left, 1),
-                    "question_duration": q_dur,
-                    "answer_reveal_duration": ans_rev_dur,
-                    "answering_duration": ans_dur,
-                    "auto_advance": auto_advance,
-                    "allow_previous": allow_prev,
-                    "allow_modification": allow_mod,
-                    "is_completed": status == "completed",
+                return {
+                    "hasStarted": True,
+                    "attemptId": str(att_id),
+                    "status": status,
+                    "answers": answers,
+                    "timingState": {
+                        "timing_mode": "FIXED_TOTAL",
+                        "is_timed": False,
+                        "started_at": int(started_at.timestamp()),
+                        "server_time": int(now_utc.timestamp()),
+                        "elapsed_seconds": round(elapsed_seconds, 2),
+                        "total_duration_seconds": overall_duration_seconds,
+                        "remaining_seconds": round(overall_remaining_seconds, 1),
+                        "overall_remaining_seconds": round(overall_remaining_seconds, 1),
+                        "duration_minutes": overall_duration_minutes,
+                        "total_questions": total_questions,
+                        "current_question_index": 0,
+                        "question_limits": q_limits,
+                        "phase": "answering",
+                        "phase_remaining_seconds": None,
+                        "question_remaining_seconds": None,
+                        "question_duration": None,
+                        "answer_reveal_duration": 0,
+                        "auto_advance": auto_advance,
+                        "allow_previous": False,
+                        "allow_modification": False,
+                        "is_completed": status == "completed",
+                        "question_states": q_states,
+                    }
                 }
-            }
+            else:
+                # PER_QUESTION mode
+                q_cum = [0]
+                for lim in q_limits:
+                    q_cum.append(q_cum[-1] + lim)
+                total_timed_exam_limit = q_cum[-1] if q_cum else 0
+
+                if elapsed_seconds >= total_timed_exam_limit:
+                    is_expired = True
+                    current_q_idx = max(0, total_questions - 1)
+                    time_in_q = q_limits[current_q_idx] if q_limits else 0
+                    phase = "revealing" if ans_rev_dur > 0 else "answering"
+                    phase_time_left = 0.0
+                    question_time_left = 0.0
+                else:
+                    current_q_idx = 0
+                    for i in range(len(q_limits)):
+                        if q_cum[i] <= elapsed_seconds < q_cum[i + 1]:
+                            current_q_idx = i
+                            break
+                    time_in_q = elapsed_seconds - q_cum[current_q_idx]
+                    cur_q_limit = q_limits[current_q_idx]
+                    ans_dur = max(1, cur_q_limit - ans_rev_dur) if ans_rev_dur > 0 else cur_q_limit
+                    if ans_rev_dur > 0 and time_in_q >= ans_dur:
+                        phase = "revealing"
+                        phase_time_left = max(0.0, cur_q_limit - time_in_q)
+                    else:
+                        phase = "answering"
+                        phase_time_left = max(0.0, ans_dur - time_in_q)
+                    question_time_left = max(0.0, cur_q_limit - time_in_q)
+
+                if status != "completed" and is_expired:
+                    status = "completed"
+                    await conn.execute(
+                        "UPDATE quiz_attempts SET status = 'completed', completed_at = $1 WHERE id = $2",
+                        now_utc, att_id,
+                    )
+
+                return {
+                    "hasStarted": True,
+                    "attemptId": str(att_id),
+                    "status": status,
+                    "answers": answers,
+                    "timingState": {
+                        "timing_mode": "PER_QUESTION",
+                        "is_timed": True,
+                        "started_at": int(started_at.timestamp()),
+                        "server_time": int(now_utc.timestamp()),
+                        "elapsed_seconds": round(elapsed_seconds, 2),
+                        "total_duration_seconds": None,
+                        "remaining_seconds": None,
+                        "overall_remaining_seconds": None,
+                        "duration_minutes": None,
+                        "total_questions": total_questions,
+                        "current_question_index": current_q_idx,
+                        "question_limits": q_limits,
+                        "phase": phase,
+                        "phase_remaining_seconds": round(phase_time_left, 1),
+                        "question_remaining_seconds": round(question_time_left, 1),
+                        "question_duration": q_limits[current_q_idx] if current_q_idx < len(q_limits) else default_q_dur,
+                        "answer_reveal_duration": ans_rev_dur,
+                        "auto_advance": auto_advance,
+                        "allow_previous": False,
+                        "allow_modification": False,
+                        "is_completed": status == "completed",
+                        "question_states": q_states,
+                    }
+                }
 
     @classmethod
     async def start_or_resume_quiz_attempt(
@@ -815,7 +902,7 @@ class QuizRepository:
 
         async with get_pg_connection() as conn:
             quiz = await conn.fetchrow(
-                "SELECT id, questions, settings, duration_minutes, max_score, status FROM quizzes WHERE id = $1 AND status = 'active'",
+                "SELECT id, questions, settings, duration_minutes, max_score, status, timing_mode FROM quizzes WHERE id = $1 AND status = 'active'",
                 q_uuid,
             )
             if not quiz:
@@ -838,10 +925,10 @@ class QuizRepository:
                     """
                     INSERT INTO quiz_attempts (
                         id, quiz_id, student_user_id, score, possible, answers, created_at,
-                        batch_id, institution_id, warnings, warning_count, status
+                        batch_id, institution_id, warnings, warning_count, status, question_states
                     ) VALUES (
                         $1, $2, $3, 0, $4, '{}'::jsonb, $5,
-                        $6, $7, '[]'::jsonb, 0, 'in_progress'
+                        $6, $7, '[]'::jsonb, 0, 'in_progress', '{}'::jsonb
                     )
                     """,
                     att_id, q_uuid, student_user_id,
@@ -868,59 +955,92 @@ class QuizRepository:
 
         async with get_pg_connection() as conn:
             quiz_row = await conn.fetchrow(
-                "SELECT settings, questions FROM quizzes WHERE id = $1",
+                "SELECT settings, questions, timing_mode, duration_minutes FROM quizzes WHERE id = $1",
                 q_uuid
             )
-            settings_dict = _parse_json_dict(quiz_row["settings"]) if quiz_row else {}
+            if not quiz_row:
+                raise NotFound("Assessment not found")
+
+            settings_dict = _parse_json_dict(quiz_row["settings"])
+            timing_mode = (
+                quiz_row["timing_mode"]
+                or settings_dict.get("timing_mode")
+                or ("PER_QUESTION" if settings_dict.get("enable_timed_questions") else "FIXED_TOTAL")
+            ).upper()
+            if timing_mode not in ("FIXED_TOTAL", "PER_QUESTION"):
+                timing_mode = "FIXED_TOTAL"
 
             existing = await conn.fetchrow(
-                "SELECT id, answers, status, created_at FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                "SELECT id, answers, status, created_at, question_states FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
                 q_uuid, u_uuid,
             )
             if existing and existing["status"] == "completed":
                 raise BusinessRuleViolation("Assessment has already been submitted")
 
-            answers_dict: dict[str, Any] = {}
-            if existing and existing["answers"]:
-                answers_dict = _parse_json_dict(existing["answers"])
+            server_now = datetime.now(timezone.utc)
+            answers_dict: dict[str, Any] = _parse_json_dict(existing["answers"]) if existing and existing["answers"] else {}
+            q_states: dict[str, Any] = _parse_json_dict(existing["question_states"]) if existing and existing["question_states"] else {}
 
-            # Strict Timed Question Lock: enforce answering deadline and locked past questions
-            if settings_dict.get("enable_timed_questions") and existing:
-                server_now = datetime.now(timezone.utc)
+            qid_str = str(question_id)
+
+            if existing:
                 started_at = as_utc(existing["created_at"])
                 elapsed_seconds = max(0.0, (server_now - started_at).total_seconds())
 
-                q_list = _parse_json_list(quiz_row["questions"]) if quiz_row else []
-                target_idx = None
-                for idx, q in enumerate(q_list):
-                    if str(q.get("id")) == str(question_id):
-                        target_idx = idx
-                        break
+                if timing_mode == "FIXED_TOTAL":
+                    total_dur = int(quiz_row["duration_minutes"] or 30) * 60
+                    if elapsed_seconds > total_dur + 5:
+                        raise BusinessRuleViolation("Assessment total time limit has expired")
+                    if qid_str in q_states and q_states[qid_str].get("is_locked"):
+                        if answers_dict.get(qid_str) != answer:
+                            raise BusinessRuleViolation("Previous question is locked and cannot be modified")
+                else:
+                    # PER_QUESTION
+                    q_list = _parse_json_list(quiz_row["questions"])
+                    default_q_dur = int(settings_dict.get("question_duration", 30))
+                    q_limits = []
+                    target_idx = None
+                    for idx, q in enumerate(q_list):
+                        lim = q.get("time_limit") or q.get("duration_seconds") or q.get("timeLimitSeconds") or default_q_dur
+                        try:
+                            q_limits.append(max(5, int(lim)))
+                        except (ValueError, TypeError):
+                            q_limits.append(default_q_dur)
+                        if str(q.get("id")) == qid_str:
+                            target_idx = idx
 
-                if target_idx is not None:
-                    q_dur = int(settings_dict.get("question_duration", 10))
-                    ans_rev_dur = int(settings_dict.get("answer_reveal_duration", 2))
-                    ans_dur = max(1, q_dur - ans_rev_dur)
+                    if target_idx is not None:
+                        q_cum = [0]
+                        for lim in q_limits:
+                            q_cum.append(q_cum[-1] + lim)
 
-                    answering_deadline = (target_idx * q_dur) + ans_dur
-                    if elapsed_seconds > answering_deadline:
-                        raise BusinessRuleViolation("Answering period for this question has expired and answers are locked")
+                        ans_rev_dur = int(settings_dict.get("answer_reveal_duration", 0))
+                        target_limit = q_limits[target_idx]
+                        ans_dur = max(1, target_limit - ans_rev_dur) if ans_rev_dur > 0 else target_limit
 
-                    current_active_idx = int(elapsed_seconds // q_dur)
-                    if settings_dict.get("allow_previous") is False and target_idx < current_active_idx:
-                        raise BusinessRuleViolation("Previous questions are locked for this timed assessment")
+                        question_start = q_cum[target_idx]
+                        answering_deadline = question_start + ans_dur if ans_rev_dur > 0 else (question_start + ans_dur + 3.0)
 
-            if settings_dict.get("enable_timed_questions"):
-                if settings_dict.get("allow_modification") is False and str(question_id) in answers_dict:
-                    if answers_dict[str(question_id)] != answer:
-                        raise BusinessRuleViolation("Modification of answered questions is locked for this timed assessment")
+                        if elapsed_seconds > answering_deadline:
+                            raise BusinessRuleViolation("Answering period for this question has expired and answers are locked")
 
-            answers_dict[str(question_id)] = answer
+                        if qid_str in q_states and q_states[qid_str].get("is_locked"):
+                            if answers_dict.get(qid_str) != answer:
+                                raise BusinessRuleViolation("Previous questions are locked for this timed assessment")
+
+            answers_dict[qid_str] = answer
+            q_states[qid_str] = {
+                "question_id": qid_str,
+                "selected_answer": answer,
+                "is_attempted": answer is not None,
+                "is_locked": True,
+                "submitted_at": server_now.isoformat(),
+            }
 
             if existing:
                 await conn.execute(
-                    "UPDATE quiz_attempts SET answers = $1::jsonb WHERE id = $2",
-                    json.dumps(answers_dict), existing["id"]
+                    "UPDATE quiz_attempts SET answers = $1::jsonb, question_states = $2::jsonb WHERE id = $3",
+                    json.dumps(answers_dict), json.dumps(q_states), existing["id"]
                 )
             else:
                 b_row = await conn.fetchrow(
@@ -931,15 +1051,16 @@ class QuizRepository:
                     """
                     INSERT INTO quiz_attempts (
                         id, quiz_id, student_user_id, score, possible, answers, created_at,
-                        batch_id, institution_id, warnings, warning_count, status
+                        batch_id, institution_id, warnings, warning_count, status, question_states
                     ) VALUES (
                         gen_random_uuid(), $1, $2, 0, 100, $3::jsonb, NOW(),
-                        $4, $5, '[]'::jsonb, 0, 'in_progress'
+                        $4, $5, '[]'::jsonb, 0, 'in_progress', $6::jsonb
                     )
                     """,
                     q_uuid, u_uuid, json.dumps(answers_dict),
                     b_row["batch_id"] if b_row else None,
                     b_row["institution_id"] if b_row else None,
+                    json.dumps(q_states)
                 )
 
         return {"saved": True, "questionId": question_id}
@@ -1133,16 +1254,29 @@ class QuizRepository:
                 code = f"QUIZ-{uuid.uuid4().hex[:6].upper()}"
 
             clean_settings = dict(settings or {})
-            if clean_settings.get("enable_timed_questions"):
-                q_dur = int(clean_settings.get("question_duration", 10))
-                ans_dur = int(clean_settings.get("answer_reveal_duration", 2))
-                if q_dur <= ans_dur:
+            timing_mode = (
+                clean_settings.get("timing_mode")
+                or ("PER_QUESTION" if clean_settings.get("enable_timed_questions") else "FIXED_TOTAL")
+            ).upper()
+            if timing_mode not in ("FIXED_TOTAL", "PER_QUESTION"):
+                timing_mode = "PER_QUESTION" if clean_settings.get("enable_timed_questions") else "FIXED_TOTAL"
+            clean_settings["timing_mode"] = timing_mode
+
+            if timing_mode == "PER_QUESTION":
+                clean_settings["enable_timed_questions"] = True
+                q_dur = int(clean_settings.get("question_duration", 30))
+                ans_dur = int(clean_settings.get("answer_reveal_duration", 0))
+                if ans_dur > 0 and q_dur <= ans_dur:
                     raise ValidationError("question_duration must be strictly greater than answer_reveal_duration")
                 clean_settings["question_duration"] = q_dur
                 clean_settings["answer_reveal_duration"] = ans_dur
-                clean_settings["auto_advance"] = bool(clean_settings.get("auto_advance", True))
-                clean_settings["allow_previous"] = bool(clean_settings.get("allow_previous", False))
-                clean_settings["allow_modification"] = bool(clean_settings.get("allow_modification", False))
+                clean_settings["auto_advance"] = True
+                clean_settings["allow_previous"] = False
+                clean_settings["allow_modification"] = False
+            else:
+                clean_settings["enable_timed_questions"] = False
+                clean_settings["allow_previous"] = False
+                clean_settings["allow_modification"] = False
 
             q_id = uuid.uuid4()
             await conn.execute(
@@ -1150,16 +1284,16 @@ class QuizRepository:
                 INSERT INTO quizzes (
                     id, creator_trainer_id, institution_id, title, kind,
                     duration_minutes, max_score, allow_retake, opens_at, closes_at,
-                    questions, settings, quiz_code, status, created_at, updated_at
+                    questions, settings, quiz_code, status, timing_mode, created_at, updated_at
                 ) VALUES (
                     $1, $2, $3, $4, 'quiz',
                     $5, $6, false, $7, $8,
-                    $9::jsonb, $10::jsonb, $11, 'active', NOW(), NOW()
+                    $9::jsonb, $10::jsonb, $11, 'active', $12, NOW(), NOW()
                 )
                 """,
                 q_id, t_uuid, inst_uuid, title.strip(),
                 max(1, duration_minutes), max_score, opens_at, closes_at,
-                json.dumps(questions or []), json.dumps(clean_settings), code
+                json.dumps(questions or []), json.dumps(clean_settings), code, timing_mode
             )
 
             # Insert batch assignments
@@ -1293,18 +1427,31 @@ class QuizRepository:
                 updates.append(f"questions = ${len(params)}::jsonb")
             if settings is not None:
                 clean_settings = dict(settings or {})
-                if clean_settings.get("enable_timed_questions"):
-                    q_dur = int(clean_settings.get("question_duration", 10))
-                    ans_dur = int(clean_settings.get("answer_reveal_duration", 2))
-                    if q_dur <= ans_dur:
+                timing_mode = (clean_settings.get("timing_mode") or "").upper()
+                if not timing_mode:
+                    timing_mode = "PER_QUESTION" if clean_settings.get("enable_timed_questions") else "FIXED_TOTAL"
+                clean_settings["timing_mode"] = timing_mode
+
+                if timing_mode == "PER_QUESTION":
+                    clean_settings["enable_timed_questions"] = True
+                    q_dur = int(clean_settings.get("question_duration", 30))
+                    ans_dur = int(clean_settings.get("answer_reveal_duration", 0))
+                    if ans_dur > 0 and q_dur <= ans_dur:
                         raise ValidationError("question_duration must be strictly greater than answer_reveal_duration")
                     clean_settings["question_duration"] = q_dur
                     clean_settings["answer_reveal_duration"] = ans_dur
-                    clean_settings["auto_advance"] = bool(clean_settings.get("auto_advance", True))
-                    clean_settings["allow_previous"] = bool(clean_settings.get("allow_previous", False))
-                    clean_settings["allow_modification"] = bool(clean_settings.get("allow_modification", False))
+                    clean_settings["auto_advance"] = True
+                    clean_settings["allow_previous"] = False
+                    clean_settings["allow_modification"] = False
+                else:
+                    clean_settings["enable_timed_questions"] = False
+                    clean_settings["allow_previous"] = False
+                    clean_settings["allow_modification"] = False
+
                 params.append(json.dumps(clean_settings))
                 updates.append(f"settings = ${len(params)}::jsonb")
+                params.append(timing_mode)
+                updates.append(f"timing_mode = ${len(params)}")
             if status is not None:
                 params.append(status)
                 updates.append(f"status = ${len(params)}")

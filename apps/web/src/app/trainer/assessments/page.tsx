@@ -20,6 +20,8 @@ import Link from 'next/link';
 import * as React from 'react';
 import { toast } from 'sonner';
 
+import { cn } from '@/lib/cn';
+
 import { PageHeader } from '@/components/shared/page-header';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { AsyncSection } from '@/components/shared/state';
@@ -72,6 +74,7 @@ export default function TrainerAssessmentsPage() {
     fullscreenRequired: true,
     maxWarnings: 3,
     batchIds: [] as string[],
+    timingMode: 'FIXED_TOTAL' as 'FIXED_TOTAL' | 'PER_QUESTION',
     enableTimedQuestions: false,
     questionDuration: 10,
     answerRevealDuration: 2,
@@ -106,7 +109,7 @@ export default function TrainerAssessmentsPage() {
       return;
     }
 
-    if (createForm.enableTimedQuestions) {
+    if (createForm.timingMode === 'PER_QUESTION') {
       const qDur = Number(createForm.questionDuration);
       const revDur = Number(createForm.answerRevealDuration);
       if (qDur <= revDur) {
@@ -122,16 +125,17 @@ export default function TrainerAssessmentsPage() {
         durationMinutes: Number(createForm.durationMinutes),
         maxScore: Number(createForm.maxScore),
         settings: {
+          timing_mode: createForm.timingMode,
           duration_minutes: Number(createForm.durationMinutes),
           camera_required: createForm.cameraRequired,
           fullscreen_required: createForm.fullscreenRequired,
           max_warnings: Number(createForm.maxWarnings),
-          enable_timed_questions: createForm.enableTimedQuestions,
+          enable_timed_questions: createForm.timingMode === 'PER_QUESTION',
           question_duration: Number(createForm.questionDuration),
           answer_reveal_duration: Number(createForm.answerRevealDuration),
-          auto_advance: createForm.autoAdvance,
-          allow_previous: createForm.allowPrevious,
-          allow_modification: createForm.allowModification,
+          auto_advance: true,
+          allow_previous: false,
+          allow_modification: false,
         },
         batchIds: createForm.batchIds,
       });
@@ -145,6 +149,7 @@ export default function TrainerAssessmentsPage() {
         fullscreenRequired: true,
         maxWarnings: 3,
         batchIds: [],
+        timingMode: 'FIXED_TOTAL',
         enableTimedQuestions: false,
         questionDuration: 10,
         answerRevealDuration: 2,
@@ -539,22 +544,70 @@ export default function TrainerAssessmentsPage() {
                 </div>
               </div>
 
-              {/* Timed Questions & Per-Question Speed Settings */}
+              {/* Timing Architecture: Two Mutually Exclusive Independent Modes */}
               <div className="rounded-xl border border-border p-3 space-y-3 bg-muted/20">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-heading">Timed Questions &amp; Auto-Advancement</span>
-                  <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={createForm.enableTimedQuestions}
-                      onChange={(e) => setCreateForm({ ...createForm, enableTimedQuestions: e.target.checked })}
-                      className="rounded border-input text-primary size-4"
-                    />
-                    <span className="font-semibold text-primary">Enable Timed Mode</span>
+                <span className="text-xs font-bold text-heading block">Assessment Timing Mode</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <label
+                    className={cn(
+                      'flex flex-col p-2.5 rounded-lg border cursor-pointer transition-all',
+                      createForm.timingMode === 'FIXED_TOTAL'
+                        ? 'border-primary bg-primary/10 text-primary font-semibold ring-1 ring-primary'
+                        : 'border-border/80 bg-card hover:bg-muted/40'
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="timing_mode"
+                        checked={createForm.timingMode === 'FIXED_TOTAL'}
+                        onChange={() =>
+                          setCreateForm({
+                            ...createForm,
+                            timingMode: 'FIXED_TOTAL',
+                            enableTimedQuestions: false,
+                          })
+                        }
+                        className="accent-primary"
+                      />
+                      <span>Fixed Duration Mode</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground font-normal mt-1 leading-snug">
+                      Single continuous countdown timer for the entire assessment. Questions lock upon answer submission.
+                    </span>
+                  </label>
+
+                  <label
+                    className={cn(
+                      'flex flex-col p-2.5 rounded-lg border cursor-pointer transition-all',
+                      createForm.timingMode === 'PER_QUESTION'
+                        ? 'border-primary bg-primary/10 text-primary font-semibold ring-1 ring-primary'
+                        : 'border-border/80 bg-card hover:bg-muted/40'
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="timing_mode"
+                        checked={createForm.timingMode === 'PER_QUESTION'}
+                        onChange={() =>
+                          setCreateForm({
+                            ...createForm,
+                            timingMode: 'PER_QUESTION',
+                            enableTimedQuestions: true,
+                          })
+                        }
+                        className="accent-primary"
+                      />
+                      <span>Variable Duration Mode</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground font-normal mt-1 leading-snug">
+                      Dedicated countdown timer per question. Automatically advances or submits when time runs out.
+                    </span>
                   </label>
                 </div>
 
-                {createForm.enableTimedQuestions && (
+                {createForm.timingMode === 'PER_QUESTION' && (
                   <div className="space-y-3 border-t border-border/60 pt-2 text-xs">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
@@ -576,8 +629,8 @@ export default function TrainerAssessmentsPage() {
                         </label>
                         <Input
                           type="number"
-                          min={1}
-                          max={Math.max(1, createForm.questionDuration - 1)}
+                          min={0}
+                          max={Math.max(0, createForm.questionDuration - 1)}
                           value={createForm.answerRevealDuration}
                           onChange={(e) => setCreateForm({ ...createForm, answerRevealDuration: Number(e.target.value) })}
                           className="h-8 text-xs"
@@ -591,37 +644,7 @@ export default function TrainerAssessmentsPage() {
                         {Math.max(1, createForm.questionDuration - createForm.answerRevealDuration)} seconds
                       </b>{' '}
                       to submit an answer, followed by{' '}
-                      <b className="text-foreground">{createForm.answerRevealDuration} seconds</b> of instant secure answer reveal before auto-advancing.
-                    </div>
-
-                    <div className="space-y-2 pt-1">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={createForm.autoAdvance}
-                          onChange={(e) => setCreateForm({ ...createForm, autoAdvance: e.target.checked })}
-                          className="rounded border-input text-primary size-4"
-                        />
-                        <span>Auto-advance to next question when timer expires</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={createForm.allowPrevious}
-                          onChange={(e) => setCreateForm({ ...createForm, allowPrevious: e.target.checked })}
-                          className="rounded border-input text-primary size-4"
-                        />
-                        <span>Allow returning to previous questions</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={createForm.allowModification}
-                          onChange={(e) => setCreateForm({ ...createForm, allowModification: e.target.checked })}
-                          className="rounded border-input text-primary size-4"
-                        />
-                        <span>Allow modifying previously selected answers</span>
-                      </label>
+                      <b className="text-foreground">{createForm.answerRevealDuration} seconds</b> of answer reveal before auto-advancing.
                     </div>
                   </div>
                 )}
