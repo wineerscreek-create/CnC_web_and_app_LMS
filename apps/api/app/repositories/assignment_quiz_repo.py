@@ -33,6 +33,14 @@ def _safe_uuid(val: Any) -> uuid.UUID | None:
         return None
 
 
+def as_utc(val: Any) -> datetime:
+    if isinstance(val, datetime):
+        if val.tzinfo is None:
+            return val.replace(tzinfo=timezone.utc)
+        return val.astimezone(timezone.utc)
+    return datetime.now(timezone.utc)
+
+
 def _parse_json_list(val: Any) -> list[Any]:
     if isinstance(val, list):
         return val
@@ -44,6 +52,20 @@ def _parse_json_list(val: Any) -> list[Any]:
         except Exception:
             pass
     return []
+
+
+def _parse_json_dict(val: Any) -> dict[str, Any]:
+    if not val:
+        return {}
+    if isinstance(val, dict):
+        return dict(val)
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+            return dict(parsed) if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
 
 
 DEFAULT_QUIZ_BANK = [
@@ -345,7 +367,7 @@ class QuizRepository:
             "opensAt": quiz["opens_at"].isoformat() if quiz["opens_at"] else None,
             "closesAt": quiz["closes_at"].isoformat() if quiz["closes_at"] else None,
             "quizCode": quiz["quiz_code"],
-            "settings": quiz["settings"],
+            "settings": _parse_json_dict(quiz["settings"]),
             "questions": questions,
             "attempt": {
                 "score": attempt["score"],
@@ -649,6 +671,178 @@ class QuizRepository:
         }
 
     @classmethod
+    async def get_student_attempt_timing(
+        cls,
+        quiz_id: str,
+        student_user_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Calculates server-authoritative question timing, phase, and progress."""
+        q_uuid = _safe_uuid(quiz_id)
+        if not q_uuid:
+            return {}
+
+        async with get_pg_connection() as conn:
+            quiz = await conn.fetchrow(
+                "SELECT settings, duration_minutes, max_score, questions FROM quizzes WHERE id = $1",
+                q_uuid,
+            )
+            if not quiz:
+                return {}
+
+            settings_dict = _parse_json_dict(quiz["settings"])
+            q_list = _parse_json_list(quiz["questions"])
+            total_questions = len(q_list)
+
+            attempt = await conn.fetchrow(
+                "SELECT id, created_at, completed_at, score, answers, status FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                q_uuid, student_user_id,
+            )
+
+            now_utc = datetime.now(timezone.utc)
+            is_timed = bool(settings_dict.get("enable_timed_questions"))
+            q_dur = int(settings_dict.get("question_duration", 10))
+            ans_rev_dur = int(settings_dict.get("answer_reveal_duration", 2))
+            ans_dur = max(1, q_dur - ans_rev_dur)
+            auto_advance = bool(settings_dict.get("auto_advance", True))
+            allow_prev = bool(settings_dict.get("allow_previous", False))
+            allow_mod = bool(settings_dict.get("allow_modification", False))
+            total_duration_seconds = (total_questions * q_dur) if is_timed else (int(quiz["duration_minutes"] or 30) * 60)
+
+            if not attempt:
+                return {
+                    "hasStarted": False,
+                    "status": "not_started",
+                    "answers": {},
+                    "timingState": {
+                        "is_timed": is_timed,
+                        "started_at": None,
+                        "server_time": int(now_utc.timestamp()),
+                        "elapsed_seconds": 0,
+                        "total_duration_seconds": total_duration_seconds,
+                        "total_questions": total_questions,
+                        "current_question_index": 0,
+                        "phase": "answering",
+                        "phase_remaining_seconds": ans_dur if is_timed else total_duration_seconds,
+                        "question_remaining_seconds": q_dur if is_timed else total_duration_seconds,
+                        "question_duration": q_dur,
+                        "answer_reveal_duration": ans_rev_dur,
+                        "answering_duration": ans_dur,
+                        "auto_advance": auto_advance,
+                        "allow_previous": allow_prev,
+                        "allow_modification": allow_mod,
+                        "is_completed": False,
+                    }
+                }
+
+            att_id = attempt["id"]
+            started_at = as_utc(attempt["created_at"])
+            status = attempt["status"] or ("completed" if attempt["completed_at"] else "in_progress")
+            answers = _parse_json_dict(attempt["answers"]) if attempt["answers"] else {}
+
+            elapsed_seconds = max(0.0, (now_utc - started_at).total_seconds())
+
+            is_expired = False
+            if is_timed and elapsed_seconds >= total_duration_seconds:
+                is_expired = True
+            elif not is_timed and elapsed_seconds >= total_duration_seconds:
+                is_expired = True
+
+            if status != "completed" and is_expired:
+                status = "completed"
+                await conn.execute(
+                    "UPDATE quiz_attempts SET status = 'completed', completed_at = $1 WHERE id = $2",
+                    now_utc, att_id,
+                )
+
+            if is_timed:
+                current_q_idx = min(total_questions - 1, int(elapsed_seconds // q_dur)) if total_questions > 0 else 0
+                time_in_q = elapsed_seconds % q_dur
+                phase = "answering" if time_in_q < ans_dur else "revealing"
+                phase_time_left = max(0.0, ans_dur - time_in_q) if phase == "answering" else max(0.0, q_dur - time_in_q)
+                question_time_left = max(0.0, q_dur - time_in_q)
+            else:
+                current_q_idx = 0
+                phase = "answering"
+                phase_time_left = max(0.0, total_duration_seconds - elapsed_seconds)
+                question_time_left = phase_time_left
+
+            return {
+                "hasStarted": True,
+                "attemptId": str(att_id),
+                "status": status,
+                "answers": answers,
+                "timingState": {
+                    "is_timed": is_timed,
+                    "started_at": int(started_at.timestamp()),
+                    "server_time": int(now_utc.timestamp()),
+                    "elapsed_seconds": round(elapsed_seconds, 2),
+                    "total_duration_seconds": total_duration_seconds,
+                    "total_questions": total_questions,
+                    "current_question_index": current_q_idx,
+                    "phase": phase,
+                    "phase_remaining_seconds": round(phase_time_left, 1),
+                    "question_remaining_seconds": round(question_time_left, 1),
+                    "question_duration": q_dur,
+                    "answer_reveal_duration": ans_rev_dur,
+                    "answering_duration": ans_dur,
+                    "auto_advance": auto_advance,
+                    "allow_previous": allow_prev,
+                    "allow_modification": allow_mod,
+                    "is_completed": status == "completed",
+                }
+            }
+
+    @classmethod
+    async def start_or_resume_quiz_attempt(
+        cls,
+        quiz_id: str,
+        student_user_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Initializes or resumes a proctored quiz attempt with server-authoritative start timestamp."""
+        q_uuid = _safe_uuid(quiz_id)
+        if not q_uuid:
+            raise NotFound("Assessment not found")
+
+        async with get_pg_connection() as conn:
+            quiz = await conn.fetchrow(
+                "SELECT id, questions, settings, duration_minutes, max_score, status FROM quizzes WHERE id = $1 AND status = 'active'",
+                q_uuid,
+            )
+            if not quiz:
+                raise NotFound("Assessment not found")
+
+            # Check if attempt already exists
+            existing = await conn.fetchrow(
+                "SELECT id, created_at, completed_at, score, answers, status FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                q_uuid, student_user_id,
+            )
+
+            now_utc = datetime.now(timezone.utc)
+            if not existing:
+                b_row = await conn.fetchrow(
+                    "SELECT batch_id, institution_id FROM student_profiles WHERE user_id = $1",
+                    student_user_id,
+                )
+                att_id = uuid.uuid4()
+                await conn.execute(
+                    """
+                    INSERT INTO quiz_attempts (
+                        id, quiz_id, student_user_id, score, possible, answers, created_at,
+                        batch_id, institution_id, warnings, warning_count, status
+                    ) VALUES (
+                        $1, $2, $3, 0, $4, '{}'::jsonb, $5,
+                        $6, $7, '[]'::jsonb, 0, 'in_progress'
+                    )
+                    """,
+                    att_id, q_uuid, student_user_id,
+                    int(quiz["max_score"] or 100), now_utc,
+                    b_row["batch_id"] if b_row else None,
+                    b_row["institution_id"] if b_row else None,
+                )
+
+        return await cls.get_student_attempt_timing(quiz_id, student_user_id)
+
+    @classmethod
     async def save_student_draft_answer(
         cls,
         ctx: ScopeContext,
@@ -664,18 +858,13 @@ class QuizRepository:
 
         async with get_pg_connection() as conn:
             quiz_row = await conn.fetchrow(
-                "SELECT settings FROM quizzes WHERE id = $1",
+                "SELECT settings, questions FROM quizzes WHERE id = $1",
                 q_uuid
             )
-            settings_dict: dict[str, Any] = {}
-            if quiz_row and quiz_row["settings"]:
-                try:
-                    settings_dict = json.loads(quiz_row["settings"]) if isinstance(quiz_row["settings"], str) else dict(quiz_row["settings"])
-                except Exception:
-                    settings_dict = {}
+            settings_dict = _parse_json_dict(quiz_row["settings"]) if quiz_row else {}
 
             existing = await conn.fetchrow(
-                "SELECT id, answers, status FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                "SELECT id, answers, status, created_at FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
                 q_uuid, u_uuid,
             )
             if existing and existing["status"] == "completed":
@@ -683,12 +872,34 @@ class QuizRepository:
 
             answers_dict: dict[str, Any] = {}
             if existing and existing["answers"]:
-                try:
-                    answers_dict = json.loads(existing["answers"]) if isinstance(existing["answers"], str) else dict(existing["answers"])
-                except Exception:
-                    answers_dict = {}
+                answers_dict = _parse_json_dict(existing["answers"])
 
-            # Strict Timed Question Lock: disallow altering answers if allow_modification is false
+            # Strict Timed Question Lock: enforce answering deadline and locked past questions
+            if settings_dict.get("enable_timed_questions") and existing:
+                server_now = datetime.now(timezone.utc)
+                started_at = as_utc(existing["created_at"])
+                elapsed_seconds = max(0.0, (server_now - started_at).total_seconds())
+
+                q_list = _parse_json_list(quiz_row["questions"]) if quiz_row else []
+                target_idx = None
+                for idx, q in enumerate(q_list):
+                    if str(q.get("id")) == str(question_id):
+                        target_idx = idx
+                        break
+
+                if target_idx is not None:
+                    q_dur = int(settings_dict.get("question_duration", 10))
+                    ans_rev_dur = int(settings_dict.get("answer_reveal_duration", 2))
+                    ans_dur = max(1, q_dur - ans_rev_dur)
+
+                    answering_deadline = (target_idx * q_dur) + ans_dur
+                    if elapsed_seconds > answering_deadline:
+                        raise BusinessRuleViolation("Answering period for this question has expired and answers are locked")
+
+                    current_active_idx = int(elapsed_seconds // q_dur)
+                    if settings_dict.get("allow_previous") is False and target_idx < current_active_idx:
+                        raise BusinessRuleViolation("Previous questions are locked for this timed assessment")
+
             if settings_dict.get("enable_timed_questions"):
                 if settings_dict.get("allow_modification") is False and str(question_id) in answers_dict:
                     if answers_dict[str(question_id)] != answer:
@@ -732,6 +943,7 @@ class QuizRepository:
     ) -> dict[str, Any]:
         """Provides secure reveal of correct answer for timed question mode."""
         q_uuid = _safe_uuid(quiz_id)
+        u_uuid = _safe_uuid(ctx.user_id)
         if not q_uuid:
             raise NotFound("Assessment not found")
 
@@ -743,15 +955,41 @@ class QuizRepository:
             if not quiz:
                 raise NotFound("Assessment not found")
 
-        q_list = _parse_json_list(quiz["questions"])
-        target_q = None
-        for q in q_list:
-            if str(q.get("id")) == str(question_id):
-                target_q = q
-                break
+            settings_dict = _parse_json_dict(quiz["settings"])
+            q_list = _parse_json_list(quiz["questions"])
+            target_q = None
+            target_idx = None
+            for idx, q in enumerate(q_list):
+                if str(q.get("id")) == str(question_id):
+                    target_q = q
+                    target_idx = idx
+                    break
 
-        if not target_q:
-            raise NotFound(f"Question {question_id} not found")
+            if not target_q:
+                raise NotFound(f"Question {question_id} not found")
+
+            # Server-Authoritative Timing Guard:
+            # Reject reveal if answering phase is still active!
+            if settings_dict.get("enable_timed_questions"):
+                attempt = await conn.fetchrow(
+                    "SELECT id, created_at, status FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                    q_uuid, u_uuid,
+                )
+                if not attempt:
+                    raise ScopeForbidden("Assessment attempt not started")
+
+                if attempt["status"] != "completed" and target_idx is not None:
+                    server_now = datetime.now(timezone.utc)
+                    started_at = as_utc(attempt["created_at"])
+                    elapsed_seconds = max(0.0, (server_now - started_at).total_seconds())
+
+                    q_dur = int(settings_dict.get("question_duration", 10))
+                    ans_rev_dur = int(settings_dict.get("answer_reveal_duration", 2))
+                    ans_dur = max(1, q_dur - ans_rev_dur)
+
+                    answering_deadline = (target_idx * q_dur) + ans_dur
+                    if elapsed_seconds < answering_deadline:
+                        raise ScopeForbidden("Answering phase is still active. Reveal not authorized until answering period ends.")
 
         correct_opts = []
         if isinstance(target_q.get("correct"), list):

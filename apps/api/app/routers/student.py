@@ -3174,6 +3174,7 @@ async def assessments(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
 async def assessment_detail(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
     if settings.USE_POSTGRES:
         quiz_data = await QuizRepository.get_quiz(quiz_id, uuid.UUID(str(ctx.user_id)))
+        timing_info = await QuizRepository.get_student_attempt_timing(quiz_id, uuid.UUID(str(ctx.user_id)))
         return {
             "success": True,
             "data": {
@@ -3181,7 +3182,12 @@ async def assessment_detail(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dic
                 "title": quiz_data["title"],
                 "durationMinutes": quiz_data["durationMinutes"],
                 "questions": quiz_data["questions"],
-                "alreadyAttempted": quiz_data.get("attempt") is not None,
+                "settings": quiz_data.get("settings") or {},
+                "timingState": timing_info.get("timingState"),
+                "answers": timing_info.get("answers", {}),
+                "hasStarted": timing_info.get("hasStarted", False),
+                "status": timing_info.get("status", "not_started"),
+                "alreadyAttempted": timing_info.get("status") == "completed",
                 "myAttempt": quiz_data.get("attempt"),
             },
         }
@@ -3207,10 +3213,20 @@ async def assessment_detail(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dic
             "title": quiz.get("title"),
             "durationMinutes": quiz.get("durationMinutes"),
             "questions": questions,
+            "settings": quiz.get("settings", {}),
             "alreadyAttempted": attempt is not None,
             "myAttempt": serialize(attempt),
         },
     }
+
+
+@router.post("/assessments/{quiz_id}/start")
+async def start_assessment_attempt(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
+    """Starts or resumes a proctored assessment attempt with server-authoritative timestamps."""
+    if settings.USE_POSTGRES:
+        res = await QuizRepository.start_or_resume_quiz_attempt(quiz_id, uuid.UUID(str(ctx.user_id)))
+        return {"success": True, "data": res}
+    return {"success": True, "data": {"status": "in_progress"}}
 
 
 @router.post("/assessments/{quiz_id}/launch-token")

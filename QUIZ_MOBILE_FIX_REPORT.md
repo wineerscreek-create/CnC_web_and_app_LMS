@@ -49,12 +49,19 @@ We authored a dedicated, thoroughly tested URL resolver `getAssessmentWsUrl(quiz
 - **Local Network Routing**: If the hostname is `localhost`, `127.0.0.1`, or a LAN IP (`192.168.*`, `10.*`), it routes directly to FastAPI port 8000 (`ws://${hostname}:8000/api/v1/assessments/${quizId}/ws`).
 - **Production Fallback**: When deployed on Vercel or custom public domains, it routes directly to the Render FastAPI backend (`wss://cnc-backend-qzmb.onrender.com/api/v1/assessments/${quizId}/ws`).
 
-### 3.2 Mobile-First Sticky Navigation & Responsive Controls
+### 3.2 Mobile-First Sticky Navigation & Automated Flow Refinement
 In `apps/web/src/app/student/assessments/[quizId]/page.tsx`:
 - **Sticky Bottom Navigation Bar**: Anchored to viewport bottom (`fixed bottom-0 left-0 right-0 z-40 bg-card/95 backdrop-blur-md px-3 py-2.5 sm:px-6 shadow-xl`).
-- **Previous Button**: Permanently visible; cleanly disabled on Question 1 (`currentIndex === 0`) or when previous navigation is locked in timed mode.
-- **Dynamic Next / Submit Action**: On question $1 \dots N-1$, displays the "Next" button. On the final question, automatically swaps "Next" for a prominent "Submit" button with modal confirmation.
-- **No Overflow Layout**: Uses responsive sizing (`text-xs sm:text-sm px-2.5 sm:px-3 h-8 sm:h-9`) and icons, preventing horizontal scrolling even at 320px viewport width.
+- **Elimination of Misleading Buttons in Automated Pacing**:
+  - When `enable_timed_questions` and `auto_advance` are active with `allow_previous = false`, candidate interactions are governed strictly by time. In this state, deceptive "Previous" and "Next" buttons are completely removed.
+  - Replaced with a streamlined status bar displaying:
+    - Active question index (`Question X of Y`) with a subtle `[🔒 Navigation Locked]` badge.
+    - Live phase countdown pill (`Answering: 8s` / `Reveal: 2s`) with an animated pulsing dot.
+    - Automatic advancement status indicator (`Locks on timeout` / `Advancing to next...` / `Final submission...`).
+- **Interactive Controls for Manual & Unlocked Modes**:
+  - **Previous Button**: Permanently visible; cleanly disabled on Question 1 (`currentIndex === 0`) or when previous navigation is locked in timed mode.
+  - **Dynamic Next / Submit Action**: On question $1 \dots N-1$, displays the "Next" button. On the final question, automatically swaps "Next" for a prominent "Submit" button with modal confirmation.
+  - **No Overflow Layout**: Uses responsive sizing (`text-xs sm:text-sm px-2.5 sm:px-3 h-8 sm:h-9`) and icons, preventing horizontal scrolling even at 320px viewport width.
 
 ### 3.3 Enhanced Front Camera & Compact Mobile Preview
 In `apps/web/src/components/quiz/CameraFeed.tsx`:

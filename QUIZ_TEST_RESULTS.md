@@ -135,6 +135,14 @@ apps\api\tests\test_quiz_lms_integration.py::test_csv_question_bank_upload_valid
 | **15** | Submission & Score | Candidate submits answers. | Server evaluates score and calculates EEDI. | **PASS** |
 | **16** | Student Results | Candidate views result summary. | Shows marks and percentage; hides answers until closed. | **PASS** |
 | **17** | Excel Photo Export | Trainer clicks "Export Excel with Photos". | `.xlsx` file downloads with embedded JPEG snapshots. | **PASS** |
+| **18** | Timed Question Settings Delivery | Student opens assessment configured with timed settings. | Settings dictionary and timing state delivered in payload. | **PASS** |
+| **19** | Authoritative Start Timestamp | Student clicks "Start Assessment & Enter Fullscreen". | Attempt initialized with server `created_at` timestamp. | **PASS** |
+| **20** | Answering Phase Protection | Candidate attempts to fetch reveal during 0-8s answering phase. | Blocked with `403 ScopeForbidden`. | **PASS** |
+| **21** | Reveal Phase Activation | Timer reaches 8s (reveal phase). | Inputs lock; correct answer revealed with explanation. | **PASS** |
+| **22** | Automatic Question Skipping | Timer reaches 10s (question duration). | Question automatically advances to Q2 with no manual clicks. | **PASS** |
+| **23** | Past Question & Edit Locks | Candidate attempts to modify past or locked question. | Blocked with `400 BusinessRuleViolation`. | **PASS** |
+| **24** | Auto-Submission on Final Timeout | Time elapses for final question. | Entire assessment submitted automatically. | **PASS** |
+| **25** | Streamlined Mobile Navigation | Auto-advance active with previous locked. | Deceptive Prev/Next buttons removed; clean status bar displayed. | **PASS** |
 
 ---
 

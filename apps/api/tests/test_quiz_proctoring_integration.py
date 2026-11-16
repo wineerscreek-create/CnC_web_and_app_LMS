@@ -178,7 +178,7 @@ async def test_timed_question_settings_validation_and_reveal():
     from app.repositories.assignment_quiz_repo import QuizRepository
     from app.authz.context import ScopeContext
     from app.authz.roles import Role
-    from app.core.errors import ValidationError, BusinessRuleViolation
+    from app.core.errors import ValidationError, BusinessRuleViolation, ScopeForbidden
     from app.db.postgres import get_pg_connection
 
     async with get_pg_connection() as conn:
@@ -236,7 +236,7 @@ async def test_timed_question_settings_validation_and_reveal():
     )
     quiz_id = created["id"]
 
-    # 3. Test question reveal
+    # 3. Test attempt start, answering phase locks, and reveal guards
     student_ctx = ScopeContext(
         user_id=student_id,
         role=Role.STUDENT,
@@ -244,19 +244,41 @@ async def test_timed_question_settings_validation_and_reveal():
         department_id=None,
         session_id=str(uuid.uuid4()),
     )
+
+    # Calling reveal before attempt has started must fail with ScopeForbidden
+    with pytest.raises(ScopeForbidden):
+        await QuizRepository.get_question_reveal(student_ctx, quiz_id, "q-1")
+
+    # Start attempt (t = 0)
+    start_info = await QuizRepository.start_or_resume_quiz_attempt(quiz_id, str(student_id))
+    assert start_info["hasStarted"] is True
+    assert start_info["timingState"]["phase"] == "answering"
+
+    # Calling reveal while answering phase is active (0s elapsed < 8s answering duration) must fail
+    with pytest.raises(ScopeForbidden):
+        await QuizRepository.get_question_reveal(student_ctx, quiz_id, "q-1")
+
+    # In answering phase: saving answer succeeds
+    await QuizRepository.save_student_draft_answer(student_ctx, quiz_id, "q-1", "B")
+
+    # In answering phase: modifying answer when allow_modification is False must raise BusinessRuleViolation
+    with pytest.raises(BusinessRuleViolation):
+        await QuizRepository.save_student_draft_answer(student_ctx, quiz_id, "q-1", "A")
+
+    # Advance attempt created_at to 8.5 seconds ago to enter reveal phase
+    async with get_pg_connection() as conn:
+        await conn.execute(
+            "UPDATE quiz_attempts SET created_at = NOW() - INTERVAL '8.5 seconds' WHERE quiz_id = $1 AND student_user_id = $2",
+            uuid.UUID(quiz_id), uuid.UUID(str(student_id))
+        )
+
+    # In reveal phase: saving/changing answer is locked and must fail
+    with pytest.raises(BusinessRuleViolation):
+        await QuizRepository.save_student_draft_answer(student_ctx, quiz_id, "q-1", "B")
+
+    # In reveal phase: reveal is permitted
     reveal_data = await QuizRepository.get_question_reveal(student_ctx, quiz_id, "q-1")
     assert reveal_data["question_id"] == "q-1"
     assert "B" in reveal_data["correct_options"]
     assert reveal_data["correct_answer"] == "B"
     assert "2 + 2 equals 4" in reveal_data["explanation"]
-
-    # 4. Test answer draft and modification lock
-    # Ensure any past attempt on this test quiz is cleared
-    async with get_pg_connection() as conn:
-        await conn.execute("DELETE FROM quiz_attempts WHERE quiz_id = $1", uuid.UUID(quiz_id))
-
-    await QuizRepository.save_student_draft_answer(student_ctx, quiz_id, "q-1", "B")
-
-    # Attempting to change answer when allow_modification is False must raise BusinessRuleViolation
-    with pytest.raises(BusinessRuleViolation):
-        await QuizRepository.save_student_draft_answer(student_ctx, quiz_id, "q-1", "A")
