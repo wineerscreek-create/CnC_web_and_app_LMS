@@ -663,16 +663,36 @@ class QuizRepository:
             raise NotFound("Assessment not found")
 
         async with get_pg_connection() as conn:
+            quiz_row = await conn.fetchrow(
+                "SELECT settings FROM quizzes WHERE id = $1",
+                q_uuid
+            )
+            settings_dict: dict[str, Any] = {}
+            if quiz_row and quiz_row["settings"]:
+                try:
+                    settings_dict = json.loads(quiz_row["settings"]) if isinstance(quiz_row["settings"], str) else dict(quiz_row["settings"])
+                except Exception:
+                    settings_dict = {}
+
             existing = await conn.fetchrow(
-                "SELECT id, answers FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                "SELECT id, answers, status FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
                 q_uuid, u_uuid,
             )
+            if existing and existing["status"] == "completed":
+                raise BusinessRuleViolation("Assessment has already been submitted")
+
             answers_dict: dict[str, Any] = {}
             if existing and existing["answers"]:
                 try:
                     answers_dict = json.loads(existing["answers"]) if isinstance(existing["answers"], str) else dict(existing["answers"])
                 except Exception:
                     answers_dict = {}
+
+            # Strict Timed Question Lock: disallow altering answers if allow_modification is false
+            if settings_dict.get("enable_timed_questions"):
+                if settings_dict.get("allow_modification") is False and str(question_id) in answers_dict:
+                    if answers_dict[str(question_id)] != answer:
+                        raise BusinessRuleViolation("Modification of answered questions is locked for this timed assessment")
 
             answers_dict[str(question_id)] = answer
 
@@ -702,6 +722,53 @@ class QuizRepository:
                 )
 
         return {"saved": True, "questionId": question_id}
+
+    @classmethod
+    async def get_question_reveal(
+        cls,
+        ctx: ScopeContext,
+        quiz_id: str,
+        question_id: str,
+    ) -> dict[str, Any]:
+        """Provides secure reveal of correct answer for timed question mode."""
+        q_uuid = _safe_uuid(quiz_id)
+        if not q_uuid:
+            raise NotFound("Assessment not found")
+
+        async with get_pg_connection() as conn:
+            quiz = await conn.fetchrow(
+                "SELECT id, questions, settings, status FROM quizzes WHERE id = $1",
+                q_uuid
+            )
+            if not quiz:
+                raise NotFound("Assessment not found")
+
+        q_list = _parse_json_list(quiz["questions"])
+        target_q = None
+        for q in q_list:
+            if str(q.get("id")) == str(question_id):
+                target_q = q
+                break
+
+        if not target_q:
+            raise NotFound(f"Question {question_id} not found")
+
+        correct_opts = []
+        if isinstance(target_q.get("correct"), list):
+            correct_opts = [str(x) for x in target_q.get("correct")]
+        elif target_q.get("correct") is not None:
+            correct_opts = [str(target_q.get("correct"))]
+        elif target_q.get("correct_answer") is not None:
+            correct_opts = [str(target_q.get("correct_answer"))]
+        elif target_q.get("answer") is not None:
+            correct_opts = [str(target_q.get("answer"))]
+
+        return {
+            "question_id": str(question_id),
+            "correct_options": correct_opts,
+            "correct_answer": correct_opts[0] if correct_opts else None,
+            "explanation": target_q.get("explanation") or target_q.get("solution") or "No explanation provided.",
+        }
 
     # =========================================================================
     # TRAINER ASSESSMENT & MULTI-BATCH ASSIGNMENT METHODS
@@ -817,6 +884,18 @@ class QuizRepository:
             if existing_code:
                 code = f"QUIZ-{uuid.uuid4().hex[:6].upper()}"
 
+            clean_settings = dict(settings or {})
+            if clean_settings.get("enable_timed_questions"):
+                q_dur = int(clean_settings.get("question_duration", 10))
+                ans_dur = int(clean_settings.get("answer_reveal_duration", 2))
+                if q_dur <= ans_dur:
+                    raise ValidationError("question_duration must be strictly greater than answer_reveal_duration")
+                clean_settings["question_duration"] = q_dur
+                clean_settings["answer_reveal_duration"] = ans_dur
+                clean_settings["auto_advance"] = bool(clean_settings.get("auto_advance", True))
+                clean_settings["allow_previous"] = bool(clean_settings.get("allow_previous", False))
+                clean_settings["allow_modification"] = bool(clean_settings.get("allow_modification", False))
+
             q_id = uuid.uuid4()
             await conn.execute(
                 """
@@ -832,7 +911,7 @@ class QuizRepository:
                 """,
                 q_id, t_uuid, inst_uuid, title.strip(),
                 max(1, duration_minutes), max_score, opens_at, closes_at,
-                json.dumps(questions or []), json.dumps(settings or {}), code
+                json.dumps(questions or []), json.dumps(clean_settings), code
             )
 
             # Insert batch assignments
@@ -965,7 +1044,18 @@ class QuizRepository:
                 params.append(json.dumps(questions))
                 updates.append(f"questions = ${len(params)}::jsonb")
             if settings is not None:
-                params.append(json.dumps(settings))
+                clean_settings = dict(settings or {})
+                if clean_settings.get("enable_timed_questions"):
+                    q_dur = int(clean_settings.get("question_duration", 10))
+                    ans_dur = int(clean_settings.get("answer_reveal_duration", 2))
+                    if q_dur <= ans_dur:
+                        raise ValidationError("question_duration must be strictly greater than answer_reveal_duration")
+                    clean_settings["question_duration"] = q_dur
+                    clean_settings["answer_reveal_duration"] = ans_dur
+                    clean_settings["auto_advance"] = bool(clean_settings.get("auto_advance", True))
+                    clean_settings["allow_previous"] = bool(clean_settings.get("allow_previous", False))
+                    clean_settings["allow_modification"] = bool(clean_settings.get("allow_modification", False))
+                params.append(json.dumps(clean_settings))
                 updates.append(f"settings = ${len(params)}::jsonb")
             if status is not None:
                 params.append(status)

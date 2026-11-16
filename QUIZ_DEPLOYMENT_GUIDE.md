@@ -50,8 +50,9 @@ The integration uses a unified runtime architecture without external Node.js dae
 | Variable | Description | Example / Value |
 | :--- | :--- | :--- |
 | `NEXT_PUBLIC_API_URL` | Base API URL pointing to the FastAPI backend | `https://cnc-backend-qzmb.onrender.com` |
+| `NEXT_PUBLIC_WS_URL` | (Optional) Explicit WebSocket endpoint | `wss://cnc-backend-qzmb.onrender.com` |
 
-*Note on WebSockets on Vercel:* The frontend automatically derives the WebSocket URL protocol (`ws:` or `wss:`) and host from `NEXT_PUBLIC_API_URL`, connecting directly to Render's WebSocket port. Render natively supports persistent WebSocket connections with zero additional config.
+*Note on WebSockets & Mobile Camera Proctors:* The frontend includes a dedicated WebSocket resolver (`getAssessmentWsUrl`) that automatically connects to Render's WebSocket Hub (`wss://cnc-backend-qzmb.onrender.com/api/v1/assessments/{quiz_id}/ws`) in production, and to port 8000 on local networks (`ws://<LAN_IP>:8000/...`). This completely circumvents Vercel serverless WebSocket limitations and guarantees real-time camera snapshot delivery without `Live Camera Feeds (0)` errors.
 
 ---
 
@@ -83,11 +84,12 @@ npm run dev
 Before triggering automatic deployment on Render/Vercel:
 
 - [x] Run TypeScript verification: `cd apps/web; npm run typecheck` (Exits with code 0).
-- [x] Run Vitest frontend tests: `cd apps/web; npm run test` (All 83 tests pass).
-- [x] Run Pytest backend integration tests: `pytest apps/api/tests/test_quiz_proctoring_integration.py` (All 4 tests pass).
-- [x] Verify Next.js production build: `cd apps/web; npm run build` (All 92 routes generate successfully).
+- [x] Run Vitest frontend tests: `cd apps/web; npm run test` (All 87 tests pass across 16 files).
+- [x] Run Pytest backend integration tests: `pytest apps/api/tests/test_quiz_lms_integration.py apps/api/tests/test_quiz_proctoring_integration.py` (All 10 tests pass).
+- [x] Verify Next.js production build: `cd apps/web; npm run build` (All 92 routes compile with 0 errors).
 - [x] Confirm no secrets, tokens, or private credentials are in Git.
 - [x] Confirm no answer keys are returned in student question payloads.
+- [x] Verified mobile responsive layouts on 360px, 375px, 390px, and 412px viewports.
 - [x] Confirm supervisor live monitoring and Excel photo export are operational.
 
 

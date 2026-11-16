@@ -171,3 +171,92 @@ def test_launch_and_monitor_token_claims():
     assert decoded["role"] == "student"
     assert decoded["quiz_id"] == quiz_id
     assert decoded["roll_number"] == "ROLL-104"
+
+
+@pytest.mark.asyncio
+async def test_timed_question_settings_validation_and_reveal():
+    from app.repositories.assignment_quiz_repo import QuizRepository
+    from app.authz.context import ScopeContext
+    from app.authz.roles import Role
+    from app.core.errors import ValidationError, BusinessRuleViolation
+    from app.db.postgres import get_pg_connection
+
+    async with get_pg_connection() as conn:
+        trainer_row = await conn.fetchrow("SELECT id FROM users WHERE role = 'TRAINER' LIMIT 1")
+        if not trainer_row:
+            trainer_row = await conn.fetchrow("SELECT id FROM users LIMIT 1")
+        trainer_id = trainer_row["id"]
+
+        student_row = await conn.fetchrow("SELECT id FROM users WHERE role = 'STUDENT' LIMIT 1")
+        student_id = student_row["id"] if student_row else trainer_id
+
+    ctx = ScopeContext(
+        user_id=trainer_id,
+        role=Role.TRAINER,
+        college_id=None,
+        department_id=None,
+        session_id=str(uuid.uuid4()),
+    )
+
+    # 1. Invalid duration settings: question_duration (2s) <= answer_reveal_duration (2s)
+    with pytest.raises(ValidationError):
+        await QuizRepository.create_trainer_quiz(
+            ctx=ctx,
+            title="Invalid Timed Quiz",
+            duration_minutes=15,
+            settings={
+                "enable_timed_questions": True,
+                "question_duration": 2,
+                "answer_reveal_duration": 2,
+            },
+        )
+
+    # 2. Valid duration settings: question_duration (10s) > answer_reveal_duration (2s)
+    created = await QuizRepository.create_trainer_quiz(
+        ctx=ctx,
+        title="Valid Speed Test Quiz",
+        duration_minutes=15,
+        questions=[
+            {
+                "id": "q-1",
+                "question": "What is the result of 2 + 2?",
+                "options": [{"id": "A", "text": "3"}, {"id": "B", "text": "4"}],
+                "correct": ["B"],
+                "explanation": "2 + 2 equals 4.",
+            }
+        ],
+        settings={
+            "enable_timed_questions": True,
+            "question_duration": 10,
+            "answer_reveal_duration": 2,
+            "auto_advance": True,
+            "allow_previous": False,
+            "allow_modification": False,
+        },
+    )
+    quiz_id = created["id"]
+
+    # 3. Test question reveal
+    student_ctx = ScopeContext(
+        user_id=student_id,
+        role=Role.STUDENT,
+        college_id=None,
+        department_id=None,
+        session_id=str(uuid.uuid4()),
+    )
+    reveal_data = await QuizRepository.get_question_reveal(student_ctx, quiz_id, "q-1")
+    assert reveal_data["question_id"] == "q-1"
+    assert "B" in reveal_data["correct_options"]
+    assert reveal_data["correct_answer"] == "B"
+    assert "2 + 2 equals 4" in reveal_data["explanation"]
+
+    # 4. Test answer draft and modification lock
+    # Ensure any past attempt on this test quiz is cleared
+    async with get_pg_connection() as conn:
+        await conn.execute("DELETE FROM quiz_attempts WHERE quiz_id = $1", uuid.UUID(quiz_id))
+
+    await QuizRepository.save_student_draft_answer(student_ctx, quiz_id, "q-1", "B")
+
+    # Attempting to change answer when allow_modification is False must raise BusinessRuleViolation
+    with pytest.raises(BusinessRuleViolation):
+        await QuizRepository.save_student_draft_answer(student_ctx, quiz_id, "q-1", "A")

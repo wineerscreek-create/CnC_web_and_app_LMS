@@ -30,6 +30,7 @@ import {
   clearCameraSnapshotSamples,
 } from '@/lib/quiz/cameraSnapshots';
 import { exportAssessmentResultsToExcel, StudentResultRow } from '@/lib/quiz/excelExport';
+import { getAssessmentWsUrl } from '@/lib/quiz/ws';
 
 interface MonitoredStudent {
   session_id: string;
@@ -168,11 +169,7 @@ export default function TrainerAssessmentMonitorPage() {
         const token = tokenRes.data?.token;
         if (!token || cancelled) return;
 
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = process.env.NEXT_PUBLIC_API_URL
-          ? new URL(process.env.NEXT_PUBLIC_API_URL).host
-          : window.location.host;
-        const wsUrl = `${protocol}//${host}/api/v1/assessments/${params.quizId}/ws`;
+        const wsUrl = getAssessmentWsUrl(params.quizId);
 
         ws = new WebSocket(wsUrl);
         socketRef.current = ws;

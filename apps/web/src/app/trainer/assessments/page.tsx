@@ -72,6 +72,12 @@ export default function TrainerAssessmentsPage() {
     fullscreenRequired: true,
     maxWarnings: 3,
     batchIds: [] as string[],
+    enableTimedQuestions: false,
+    questionDuration: 10,
+    answerRevealDuration: 2,
+    autoAdvance: true,
+    allowPrevious: false,
+    allowModification: false,
   });
   const [creating, setCreating] = React.useState(false);
 
@@ -99,6 +105,16 @@ export default function TrainerAssessmentsPage() {
       toast.error('Assessment title is required');
       return;
     }
+
+    if (createForm.enableTimedQuestions) {
+      const qDur = Number(createForm.questionDuration);
+      const revDur = Number(createForm.answerRevealDuration);
+      if (qDur <= revDur) {
+        toast.error('Question Duration must be strictly greater than Answer Reveal Duration');
+        return;
+      }
+    }
+
     setCreating(true);
     try {
       await api.post('/trainer/assessments', {
@@ -110,6 +126,12 @@ export default function TrainerAssessmentsPage() {
           camera_required: createForm.cameraRequired,
           fullscreen_required: createForm.fullscreenRequired,
           max_warnings: Number(createForm.maxWarnings),
+          enable_timed_questions: createForm.enableTimedQuestions,
+          question_duration: Number(createForm.questionDuration),
+          answer_reveal_duration: Number(createForm.answerRevealDuration),
+          auto_advance: createForm.autoAdvance,
+          allow_previous: createForm.allowPrevious,
+          allow_modification: createForm.allowModification,
         },
         batchIds: createForm.batchIds,
       });
@@ -123,6 +145,12 @@ export default function TrainerAssessmentsPage() {
         fullscreenRequired: true,
         maxWarnings: 3,
         batchIds: [],
+        enableTimedQuestions: false,
+        questionDuration: 10,
+        answerRevealDuration: 2,
+        autoAdvance: true,
+        allowPrevious: false,
+        allowModification: false,
       });
       quizzesQuery.refetch();
     } catch (err) {
@@ -509,6 +537,94 @@ export default function TrainerAssessmentsPage() {
                     className="w-16 h-7 text-xs rounded border border-input px-2 text-center"
                   />
                 </div>
+              </div>
+
+              {/* Timed Questions & Per-Question Speed Settings */}
+              <div className="rounded-xl border border-border p-3 space-y-3 bg-muted/20">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-heading">Timed Questions &amp; Auto-Advancement</span>
+                  <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={createForm.enableTimedQuestions}
+                      onChange={(e) => setCreateForm({ ...createForm, enableTimedQuestions: e.target.checked })}
+                      className="rounded border-input text-primary size-4"
+                    />
+                    <span className="font-semibold text-primary">Enable Timed Mode</span>
+                  </label>
+                </div>
+
+                {createForm.enableTimedQuestions && (
+                  <div className="space-y-3 border-t border-border/60 pt-2 text-xs">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                          Question Total Duration (sec)
+                        </label>
+                        <Input
+                          type="number"
+                          min={2}
+                          max={300}
+                          value={createForm.questionDuration}
+                          onChange={(e) => setCreateForm({ ...createForm, questionDuration: Number(e.target.value) })}
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                          Answer Reveal Duration (sec)
+                        </label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={Math.max(1, createForm.questionDuration - 1)}
+                          value={createForm.answerRevealDuration}
+                          onChange={(e) => setCreateForm({ ...createForm, answerRevealDuration: Number(e.target.value) })}
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-md bg-card p-2 text-[11px] text-muted-foreground border border-border">
+                      Candidate has{' '}
+                      <b className="text-foreground">
+                        {Math.max(1, createForm.questionDuration - createForm.answerRevealDuration)} seconds
+                      </b>{' '}
+                      to submit an answer, followed by{' '}
+                      <b className="text-foreground">{createForm.answerRevealDuration} seconds</b> of instant secure answer reveal before auto-advancing.
+                    </div>
+
+                    <div className="space-y-2 pt-1">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={createForm.autoAdvance}
+                          onChange={(e) => setCreateForm({ ...createForm, autoAdvance: e.target.checked })}
+                          className="rounded border-input text-primary size-4"
+                        />
+                        <span>Auto-advance to next question when timer expires</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={createForm.allowPrevious}
+                          onChange={(e) => setCreateForm({ ...createForm, allowPrevious: e.target.checked })}
+                          className="rounded border-input text-primary size-4"
+                        />
+                        <span>Allow returning to previous questions</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={createForm.allowModification}
+                          onChange={(e) => setCreateForm({ ...createForm, allowModification: e.target.checked })}
+                          className="rounded border-input text-primary size-4"
+                        />
+                        <span>Allow modifying previously selected answers</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
               </div>
             </DialogBody>
             <DialogFooter>

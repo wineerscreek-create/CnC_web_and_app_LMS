@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { cn } from '@/lib/cn';
+import { Lock } from 'lucide-react';
 
 export interface PaletteItem {
   id: string;
@@ -14,6 +15,7 @@ interface QuestionPaletteProps {
   currentIndex: number;
   onJump: (index: number) => void;
   disabled?: boolean;
+  allowPrevious?: boolean;
 }
 
 export function QuestionPalette({
@@ -21,6 +23,7 @@ export function QuestionPalette({
   currentIndex,
   onJump,
   disabled = false,
+  allowPrevious = true,
 }: QuestionPaletteProps) {
   const answeredCount = palette.filter((p) => p.status === 'answered').length;
   const reviewCount = palette.filter((p) => p.status === 'marked_for_review').length;
@@ -28,8 +31,17 @@ export function QuestionPalette({
 
   return (
     <div className="rounded-lg border border-line bg-card p-4 shadow-xs">
-      <h3 className="text-sm font-semibold text-ink-1">Question Palette</h3>
-      <p className="mt-0.5 text-xs text-ink-3">Jump directly to any question</p>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-ink-1">Question Palette</h3>
+        {!allowPrevious && (
+          <span className="flex items-center gap-1 text-[11px] font-medium text-amber-500">
+            <Lock className="size-3" /> Past Locked
+          </span>
+        )}
+      </div>
+      <p className="mt-0.5 text-xs text-ink-3">
+        {allowPrevious ? 'Jump directly to any question' : 'Questions progress sequentially'}
+      </p>
 
       {/* Status Legend */}
       <div className="mt-3 flex flex-wrap gap-2.5 text-xs text-ink-2">
@@ -51,6 +63,10 @@ export function QuestionPalette({
       <div className="mt-4 grid grid-cols-5 gap-2 max-h-60 overflow-y-auto pr-1">
         {palette.map((item) => {
           const isCurrent = item.index === currentIndex;
+          const isPastLocked = !allowPrevious && item.index < currentIndex;
+          const isFutureLocked = !allowPrevious && item.index > currentIndex;
+          const isItemDisabled = disabled || isPastLocked || isFutureLocked;
+
           let colorClass = 'border-line bg-app text-ink-2 hover:bg-card-hover';
 
           if (item.status === 'answered') {
@@ -59,21 +75,29 @@ export function QuestionPalette({
             colorClass = 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600';
           }
 
+          if (isPastLocked) {
+            colorClass = 'bg-ink-4/30 border-line text-ink-3';
+          }
+
           return (
             <button
               key={item.id || item.index}
               type="button"
-              disabled={disabled}
+              disabled={isItemDisabled}
               onClick={() => onJump(item.index)}
               className={cn(
                 'flex h-9 w-full items-center justify-center rounded-md border text-xs font-semibold transition-all',
                 colorClass,
                 isCurrent && 'ring-2 ring-primary ring-offset-1 ring-offset-card font-bold scale-105 shadow-sm',
-                disabled && 'cursor-not-allowed opacity-50'
+                isItemDisabled && 'cursor-not-allowed opacity-60'
               )}
-              title={`Question ${item.index + 1} (${item.status.replace('_', ' ')})`}
+              title={
+                isPastLocked
+                  ? `Question ${item.index + 1} (Locked)`
+                  : `Question ${item.index + 1} (${item.status.replace('_', ' ')})`
+              }
             >
-              {item.index + 1}
+              {isPastLocked ? <Lock className="size-3" /> : item.index + 1}
             </button>
           );
         })}

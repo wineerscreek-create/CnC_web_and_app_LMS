@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { Camera, CameraOff, AlertCircle } from 'lucide-react';
+import { cn } from '@/lib/cn';
 
 interface CameraFeedProps {
   required?: boolean;
@@ -10,6 +11,8 @@ interface CameraFeedProps {
   onStatusChange?: (active: boolean) => void;
   onSnapshot?: (base64Snapshot: string) => void;
   quizId?: string;
+  compact?: boolean;
+  className?: string;
 }
 
 export function CameraFeed({
@@ -18,6 +21,8 @@ export function CameraFeed({
   onStatusChange,
   onSnapshot,
   quizId,
+  compact = false,
+  className,
 }: CameraFeedProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -27,16 +32,29 @@ export function CameraFeed({
   const [active, setActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize camera stream
+  // Initialize camera stream with mobile front camera preference
   useEffect(() => {
     let cancelled = false;
 
     async function initCamera() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 640, height: 480 },
-          audio: false,
-        });
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+              facingMode: 'user',
+            },
+            audio: false,
+          });
+        } catch {
+          // Fallback if ideal dimensions or facingMode constraint fails on older mobile browsers
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        }
 
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop());
@@ -76,7 +94,12 @@ export function CameraFeed({
       }
     }
 
-    initCamera();
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
+      initCamera();
+    } else {
+      setError('MediaDevices API not supported in this browser.');
+      onStatusChange?.(false);
+    }
 
     return () => {
       cancelled = true;
@@ -102,8 +125,8 @@ export function CameraFeed({
       const canvas = canvasRef.current;
       if (!video || !canvas || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
 
-      canvas.width = 640;
-      canvas.height = 480;
+      canvas.width = 320;
+      canvas.height = 240;
       const ctx = canvas.getContext('2d', { alpha: false });
       if (!ctx) return;
 
@@ -122,7 +145,7 @@ export function CameraFeed({
           reader.readAsDataURL(blob);
         },
         'image/jpeg',
-        0.62
+        0.60
       );
     };
 
@@ -138,8 +161,52 @@ export function CameraFeed({
     };
   }, [active, captureSnapshots, onSnapshot]);
 
+  if (compact) {
+    return (
+      <div
+        className={cn(
+          'relative flex items-center justify-center overflow-hidden rounded-lg border border-line bg-black shadow-xs',
+          className || 'h-16 w-24 sm:h-20 sm:w-28'
+        )}
+      >
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          className="h-full w-full object-cover"
+        />
+        <canvas ref={canvasRef} className="hidden" />
+
+        {active && (
+          <span className="absolute top-1 right-1 flex items-center gap-1 rounded bg-black/80 px-1 py-0.2 text-[9px] font-semibold text-emerald-400">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+            LIVE
+          </span>
+        )}
+
+        {!active && !error && (
+          <div className="flex flex-col items-center justify-center text-ink-3">
+            <Camera className="h-4 w-4 animate-pulse" />
+          </div>
+        )}
+
+        {error && (
+          <div className="flex flex-col items-center justify-center p-1 text-center text-red-400">
+            <CameraOff className="h-4 w-4" />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col items-center rounded-lg border border-line bg-card p-3 shadow-xs">
+    <div
+      className={cn(
+        'flex flex-col items-center rounded-lg border border-line bg-card p-3 shadow-xs',
+        className
+      )}
+    >
       <div className="relative h-28 w-40 overflow-hidden rounded-md border border-line bg-black">
         <video
           ref={videoRef}

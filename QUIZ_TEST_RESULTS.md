@@ -12,32 +12,38 @@
 ```
  RUN  v2.1.8 C:/Users/SANDEEP/Desktop/skillsharp/apps/web
 
- ✓ src/lib/quiz/cameraSnapshots.test.ts (4 tests) 9ms
+ ✓ src/lib/quiz/ws.test.ts (4 tests) 15ms
+   ✓ uses NEXT_PUBLIC_WS_URL when defined
+   ✓ converts NEXT_PUBLIC_API_URL to websocket protocol
+   ✓ routes localhost and LAN IP to port 8000
+   ✓ defaults production domains to Render FastAPI backend
+
+ ✓ src/lib/quiz/cameraSnapshots.test.ts (4 tests) 19ms
    ✓ records initial snapshots up to MAX_SNAPSHOTS (10)
    ✓ bounds stored snapshots to at most 10 frames when many are captured
    ✓ tracks multiple simultaneous candidates independently
    ✓ clears snapshots on session change
 
- ✓ src/lib/quiz/excelExport.test.ts (1 test) 980ms
+ ✓ src/lib/quiz/excelExport.test.ts (1 test) 2646ms
    ✓ generates an .xlsx workbook with Results and Camera Snapshots worksheets
 
- ✓ src/lib/api.test.ts (9 tests) 777ms
- ✓ src/lib/offline/offline.test.ts (10 tests) 720ms
- ✓ src/components/ui/SkillSharpLogo.test.tsx (13 tests) 1227ms
- ✓ src/hooks/useApi.test.tsx (7 tests) 1281ms
- ✓ src/components/intro/SkillSharpBrandIntro.test.tsx (8 tests) 1811ms
- ✓ src/components/ui/dialog.test.tsx (4 tests) 1215ms
- ✓ src/components/shared/state.test.tsx (4 tests) 870ms
- ✓ src/components/layout/sidebar.test.tsx (4 tests) 1007ms
- ✓ src/components/public/assistant.test.tsx (7 tests) 2346ms
- ✓ src/app/student/payments/payments.test.tsx (1 test) 699ms
- ✓ src/components/auth/password-strength.test.tsx (5 tests) 233ms
- ✓ src/components/shared/misc.test.tsx (1 test) 147ms
- ✓ src/components/auth/route-guard.test.tsx (5 tests) 262ms
+ ✓ src/lib/api.test.ts (9 tests) 169ms
+ ✓ src/lib/offline/offline.test.ts (10 tests) 221ms
+ ✓ src/hooks/useApi.test.tsx (7 tests) 433ms
+ ✓ src/components/ui/dialog.test.tsx (4 tests) 466ms
+ ✓ src/components/shared/state.test.tsx (4 tests) 369ms
+ ✓ src/components/intro/SkillSharpBrandIntro.test.tsx (8 tests) 706ms
+ ✓ src/components/public/assistant.test.tsx (7 tests) 1410ms
+ ✓ src/app/student/payments/payments.test.tsx (1 test) 632ms
+ ✓ src/components/ui/SkillSharpLogo.test.tsx (13 tests) 250ms
+ ✓ src/components/layout/sidebar.test.tsx (4 tests) 403ms
+ ✓ src/components/auth/password-strength.test.tsx (5 tests) 132ms
+ ✓ src/components/auth/route-guard.test.tsx (5 tests) 140ms
+ ✓ src/components/shared/misc.test.tsx (1 test) 33ms
 
- Test Files  15 passed (15)
-      Tests  83 passed (83)
-   Duration  24.28s
+ Test Files  16 passed (16)
+      Tests  87 passed (87)
+   Duration  13.87s
 ```
 
 ### 1.2 TypeScript Static Typecheck (`tsc --noEmit`)
@@ -58,6 +64,8 @@ Process exited with code 0 (Zero errors detected).
    Generating static pages (92/92) ...
    ✓ Generating static pages (92/92)
    Finalizing page optimization ...
+   Exit code: 0
+```
 
 Routes verified:
 ├ ƒ /student/assessments/[quizId]                   35.1 kB         182 kB
@@ -78,14 +86,15 @@ rootdir: C:\Users\SANDEEP\Desktop\skillsharp\apps\api
 configfile: pytest.ini
 plugins: anyio-4.16.0, asyncio-0.25.2
 asyncio: mode=Mode.AUTO, asyncio_default_fixture_loop_scope=session
-collected 4 items
+collected 5 items
 
-apps\api\tests\test_quiz_proctoring_integration.py::test_assessment_hub_registration_and_heartbeat PASSED [ 25%]
-apps\api\tests\test_quiz_proctoring_integration.py::test_assessment_hub_camera_snapshot_relay_and_rate_limit PASSED [ 50%]
-apps\api\tests\test_quiz_proctoring_integration.py::test_assessment_hub_warning_and_submission_events PASSED [ 75%]
-apps\api\tests\test_quiz_proctoring_integration.py::test_launch_and_monitor_token_claims PASSED [100%]
+apps\api\tests\test_quiz_proctoring_integration.py::test_assessment_hub_registration_and_heartbeat PASSED [ 20%]
+apps\api\tests\test_quiz_proctoring_integration.py::test_assessment_hub_camera_snapshot_relay_and_rate_limit PASSED [ 40%]
+apps\api\tests\test_quiz_proctoring_integration.py::test_assessment_hub_warning_and_submission_events PASSED [ 60%]
+apps\api\tests\test_quiz_proctoring_integration.py::test_launch_and_monitor_token_claims PASSED [ 80%]
+apps\api\tests\test_quiz_proctoring_integration.py::test_timed_question_settings_validation_and_reveal PASSED [100%]
 
-============================== 4 passed in 9.23s ==============================
+============================== 5 passed in 4.51s ==============================
 ```
 
 ### 2.2 LMS Assessment & Multi-Batch RBAC Suite

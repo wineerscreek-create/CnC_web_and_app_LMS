@@ -3312,6 +3312,17 @@ async def save_draft_answer(
     return {"success": True, "data": res}
 
 
+@router.post("/assessments/{quiz_id}/questions/{question_id}/reveal")
+async def reveal_question_answer(
+    quiz_id: str,
+    question_id: str,
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Provides secure backend reveal of correct answer during reveal phase."""
+    res = await QuizRepository.get_question_reveal(ctx, quiz_id, question_id)
+    return {"success": True, "data": res}
+
+
 @router.post("/assessments/{quiz_id}/warning")
 async def report_proctoring_warning(
     quiz_id: str,
