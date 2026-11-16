@@ -186,7 +186,7 @@ async def seed(reset: bool = False, minimal: bool = False) -> dict[str, Any]:
     if settings.is_production:
         raise RuntimeError("Demo data seeding is strictly prohibited in production environments.")
     if settings.USE_POSTGRES:
-        log.warning("seed_refused_postgres_mode", extra={"message": "Demo seeding is disabled when USE_POSTGRES is active to prevent polluting real institutional data."})
+        log.warning("seed_refused_postgres_mode", extra={"detail": "Demo seeding is disabled when USE_POSTGRES is active to prevent polluting real institutional data."})
         return {"status": "disabled_in_postgres_mode"}
     db = await connect_to_mongo()
 

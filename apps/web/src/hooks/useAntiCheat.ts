@@ -23,6 +23,9 @@ export function useAntiCheat({
   onWarningRecorded,
 }: AntiCheatOptions) {
   const [warningCount, setWarningCount] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(
+    typeof document !== 'undefined' ? !!document.fullscreenElement : false
+  );
   const [lastWarning, setLastWarning] = useState<{
     type: string;
     detail?: string;
@@ -63,7 +66,17 @@ export function useAntiCheat({
   const requestFullscreen = useCallback(() => {
     const el = document.documentElement;
     if (el.requestFullscreen) {
-      el.requestFullscreen().catch(() => {});
+      el.requestFullscreen()
+        .then(() => setIsFullscreen(true))
+        .catch(() => {});
+    }
+  }, []);
+
+  const exitFullscreen = useCallback(() => {
+    if (typeof document !== 'undefined' && document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen()
+        .then(() => setIsFullscreen(false))
+        .catch(() => {});
     }
   }, []);
 
@@ -72,6 +85,7 @@ export function useAntiCheat({
 
     const handleFullscreenChange = () => {
       const isFs = !!document.fullscreenElement;
+      setIsFullscreen(isFs);
       api
         .post(`/student/assessments/${quizId}/fullscreen-status?on=${isFs}`)
         .catch(() => {});
@@ -220,5 +234,7 @@ export function useAntiCheat({
     lastWarning,
     reportWarning,
     requestFullscreen,
+    exitFullscreen,
+    isFullscreen,
   };
 }

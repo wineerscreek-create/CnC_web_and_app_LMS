@@ -109,7 +109,7 @@ class UserRepository:
                 LEFT JOIN student_profiles sp ON sp.user_id = u.id
                 LEFT JOIN institutions i ON i.id = u.institution_id
                 LEFT JOIN departments d ON d.id = u.department_id
-                WHERE (LOWER(u.email) = LOWER($1) OR UPPER(sp.roll_number) = UPPER($1))
+                WHERE (LOWER(u.email) = LOWER($1) OR LOWER(u.email) = LOWER($1) || '@aryacollege.in' OR UPPER(sp.roll_number) = UPPER($1) OR u.id::text = $1)
                   AND u.deleted_at IS NULL
                 LIMIT 1
                 """,

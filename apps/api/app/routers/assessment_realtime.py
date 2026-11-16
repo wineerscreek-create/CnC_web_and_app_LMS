@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 import jwt
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status, Query
@@ -241,7 +243,53 @@ async def assessment_websocket_endpoint(
     roll_number = claims.get("roll_number", "—")
 
     if role == "student":
-        duration_minutes = int(claims.get("durationMinutes", 60))
+        duration_minutes = int(claims.get("durationMinutes", 0))
+        remaining_seconds = None
+        deadline_ts = None
+        quiz_timing_mode = "FIXED_TOTAL"
+        try:
+            q_uuid_parsed = _safe_uuid(quiz_id)
+            u_uuid_parsed = _safe_uuid(user_id)
+            if q_uuid_parsed and u_uuid_parsed:
+                async with get_pg_connection() as conn:
+                    q_row = await conn.fetchrow(
+                        "SELECT duration_minutes, settings, timing_mode FROM quizzes WHERE id = $1",
+                        q_uuid_parsed,
+                    )
+                    if q_row:
+                        if q_row["duration_minutes"]:
+                            duration_minutes = int(q_row["duration_minutes"])
+                        q_settings = _parse_json_dict(q_row["settings"]) if q_row["settings"] else {}
+                        quiz_timing_mode = (
+                            q_row["timing_mode"]
+                            or q_settings.get("timing_mode")
+                            or ("PER_QUESTION" if q_settings.get("enable_timed_questions") else "FIXED_TOTAL")
+                        ).upper()
+
+                    att_row = await conn.fetchrow(
+                        "SELECT created_at, status FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                        q_uuid_parsed,
+                        u_uuid_parsed,
+                    )
+                    if att_row and att_row["created_at"]:
+                        st_at = att_row["created_at"]
+                        if st_at.tzinfo is None:
+                            st_at = st_at.replace(tzinfo=timezone.utc)
+                        else:
+                            st_at = st_at.astimezone(timezone.utc)
+                        el = max(0.0, (datetime.now(timezone.utc) - st_at).total_seconds())
+                        if quiz_timing_mode == "FIXED_TOTAL":
+                            remaining_seconds = max(0, int((duration_minutes * 60) - el))
+                            deadline_ts = time.time() + remaining_seconds
+        except Exception as e:
+            log.warning("error_resolving_quiz_timing", extra={"error": str(e)})
+
+        if duration_minutes <= 0:
+            duration_minutes = 30
+        if quiz_timing_mode == "FIXED_TOTAL" and remaining_seconds is None:
+            remaining_seconds = duration_minutes * 60
+            deadline_ts = time.time() + remaining_seconds
+
         await assessment_hub.register_student(
             quiz_id=quiz_id,
             user_id=user_id,
@@ -249,8 +297,20 @@ async def assessment_websocket_endpoint(
             name=name,
             roll_number=roll_number,
             duration_minutes=duration_minutes,
+            remaining_seconds=remaining_seconds,
+            deadline=deadline_ts,
         )
-        await websocket.send_text(json.dumps({"type": "connected", "role": "student"}))
+        await websocket.send_text(
+            json.dumps({
+                "type": "connected",
+                "role": "student",
+                "data": {
+                    "timing_mode": quiz_timing_mode,
+                    "remaining_seconds": None if quiz_timing_mode == "PER_QUESTION" else remaining_seconds,
+                    "duration_minutes": None if quiz_timing_mode == "PER_QUESTION" else duration_minutes,
+                },
+            })
+        )
 
         try:
             while websocket.application_state == WebSocketState.CONNECTED:

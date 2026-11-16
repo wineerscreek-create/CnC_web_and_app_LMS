@@ -176,6 +176,112 @@ export function MessagingApp({ role: propRole }: MessagingAppProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const wsManagerRef = React.useRef<MessagingWebSocketManager | null>(null);
 
+  // Refs to avoid stale closures in WebSocket listener without causing reconnects
+  const activeGroupIdRef = React.useRef(activeGroupId);
+  activeGroupIdRef.current = activeGroupId;
+  const activeConvIdRef = React.useRef(activeConvId);
+  activeConvIdRef.current = activeConvId;
+  const hasInitialSelectedRef = React.useRef(false);
+
+  const scrollToBottom = React.useCallback(() => {
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  }, []);
+
+  // --------------------------------------------------------------------------
+  // Data Loaders
+  // --------------------------------------------------------------------------
+  const loadSidebar = React.useCallback(async () => {
+    try {
+      const [groupsRes, convsRes, blocksRes] = await Promise.all([
+        api.get<any>('/messaging/groups'),
+        api.get<any>('/messaging/conversations'),
+        api.get<any>('/messaging/users/blocked').catch(() => ({ blockedUsers: [] })),
+      ]);
+
+      const gList: MessagingGroup[] = groupsRes?.groups ?? groupsRes?.data?.groups ?? [];
+      const cList: MessagingConversation[] = convsRes?.conversations ?? convsRes?.data?.conversations ?? [];
+      const bList: string[] = (blocksRes?.blockedUsers ?? blocksRes?.data?.blockedUsers ?? []).map(
+        (u: any) => u.id
+      );
+
+      setGroups(gList);
+      setConversations(cList);
+      setBlockedUsers(bList);
+      return { gList, cList };
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to load conversations.');
+      return { gList: [], cList: [] };
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadSidebarRef = React.useRef(loadSidebar);
+  loadSidebarRef.current = loadSidebar;
+
+  const selectGroup = React.useCallback(async (groupId: string) => {
+    setActiveGroupId(groupId);
+    setActiveConvId(null);
+    setMobileShowChat(true);
+    setReplyingTo(null);
+    setEditingMessage(null);
+    setAttachedFiles([]);
+    setErrorMessage(null);
+
+    try {
+      const [detailsRes, messagesRes] = await Promise.all([
+        api.get<any>(`/messaging/groups/${groupId}`),
+        api.get<any>(`/messaging/groups/${groupId}/messages?limit=60`),
+      ]);
+
+      const groupData = detailsRes?.group ?? detailsRes?.data ?? detailsRes;
+      setActiveGroupDetails({
+        members: groupData.members || [],
+        pinnedMessages: groupData.pinnedMessages || [],
+      });
+
+      const msgList: ChatMessage[] = messagesRes?.messages ?? messagesRes?.data?.messages ?? [];
+      setMessages(msgList);
+
+      // Mark as read
+      await api.post(`/messaging/groups/${groupId}/read`, {});
+      setGroups((prev) =>
+        prev.map((g) => (g.id === groupId ? { ...g, unreadCount: 0 } : g))
+      );
+      scrollToBottom();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to load group messages.');
+    }
+  }, [scrollToBottom]);
+
+  const selectConversation = React.useCallback(async (convId: string) => {
+    setActiveConvId(convId);
+    setActiveGroupId(null);
+    setActiveGroupDetails(null);
+    setMobileShowChat(true);
+    setReplyingTo(null);
+    setEditingMessage(null);
+    setAttachedFiles([]);
+    setErrorMessage(null);
+
+    try {
+      const messagesRes = await api.get<any>(`/messaging/conversations/${convId}/messages?limit=60`);
+      const msgList: ChatMessage[] = messagesRes?.messages ?? messagesRes?.data?.messages ?? [];
+      setMessages(msgList);
+
+      // Mark as read
+      await api.post(`/messaging/conversations/${convId}/read`, {});
+      setConversations((prev) =>
+        prev.map((c) => (c.id === convId ? { ...c, unreadCount: 0 } : c))
+      );
+      scrollToBottom();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to load direct messages.');
+    }
+  }, [scrollToBottom]);
+
   // --------------------------------------------------------------------------
   // WebSocket Lifecycle
   // --------------------------------------------------------------------------
@@ -185,11 +291,14 @@ export function MessagingApp({ role: propRole }: MessagingAppProps) {
     ws.connect();
 
     const unsubscribe = ws.addListener((payload) => {
+      const currentGroupId = activeGroupIdRef.current;
+      const currentConvId = activeConvIdRef.current;
+
       if (payload.event === 'new_message') {
         const msg: ChatMessage = payload.data;
         if (
-          (activeGroupId && msg.groupId === activeGroupId) ||
-          (activeConvId && msg.conversationId === activeConvId)
+          (currentGroupId && msg.groupId === currentGroupId) ||
+          (currentConvId && msg.conversationId === currentConvId)
         ) {
           setMessages((prev) => {
             if (prev.some((m) => m.id === msg.id)) return prev;
@@ -207,7 +316,7 @@ export function MessagingApp({ role: propRole }: MessagingAppProps) {
                     ...g,
                     lastMessageText: msg.content,
                     lastMessageAt: msg.createdAt,
-                    unreadCount: g.id === activeGroupId ? 0 : g.unreadCount + 1,
+                    unreadCount: g.id === currentGroupId ? 0 : g.unreadCount + 1,
                   }
                 : g
             )
@@ -220,7 +329,7 @@ export function MessagingApp({ role: propRole }: MessagingAppProps) {
                     ...c,
                     lastMessageText: msg.content,
                     lastMessageAt: msg.createdAt,
-                    unreadCount: c.id === activeConvId ? 0 : c.unreadCount + 1,
+                    unreadCount: c.id === currentConvId ? 0 : c.unreadCount + 1,
                   }
                 : c
             )
@@ -254,11 +363,11 @@ export function MessagingApp({ role: propRole }: MessagingAppProps) {
           )
         );
       } else if (payload.event === 'room_revoked') {
-        if (activeGroupId && payload.room === `group:${activeGroupId}`) {
+        if (currentGroupId && payload.room === `group:${currentGroupId}`) {
           setErrorMessage('Your access to this batch group has been updated or revoked.');
           setActiveGroupId(null);
           setMobileShowChat(false);
-          loadSidebar();
+          loadSidebarRef.current();
         }
       }
     });
@@ -267,7 +376,7 @@ export function MessagingApp({ role: propRole }: MessagingAppProps) {
       unsubscribe();
       ws.disconnect();
     };
-  }, [activeGroupId, activeConvId, loadSidebar]);
+  }, [scrollToBottom]);
 
   // Subscribe to active room
   React.useEffect(() => {
@@ -285,38 +394,10 @@ export function MessagingApp({ role: propRole }: MessagingAppProps) {
     }
   }, [activeGroupId, activeConvId]);
 
-  // --------------------------------------------------------------------------
-  // Data Loaders
-  // --------------------------------------------------------------------------
-  const loadSidebar = React.useCallback(async () => {
-    try {
-      const [groupsRes, convsRes, blocksRes] = await Promise.all([
-        api.get<any>('/messaging/groups'),
-        api.get<any>('/messaging/conversations'),
-        api.get<any>('/messaging/users/blocked').catch(() => ({ blockedUsers: [] })),
-      ]);
-
-      const gList: MessagingGroup[] = groupsRes?.groups ?? groupsRes?.data?.groups ?? [];
-      const cList: MessagingConversation[] = convsRes?.conversations ?? convsRes?.data?.conversations ?? [];
-      const bList: string[] = (blocksRes?.blockedUsers ?? blocksRes?.data?.blockedUsers ?? []).map(
-        (u: any) => u.id
-      );
-
-      setGroups(gList);
-      setConversations(cList);
-      setBlockedUsers(bList);
-      return { gList, cList };
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to load conversations.');
-      return { gList: [], cList: [] };
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   React.useEffect(() => {
     loadSidebar().then(({ gList, cList }) => {
-      if (!activeGroupId && !activeConvId) {
+      if (!hasInitialSelectedRef.current && !activeGroupId && !activeConvId) {
+        hasInitialSelectedRef.current = true;
         if (gList.length > 0) {
           selectGroup(gList[0].id);
         } else if (cList.length > 0) {
@@ -324,74 +405,7 @@ export function MessagingApp({ role: propRole }: MessagingAppProps) {
         }
       }
     });
-  }, [loadSidebar]);
-
-  const selectGroup = async (groupId: string) => {
-    setActiveGroupId(groupId);
-    setActiveConvId(null);
-    setMobileShowChat(true);
-    setReplyingTo(null);
-    setEditingMessage(null);
-    setAttachedFiles([]);
-    setErrorMessage(null);
-
-    try {
-      const [detailsRes, messagesRes] = await Promise.all([
-        api.get<any>(`/messaging/groups/${groupId}`),
-        api.get<any>(`/messaging/groups/${groupId}/messages?limit=60`),
-      ]);
-
-      const groupData = detailsRes?.group ?? detailsRes?.data ?? detailsRes;
-      setActiveGroupDetails({
-        members: groupData.members || [],
-        pinnedMessages: groupData.pinnedMessages || [],
-      });
-
-      const msgList: ChatMessage[] = messagesRes?.messages ?? messagesRes?.data?.messages ?? [];
-      setMessages(msgList);
-
-      // Mark as read
-      await api.post(`/messaging/groups/${groupId}/read`, {});
-      setGroups((prev) =>
-        prev.map((g) => (g.id === groupId ? { ...g, unreadCount: 0 } : g))
-      );
-      scrollToBottom();
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to load group messages.');
-    }
-  };
-
-  const selectConversation = async (convId: string) => {
-    setActiveConvId(convId);
-    setActiveGroupId(null);
-    setActiveGroupDetails(null);
-    setMobileShowChat(true);
-    setReplyingTo(null);
-    setEditingMessage(null);
-    setAttachedFiles([]);
-    setErrorMessage(null);
-
-    try {
-      const messagesRes = await api.get<any>(`/messaging/conversations/${convId}/messages?limit=60`);
-      const msgList: ChatMessage[] = messagesRes?.messages ?? messagesRes?.data?.messages ?? [];
-      setMessages(msgList);
-
-      // Mark as read
-      await api.post(`/messaging/conversations/${convId}/read`, {});
-      setConversations((prev) =>
-        prev.map((c) => (c.id === convId ? { ...c, unreadCount: 0 } : c))
-      );
-      scrollToBottom();
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to load direct messages.');
-    }
-  };
-
-  const scrollToBottom = () => {
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
-  };
+  }, [loadSidebar, selectGroup, selectConversation, activeGroupId, activeConvId]);
 
   // --------------------------------------------------------------------------
   // Message Actions

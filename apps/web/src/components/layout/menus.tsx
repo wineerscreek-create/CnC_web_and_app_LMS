@@ -1,6 +1,6 @@
 'use client';
 
-import { Bell, Camera, CheckCheck, HelpCircle, LogOut, Monitor, Settings, User } from 'lucide-react';
+import { Bell, Camera, CheckCheck, Edit3, HelpCircle, LogOut, Monitor, Settings, User } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import * as React from 'react';
@@ -177,6 +177,27 @@ export function ProfileMenu({ user }: { user: SessionUser }) {
             <ThemeToggle variant="menu-item" />
           </div>
           <DropdownMenuSeparator />
+          {user.role === 'TRAINER' && (
+            <>
+              <DropdownMenuItem asChild>
+                <Link href="/trainer/profile">
+                  <User aria-hidden />
+                  View Profile
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/trainer/profile?mode=edit">
+                  <Edit3 aria-hidden />
+                  Edit Profile
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setAvatarModalOpen(true)}>
+                <Camera aria-hidden />
+                Change Profile Photo
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           {user.role === 'STUDENT' && (
             <DropdownMenuItem asChild>
               <Link href="/student/profile">

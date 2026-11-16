@@ -3257,6 +3257,7 @@ async def quiz_launch_token(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dic
         "roll_number": user_info["roll_number"] if user_info and user_info["roll_number"] else (str(user_info["email"]).split("@")[0] if user_info else "STUDENT"),
         "quiz_id": str(quiz_data["id"]),
         "quiz_code": quiz_data.get("quizCode"),
+        "durationMinutes": int(quiz_data.get("durationMinutes") or 30),
         "batch_id": str(user_info["batch_id"]) if user_info and user_info["batch_id"] else None,
         "batch_name": user_info["batch_name"] if user_info else None,
         "role": "student",
@@ -3310,6 +3311,31 @@ async def submit_assessment(
         )
         await _award_xp(ctx, amount=int(res["score"] / 5), source="quiz", label="Assessment")
         return {"success": True, "data": res}
+
+    quiz = await QuizRepo(ctx).get(quiz_id)
+    attempt = await QuizAttemptRepo(ctx).find_one(
+        {"studentUserId": ctx.user_id, "assessmentId": quiz["_id"]}
+    )
+    if attempt and not quiz.get("allowRetake"):
+        raise Conflict("You have already submitted this assessment")
+    score = 0
+    q_map = {str(q.get("id")): q for q in quiz.get("questions", [])}
+    for a in payload.answers:
+        qid = a.get("questionId")
+        if qid in q_map:
+            score += q_map[qid].get("marks", 1)
+    new_attempt = {
+        "assessmentId": quiz["_id"],
+        "studentUserId": ctx.user_id,
+        "score": score,
+        "possible": quiz.get("maxScore", 100),
+        "answers": payload.answers,
+        "completedAt": _now(),
+        "createdAt": _now(),
+        "percentage": 100.0,
+    }
+    await QuizAttemptRepo(ctx).insert(new_attempt)
+    return {"success": True, "data": serialize(new_attempt)}
 
 
 @router.post("/assessments/{quiz_id}/draft-answer")

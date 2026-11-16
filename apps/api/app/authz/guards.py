@@ -91,6 +91,7 @@ async def get_scope_context(request: Request) -> ScopeContext:
                     "departmentId": str(pg_user["department_id"]) if pg_user.get("department_id") else None,
                     "status": str(pg_user["status"]).lower(),
                     "emailVerified": bool(pg_user.get("email_verified", True)),
+                    "mustChangePassword": bool(pg_user.get("must_change_password", False)),
                 }
                 # Hydrate missing department / institution from profile or assignment tables
                 if not user.get("departmentId") and str(user.get("role")).upper() in ("HOD", "SPOC"):
@@ -150,6 +151,7 @@ async def get_scope_context(request: Request) -> ScopeContext:
                         "departmentId": str(pg_user["department_id"]) if pg_user.get("department_id") else None,
                         "status": str(pg_user["status"]).lower(),
                         "emailVerified": bool(pg_user.get("email_verified", True)),
+                        "mustChangePassword": bool(pg_user.get("must_change_password", False)),
                     }
             except Exception:
                 pass
@@ -160,6 +162,19 @@ async def get_scope_context(request: Request) -> ScopeContext:
         raise Unauthenticated("This account is not active")
     if settings.EMAIL_VERIFICATION_ENABLED and not user.get("emailVerified", False):
         raise Unauthenticated("Please verify your email address to continue")
+
+    # Enforce mandatory first-login password change on backend
+    if user.get("mustChangePassword"):
+        req_path = request.url.path
+        allowed_auth_paths = (
+            "/auth/change-password",
+            "/auth/me",
+            "/auth/logout",
+            "/auth/refresh",
+            "/auth/sessions",
+        )
+        if not any(req_path.endswith(p) or p in req_path for p in allowed_auth_paths):
+            raise RoleForbidden("Password change required. You must set a new permanent password before accessing system resources.")
 
     role = parse_role(user["role"])
     token_role_str = str(payload.get("role", "")).upper()

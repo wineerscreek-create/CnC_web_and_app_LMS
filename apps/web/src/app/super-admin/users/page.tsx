@@ -24,6 +24,7 @@ import {
   Users,
 } from 'lucide-react';
 import * as React from 'react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/shared/page-header';
@@ -104,6 +105,7 @@ export default function SuperAdminUsersPage() {
     mobile: '',
     employeeId: '',
     role: 'TRAINER',
+    affiliationType: 'INSTITUTION',
     collegeId: '',
     departmentId: '',
     designation: '',
@@ -111,6 +113,21 @@ export default function SuperAdminUsersPage() {
     specialization: '',
     temporaryPassword: '',
   });
+
+  const [departments, setDepartments] = React.useState<any[]>([]);
+
+  React.useEffect(() => {
+    if (!form.collegeId) {
+      setDepartments([]);
+      return;
+    }
+    api.get<any>(`/super-admin/colleges/${form.collegeId}/departments`)
+      .then((res) => {
+        const depts = res?.data ?? res ?? [];
+        setDepartments(Array.isArray(depts) ? depts : []);
+      })
+      .catch(() => setDepartments([]));
+  }, [form.collegeId]);
 
   const [selectedPermissions, setSelectedPermissions] = React.useState<string[]>([
     'VIEW_ASSIGNED_CLASSES',
@@ -181,6 +198,7 @@ export default function SuperAdminUsersPage() {
     e.preventDefault();
     setProvisioning(true);
     try {
+      const isOnlineTrainer = form.role === 'TRAINER' && form.affiliationType === 'ONLINE';
       const res = await api.post<any>('/super-admin/users', {
         name: form.name.trim(),
         email: form.email.trim().toLowerCase(),
@@ -188,8 +206,9 @@ export default function SuperAdminUsersPage() {
         employeeId: form.employeeId.trim(),
         role: form.role,
         permissions: selectedPermissions,
-        collegeId: form.collegeId || undefined,
-        departmentId: form.departmentId || undefined,
+        affiliationType: isOnlineTrainer ? 'ONLINE' : 'INSTITUTION',
+        collegeId: isOnlineTrainer ? undefined : (form.collegeId || undefined),
+        departmentId: isOnlineTrainer ? undefined : (form.departmentId || undefined),
         designation: form.designation.trim(),
         qualification: form.qualification.trim(),
         specialization: form.specialization.trim(),
@@ -276,6 +295,12 @@ export default function SuperAdminUsersPage() {
             <Badge tone="indigo" dot>
               {num(pagination.total)} Registered Users
             </Badge>
+            <Link href="/super-admin/staff-management">
+              <Button variant="secondary" size="sm" className="flex items-center gap-1.5 border-indigo-200 text-indigo-700 hover:bg-indigo-50">
+                <ShieldCheck className="size-4" />
+                Staff Dashboard
+              </Button>
+            </Link>
             <Button
               variant="primary"
               size="sm"
@@ -287,6 +312,7 @@ export default function SuperAdminUsersPage() {
                   mobile: '',
                   employeeId: '',
                   role: 'TRAINER',
+                  affiliationType: 'INSTITUTION',
                   collegeId: colleges[0]?.id || '',
                   departmentId: '',
                   designation: '',
@@ -699,13 +725,46 @@ export default function SuperAdminUsersPage() {
                 </div>
               </div>
 
-              {form.role !== 'SUPER_ADMIN' && (
+              {/* Trainer Affiliation Scope Toggle */}
+              {form.role === 'TRAINER' && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 space-y-2">
+                  <label className="text-xs font-semibold text-slate-800">Trainer Affiliation Type</label>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="affiliationType"
+                        value="INSTITUTION"
+                        checked={form.affiliationType === 'INSTITUTION'}
+                        onChange={() => setForm({ ...form, affiliationType: 'INSTITUTION' })}
+                        className="text-primary focus:ring-primary"
+                      />
+                      <span>Institution-Affiliated</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="affiliationType"
+                        value="ONLINE"
+                        checked={form.affiliationType === 'ONLINE'}
+                        onChange={() => setForm({ ...form, affiliationType: 'ONLINE', collegeId: '', departmentId: '' })}
+                        className="text-primary focus:ring-primary"
+                      />
+                      <span className="font-semibold text-indigo-700">Independent / Online Trainer</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Institution and Department Fields */}
+              {form.role !== 'SUPER_ADMIN' && !(form.role === 'TRAINER' && form.affiliationType === 'ONLINE') && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Field label="Institution / College" htmlFor="pCollege" required>
                     <select
                       id="pCollege"
+                      required
                       value={form.collegeId}
-                      onChange={(e) => setForm({ ...form, collegeId: e.target.value })}
+                      onChange={(e) => setForm({ ...form, collegeId: e.target.value, departmentId: '' })}
                       className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground font-medium"
                     >
                       <option value="">Select College…</option>
@@ -717,14 +776,34 @@ export default function SuperAdminUsersPage() {
                     </select>
                   </Field>
 
-                  <Field label="Designation" htmlFor="pDesig">
-                    <Input
-                      id="pDesig"
-                      value={form.designation}
-                      onChange={(e) => setForm({ ...form, designation: e.target.value })}
-                      placeholder="Senior Technical Trainer"
-                    />
-                  </Field>
+                  {form.role === 'HOD' ? (
+                    <Field label="Department (Branch)" htmlFor="pDept" required>
+                      <select
+                        id="pDept"
+                        required
+                        value={form.departmentId}
+                        onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
+                        disabled={!form.collegeId || departments.length === 0}
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-foreground font-medium"
+                      >
+                        <option value="">{departments.length === 0 ? (form.collegeId ? 'No departments found' : 'Select College first') : 'Select Department…'}</option>
+                        {departments.map((d: any) => (
+                          <option key={d.id} value={d.id}>
+                            {d.name} ({d.code})
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  ) : (
+                    <Field label="Designation" htmlFor="pDesig">
+                      <Input
+                        id="pDesig"
+                        value={form.designation}
+                        onChange={(e) => setForm({ ...form, designation: e.target.value })}
+                        placeholder="Senior Technical Trainer"
+                      />
+                    </Field>
+                  )}
                 </div>
               )}
 
@@ -746,6 +825,32 @@ export default function SuperAdminUsersPage() {
                     placeholder="Full Stack, DSA, Aptitude"
                   />
                 </Field>
+              </div>
+
+              {/* Temporary Password Configuration */}
+              <div className="space-y-1.5 rounded-xl border border-slate-200 bg-slate-50/50 p-3.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-800">Initial Temporary Password (Optional)</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const rnd = `Staff@${Math.random().toString(36).substring(2, 6).toUpperCase()}#!`;
+                      setForm({ ...form, temporaryPassword: rnd });
+                    }}
+                    className="text-[11px] font-medium text-indigo-600 hover:text-indigo-700 underline"
+                  >
+                    Generate Random
+                  </button>
+                </div>
+                <Input
+                  id="pTempPwd"
+                  value={form.temporaryPassword}
+                  onChange={(e) => setForm({ ...form, temporaryPassword: e.target.value })}
+                  placeholder="Leave empty to auto-generate secure password"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  The user will be required to change this password on their very first login.
+                </p>
               </div>
 
               <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2">

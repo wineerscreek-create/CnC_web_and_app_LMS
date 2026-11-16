@@ -434,3 +434,103 @@ async def test_trainer_csv_questions_upload(client: AsyncClient, trainer: Sessio
     assert questions[0]["eediTerm"] == "OOP Concepts"
     assert questions[1]["text"] == "What is encapsulation?"
     assert questions[1]["eediIndex"] == 202
+
+
+@pytest.mark.asyncio
+async def test_exact_configured_duration_and_timer_persistence(trainer: Session, student: Session):
+    """Verify that a 5-minute assessment starts with exactly 300s, launch token carries 5m, and timer does not reset."""
+    import jwt
+    trainer_id = uuid.UUID(trainer.user["id"])
+    student_id = uuid.UUID(student.user["id"])
+    inst_id = uuid.UUID(trainer.user["collegeId"])
+    dept_id = uuid.UUID(trainer.user["departmentId"]) if trainer.user.get("departmentId") else None
+
+    # 1. Setup shared batch for trainer and student
+    batch_id = uuid.uuid4()
+    batch_code = f"TB-5M-{uuid.uuid4().hex[:6]}"
+    async with get_pg_connection() as conn:
+        await conn.execute(
+            """
+            INSERT INTO batches (id, institution_id, department_id, name, code)
+            VALUES ($1, $2, $3, '5-Minute Test Batch', $4)
+            """,
+            batch_id, inst_id, dept_id, batch_code
+        )
+        await conn.execute(
+            """
+            INSERT INTO batch_trainers (id, batch_id, trainer_user_id, institution_id, status)
+            VALUES ($1, $2, $3, $4, 'ACTIVE')
+            ON CONFLICT (batch_id, trainer_user_id) DO NOTHING
+            """,
+            uuid.uuid4(), batch_id, trainer_id, inst_id
+        )
+        await conn.execute(
+            """
+            INSERT INTO student_profiles (id, user_id, batch_id, institution_id, roll_number)
+            VALUES (gen_random_uuid(), $1, $2, $3, 'ST-5M-01')
+            ON CONFLICT (user_id) DO UPDATE SET batch_id = $2
+            """,
+            student_id, batch_id, inst_id
+        )
+
+    target_batch_id = str(batch_id)
+
+    # 2. Trainer creates a 5-minute assessment (durationMinutes = 5)
+    create_payload = {
+        "title": "5-Minute Timed Precision Assessment",
+        "durationMinutes": 5,
+        "maxScore": 20,
+        "batchIds": [target_batch_id],
+        "settings": {
+            "is_proctored": True,
+            "camera_required": True,
+            "fullscreen_required": True,
+            "enable_timed_questions": False,
+        },
+        "questions": [
+            {
+                "id": "q1",
+                "text": "What is 5 x 5?",
+                "options": [{"id": "A", "text": "25", "correct": True}, {"id": "B", "text": "30", "correct": False}],
+                "marks": 10,
+            },
+            {
+                "id": "q2",
+                "text": "What is 10 x 10?",
+                "options": [{"id": "A", "text": "100", "correct": True}, {"id": "B", "text": "200", "correct": False}],
+                "marks": 10,
+            }
+        ],
+    }
+    create_res = await trainer.post("/trainer/assessments", json=create_payload)
+    assert create_res.status_code == 201, create_res.text
+    quiz_id = create_res.json()["data"]["id"]
+
+    # 3. Student fetches assessment detail -> durationMinutes must be 5
+    detail_res = await student.get(f"/student/assessments/{quiz_id}")
+    assert detail_res.status_code == 200, detail_res.text
+    data = detail_res.json()["data"]
+    assert data["durationMinutes"] == 5
+    assert data["timingState"]["total_duration_seconds"] == 300
+    assert data["timingState"]["remaining_seconds"] == 300
+
+    # 4. Student generates launch token -> launch token claims MUST contain durationMinutes = 5
+    token_res = await student.post(f"/student/assessments/{quiz_id}/launch-token")
+    assert token_res.status_code == 200, token_res.text
+    launch_token = token_res.json()["data"]["launchToken"]
+    claims = jwt.decode(launch_token, options={"verify_signature": False})
+    assert claims.get("durationMinutes") == 5, f"Expected durationMinutes=5 in token, got {claims.get('durationMinutes')}"
+
+    # 5. Student starts attempt -> server returns timingState with total_duration_seconds = 300
+    start_res = await student.post(f"/student/assessments/{quiz_id}/start")
+    assert start_res.status_code == 200, start_res.text
+    timing = start_res.json()["data"]["timingState"]
+    assert timing["total_duration_seconds"] == 300
+    assert 295 <= timing["remaining_seconds"] <= 300
+
+    # 6. Reconnect / refresh simulation: fetching detail again must restore remaining time without resetting to 300
+    refresh_res = await student.get(f"/student/assessments/{quiz_id}")
+    assert refresh_res.status_code == 200
+    refresh_timing = refresh_res.json()["data"]["timingState"]
+    assert refresh_timing["total_duration_seconds"] == 300
+    assert refresh_timing["remaining_seconds"] <= timing["remaining_seconds"]

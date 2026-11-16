@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import * as React from 'react';
 
 import { PortalShell } from '@/components/layout/portal-shell';
+import { ForcePasswordChangeModal } from '@/components/auth/force-password-change-modal';
 import { SkillSharpLogo } from '@/components/ui/SkillSharpLogo';
 import { ROLE_HOME, type Role } from '@/lib/roleRoutes';
 import { useAppSelector } from '@/store';
@@ -38,7 +39,12 @@ export function RouteGuard({
   }, [status, user, allowed, router]);
 
   if (status === 'authenticated' && user && allowed.includes(user.role as Role)) {
-    return <>{children}</>;
+    return (
+      <>
+        {user.mustChangePassword && <ForcePasswordChangeModal />}
+        {children}
+      </>
+    );
   }
 
   return (

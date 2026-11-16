@@ -68,6 +68,8 @@ reports/
 !CNC_LMS_GLOBAL_AI_AND_ERROR_REPAIR_REPORT.md
 !QUIZ_LMS_INTEGRATION_AUDIT.md
 !QUIZ_LMS_INTEGRATION_ARCHITECTURE.md
+!ARYA_STUDENT_PASSWORD_RESET_REPORT.md
+!ARYA_PRODUCTION_PASSWORD_RESET_AUDIT.md
 !QUIZ_LMS_SECURITY_AUDIT.md
 !QUIZ_LMS_TEST_REPORT.md
 !QUIZ_LMS_INTEGRATION_GUIDE.md
@@ -83,6 +85,9 @@ reports/
 !MESSAGING_SECURITY_AUDIT.md
 !MESSAGING_TEST_RESULTS.md
 !MESSAGING_DEPLOYMENT_GUIDE.md
+!ARYA_STUDENT_PASSWORD_RESET_REPORT.md
+!TRAINER_PROFILE_IMPLEMENTATION_REPORT.md
+!TRAINER_PROFILE_TEST_RESULTS.md
 
 # 7. Scratch & Temporary Development Directories
 scratch/
@@ -99,6 +104,8 @@ apps/api/tests/*
 !apps/api/tests/test_quiz_lms_integration.py
 !apps/api/tests/test_quiz_proctoring_integration.py
 !apps/api/tests/test_institute_messaging_system.py
+!apps/api/tests/test_trainer_profile_and_password_reset.py
+!apps/api/tests/test_quiz_timing_modes.py
 apps/api/test_*.py
 apps/api/audit_*.py
 apps/api/verify_*.py

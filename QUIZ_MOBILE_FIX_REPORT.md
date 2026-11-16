@@ -1,4 +1,4 @@
-# Quiz Mobile Assessment UX & Live Proctoring Fix Report
+# Quiz Mobile Assessment UX, Distraction-Free Fullscreen Examination & Proctoring Report
 
 **Project:** Winners Creek LMS (SkillSharp)  
 **Production Frontend:** https://cnc-lms.vercel.app/  
@@ -11,19 +11,34 @@
 
 ## 1. Executive Summary
 
-This report documents the architectural diagnosis, root-cause resolution, and responsive refactoring of the Quiz Assessment Engine in Winners Creek LMS, specifically addressing:
-1. **Mobile Assessment Controls Layout**: Eliminating button overflow, guaranteeing visibility of the "Next" and "Previous" controls across narrow viewports (360px, 375px, 390px, 412px), replacing "Next" with "Submit" on the final question, and docking navigation into a sticky, backdrop-blurred mobile bar.
-2. **Camera Proctoring Sprawl & Mobile Framing**: Refactoring `<CameraFeed />` to prefer the user-facing front camera (`facingMode: 'user'`) with graceful fallback, eliminating vertical layout sprawl by integrating a compact header/floating thumbnail on mobile devices.
-3. **Root-Cause Fix for `Live Camera Feeds (0)`**: Resolving the connection failure where student snapshot relays and trainer supervisor monitors attempted WebSocket connections against Vercel serverless domains instead of the Render FastAPI WebSocket Hub.
-4. **Pre-Flight Fullscreen Immersion**: Introducing an explicit pre-flight start screen verifying camera access and triggering native fullscreen on explicit user touch.
+This report documents the architectural diagnosis, root-cause resolution, and complete interface redesign of the Student Assessment Engine in Winners Creek LMS, transforming it into a **professional, distraction-free online examination platform**:
+
+1. **Elimination of LMS UI Shell**: When taking an assessment, the entire LMS interface (logo, hamburger menu, navigation sidebar, top navigation bar, search input, theme toggle, notification bell, profile avatar, chatbot floating assistant, and breadcrumbs) is completely bypassed.
+2. **Dedicated Fullscreen Examination Mode**: Candidates enter an uninterrupted fullscreen environment via an explicit user gesture from the pre-flight start screen. Fullscreen exit is detected by browser event listeners and triggers anti-cheat warnings with an un-dismissible re-entry modal.
+3. **Clean Three-Item Top Examination Bar**:
+   - **Left**: `Question X of Y` indicator.
+   - **Center**: Authoritative assessment countdown timer (`04:58`, `29:45`) without distracting phase labels.
+   - **Right**: Prominent `Submit Assessment` action button.
+4. **Maximized Question Area & Question Palette Removal**: Removed the entire Question Palette and duplicate bottom status counters. Long question text, marks badges, touch-friendly option targets, and explanation cards receive maximum screen space (`100dvh` layout).
+5. **Floating Camera Proctoring Thumbnail**: Re-anchored the live webcam preview to a compact floating thumbnail in the bottom-right corner (`w-28` on mobile, `w-36` on desktop) with a live REC indicator, completely isolated from question content and action buttons.
+6. **Robust Multi-Device Responsiveness**: Thoroughly verified across Android mobile viewports (360px, 375px, 390px, 412px), tablets, and desktop displays.
 
 ---
 
 ## 2. Issues Diagnosed & Root Causes
 
-### 2.1 Mobile Controls Overflow & Hidden "Next" Button
-* **Symptoms**: On mobile devices (e.g. 360px viewport widths), the "Next" button was invisible or pushed beyond the right boundary of the viewport. Controls scrolled off-screen below the camera and questions.
-* **Root Cause**: The previous navigation cluster was nested in an unwrapped `flex items-center gap-2` div containing four fixed-width buttons (`Previous`, `Save`, `Mark Review`, `Next`) totaling over 360px, plus container padding. On viewports under 400px, the trailing "Next" button overflowed horizontally.
+### 2.1 LMS Navigation Shell Enclosing Assessment
+* **Symptoms**: Student assessment was rendered inside `<PortalShell>`, displaying the left sidebar navigation, top application header, search bar, theme toggle, notification bell, and floating chatbot.
+* **Root Cause**: `apps/web/src/app/student/layout.tsx` wrapped all `/student/*` child routes unconditionally in `<PortalPage>`.
+* **Fix**: Updated `StudentLayout` to inspect `usePathname()`. When matching `/student/assessments/[quizId]`, the layout renders `<RouteGuard allow="STUDENT">{children}</RouteGuard>`, completely bypassing `PortalShell` while maintaining strict authentication and role security.
+
+### 2.2 Question Palette Clutter and Duplicate Indicators
+* **Symptoms**: The examination screen displayed `Question 1 of 20` at the top, `Question 1 of 20` in the bottom navigation bar, and an entire Question Palette grid taking up a third of the screen.
+* **Fix**: Completely removed the Question Palette component and duplicate bottom counter from the active exam view. Question progress is displayed strictly once in the top left: `Question 1 of 20`.
+
+### 2.3 Camera Preview Layout Interference
+* **Symptoms**: On mobile and desktop, the camera preview either occupied an entire column or cluttered the question header.
+* **Fix**: Positioned as a floating thumbnail at `fixed bottom-4 right-4 z-40 rounded-xl overflow-hidden shadow-2xl border border-border/80 bg-black/95` with compact dimensions (`w-28` to `w-36 aspect-video`), keeping the video active, recording snapshots, and never obscuring question text or buttons.
 
 ### 2.2 Live Camera Feeds Showing (0) in Trainer Dashboard
 * **Symptoms**: Candidate's local camera showed a green REC pulse, but the Trainer Live Monitor displayed `Live Camera Feeds (0)` with "Awaiting frame..." or offline indicators.

@@ -2235,6 +2235,9 @@ async def create_trainer_assessment(
     res = await QuizRepository.create_trainer_quiz(
         ctx,
         title=payload.title,
+        description=payload.description,
+        instructions=payload.instructions,
+        course_id=payload.courseId,
         duration_minutes=payload.durationMinutes,
         max_score=payload.maxScore,
         opens_at=payload.opensAt,
@@ -2266,6 +2269,9 @@ async def update_trainer_assessment(
         ctx,
         quiz_id=quiz_id,
         title=payload.title,
+        description=payload.description,
+        instructions=payload.instructions,
+        course_id=payload.courseId,
         duration_minutes=payload.durationMinutes,
         max_score=payload.maxScore,
         opens_at=payload.opensAt,
@@ -2986,65 +2992,26 @@ from app.routers.trainer_profile import (
     get_my_trainer_profile,
     update_my_trainer_profile,
     upload_trainer_photo,
+    upload_trainer_resume,
+    upload_trainer_teaching_photo,
+    set_trainer_testimonial_approval,
     TrainerProfileUpdateRequest,
+    TrainerTestimonialApprovalRequest,
 )
 
 @router.get("/profile")
 async def trainer_profile(ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
-    try:
-        uuid_val = UUID(str(ctx.user_id))
-    except Exception:
-        uuid_val = None
-
-    if settings.USE_POSTGRES and uuid_val:
-        res = await get_my_trainer_profile(ctx)
-        if "data" in res and isinstance(res["data"], dict):
-            res["data"].setdefault("name", res["data"].get("displayName"))
-            if "sessionsConducted" not in res["data"]:
-                res["data"]["sessionsConducted"] = res["data"].get("stats", {}).get("sessionsConducted", 0)
-            if "assignments" not in res["data"]:
-                assignments_list = await TrainerAssignmentRepo(ctx).find_all({"active": True}, limit=200)
-                res["data"]["assignments"] = serialize(assignments_list)
-        return res
-
-    user = await get_db().users.find_one({"_id": ctx.user_id})
-    assignments_list = await TrainerAssignmentRepo(ctx).find_all({"active": True}, limit=200)
-    sessions_conducted = await TrainingSessionRepo(ctx).count({})
-    feedback = await TrainerFeedbackRepo(ctx).aggregate(
-        [
-            {"$match": {"trainerUserId": ctx.user_id}},
-            {"$group": {"_id": None, "avg": {"$avg": "$rating"}, "n": {"$sum": 1}}},
-        ]
-    )
-    avg_fb = round(feedback[0]["avg"], 1) if feedback and feedback[0].get("avg") else 5.0
-    fb_cnt = feedback[0]["n"] if feedback else 0
-    return {
-        "success": True,
-        "data": {
-            "id": str(ctx.user_id),
-            "userId": str(ctx.user_id),
-            "name": (user or {}).get("name"),
-            "displayName": (user or {}).get("name"),
-            "email": (user or {}).get("email"),
-            "designation": (user or {}).get("designation") or "Corporate Trainer",
-            "departmentName": (user or {}).get("departmentName"),
-            "assignments": serialize(assignments_list),
-            "sessionsConducted": sessions_conducted,
-            "averageFeedback": avg_fb,
-            "feedbackEntries": fb_cnt,
-            "access": (user or {}).get("access", {}),
-            "stats": {
-                "sessionsConducted": sessions_conducted,
-                "averageFeedback": avg_fb,
-                "feedbackCount": fb_cnt,
-            },
-            "completionPercent": 85,
-            "rating": avg_fb,
-        },
-    }
+    return await get_my_trainer_profile(ctx)
 
 @router.patch("/profile")
 async def patch_trainer_profile(
+    payload: TrainerProfileUpdateRequest,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    return await update_my_trainer_profile(payload, ctx)
+
+@router.put("/profile")
+async def put_trainer_profile(
     payload: TrainerProfileUpdateRequest,
     ctx: ScopeContext = TrainerCtx,
 ) -> dict[str, Any]:
@@ -3056,6 +3023,28 @@ async def post_trainer_photo(
     ctx: ScopeContext = TrainerCtx,
 ) -> dict[str, Any]:
     return await upload_trainer_photo(file, ctx)
+
+@router.post("/profile/resume")
+async def post_trainer_resume(
+    file: UploadFile = File(...),
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    return await upload_trainer_resume(file, ctx)
+
+@router.post("/profile/teaching-photo")
+async def post_trainer_teaching_photo(
+    file: UploadFile = File(...),
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    return await upload_trainer_teaching_photo(file, ctx)
+
+@router.post("/profile/{target_user_id}/testimonial")
+async def post_trainer_testimonial(
+    target_user_id: str,
+    payload: TrainerTestimonialApprovalRequest,
+    ctx: ScopeContext = Depends(require_role(Role.SUPER_ADMIN)),
+) -> dict[str, Any]:
+    return await set_trainer_testimonial_approval(target_user_id, payload, ctx)
 
 
 # --------------------------------------------------------------------------- E-Books
@@ -3779,5 +3768,180 @@ async def delete_trainer_recording(recording_id: str, ctx: ScopeContext = Traine
             raise NotFound("Recording not found or unauthorized.")
         return {"success": True, "message": "Recording removed."}
     return {"success": False}
+
+
+# --------------------------------------------------------------------------- Course Invitations
+@router.get("/course-invitations")
+async def trainer_list_course_invitations(ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
+    """Lists all pending and past course teaching invitations offered to this trainer."""
+    if not ctx.user_id:
+        return {"success": True, "items": []}
+
+    try:
+        t_uuid = UUID(str(ctx.user_id))
+    except (ValueError, TypeError):
+        return {"success": True, "items": []}
+
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        async with get_pg_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT 
+                    ci.id, ci.course_id, c.title as course_title, c.code as course_code,
+                    c.category as course_category, c.delivery_mode,
+                    ci.institution_id, i.name as institution_name,
+                    ci.department_id, d.name as department_name,
+                    ci.batch_id, b.name as batch_name,
+                    ci.status, ci.notes, ci.proposed_start_date, ci.proposed_end_date,
+                    ci.response_notes, ci.responded_at, ci.created_at
+                FROM course_invitations ci
+                JOIN courses c ON ci.course_id = c.id
+                LEFT JOIN institutions i ON ci.institution_id = i.id
+                LEFT JOIN departments d ON ci.department_id = d.id
+                LEFT JOIN batches b ON ci.batch_id = b.id
+                WHERE ci.trainer_user_id = $1
+                ORDER BY 
+                    CASE WHEN ci.status = 'PENDING' THEN 1 ELSE 2 END,
+                    ci.created_at DESC
+                """,
+                t_uuid,
+            )
+            items = [
+                {
+                    "id": str(r["id"]),
+                    "courseId": str(r["course_id"]),
+                    "courseTitle": r["course_title"],
+                    "courseCode": r["course_code"],
+                    "category": r["course_category"],
+                    "deliveryMode": r["delivery_mode"],
+                    "institutionId": str(r["institution_id"]) if r["institution_id"] else None,
+                    "institutionName": r["institution_name"],
+                    "departmentId": str(r["department_id"]) if r["department_id"] else None,
+                    "departmentName": r["department_name"],
+                    "batchId": str(r["batch_id"]) if r["batch_id"] else None,
+                    "batchName": r["batch_name"],
+                    "status": r["status"],
+                    "notes": r["notes"],
+                    "proposedStartDate": r["proposed_start_date"].isoformat() if r["proposed_start_date"] else None,
+                    "proposedEndDate": r["proposed_end_date"].isoformat() if r["proposed_end_date"] else None,
+                    "responseNotes": r["response_notes"],
+                    "respondedAt": r["responded_at"].isoformat() if r["responded_at"] else None,
+                    "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
+                }
+                for r in rows
+            ]
+            return {"success": True, "items": items}
+    return {"success": True, "items": []}
+
+
+@router.post("/course-invitations/{invitation_id}/accept")
+async def trainer_accept_course_invitation(invitation_id: str, ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
+    """Trainer accepts an offered course invitation, making the course active on their profile."""
+    if not ctx.user_id:
+        from app.core.errors import ScopeForbidden
+        raise ScopeForbidden("Authentication required.")
+
+    try:
+        t_uuid = UUID(str(ctx.user_id))
+        inv_uuid = UUID(str(invitation_id))
+    except (ValueError, TypeError):
+        raise ValidationError("Invalid UUID format.")
+
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        async with get_pg_connection() as conn:
+            inv = await conn.fetchrow(
+                "SELECT * FROM course_invitations WHERE id = $1 AND trainer_user_id = $2",
+                inv_uuid, t_uuid
+            )
+            if not inv:
+                raise NotFound("Course invitation not found.")
+            if inv["status"] != "PENDING":
+                raise ValidationError(f"Cannot accept invitation in '{inv['status']}' state.")
+
+            # 1. Update invitation status to ACCEPTED
+            await conn.execute(
+                "UPDATE course_invitations SET status = 'ACCEPTED', responded_at = NOW(), updated_at = NOW() WHERE id = $1",
+                inv_uuid
+            )
+
+            # 2. Add to course_trainers
+            await conn.execute(
+                """
+                INSERT INTO course_trainers (course_id, trainer_user_id, assigned_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (course_id, trainer_user_id) DO NOTHING
+                """,
+                inv["course_id"], t_uuid
+            )
+
+            # 3. Add to course_trainer_assignments
+            existing_cta = await conn.fetchrow(
+                """
+                SELECT id FROM course_trainer_assignments 
+                WHERE course_id = $1 AND trainer_user_id = $2 
+                  AND ((department_id = $3) OR (department_id IS NULL AND $3 IS NULL))
+                """,
+                inv["course_id"], t_uuid, inv["department_id"]
+            )
+            if not existing_cta:
+                await conn.execute(
+                    """
+                    INSERT INTO course_trainer_assignments (course_id, trainer_user_id, institution_id, department_id, assigned_by)
+                    VALUES ($1, $2, $3, $4, $5)
+                    """,
+                    inv["course_id"], t_uuid, inv["institution_id"], inv["department_id"], inv["offered_by"]
+                )
+
+            # 4. If batch_id specified, add to batch_trainers
+            if inv["batch_id"]:
+                await conn.execute(
+                    """
+                    INSERT INTO batch_trainers (batch_id, trainer_user_id, institution_id, assigned_by, notes)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (batch_id, trainer_user_id) DO NOTHING
+                    """,
+                    inv["batch_id"], t_uuid, inv["institution_id"], inv["offered_by"], inv["notes"]
+                )
+
+        return {"success": True, "message": "Course invitation accepted. Course is now assigned to your profile."}
+    return {"success": False, "message": "Postgres mode required."}
+
+
+@router.post("/course-invitations/{invitation_id}/reject")
+async def trainer_reject_course_invitation(invitation_id: str, payload: dict[str, Any] = {}, ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
+    """Trainer declines an offered course invitation."""
+    if not ctx.user_id:
+        from app.core.errors import ScopeForbidden
+        raise ScopeForbidden("Authentication required.")
+
+    try:
+        t_uuid = UUID(str(ctx.user_id))
+        inv_uuid = UUID(str(invitation_id))
+    except (ValueError, TypeError):
+        raise ValidationError("Invalid UUID format.")
+
+    reason = (payload.get("reason") or "").strip()
+
+    if settings.USE_POSTGRES:
+        from app.db.postgres import get_pg_connection
+        async with get_pg_connection() as conn:
+            inv = await conn.fetchrow(
+                "SELECT * FROM course_invitations WHERE id = $1 AND trainer_user_id = $2",
+                inv_uuid, t_uuid
+            )
+            if not inv:
+                raise NotFound("Course invitation not found.")
+            if inv["status"] != "PENDING":
+                raise ValidationError(f"Cannot decline invitation in '{inv['status']}' state.")
+
+            await conn.execute(
+                "UPDATE course_invitations SET status = 'REJECTED', response_notes = $1, responded_at = NOW(), updated_at = NOW() WHERE id = $2",
+                reason or None, inv_uuid
+            )
+
+        return {"success": True, "message": "Course invitation declined."}
+    return {"success": False, "message": "Postgres mode required."}
 
 
