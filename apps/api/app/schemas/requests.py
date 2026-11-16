@@ -137,6 +137,9 @@ class QuizAttemptRequest(Base):
 
 class TrainerQuizCreateRequest(Base):
     title: Annotated[str, Field(min_length=2, max_length=255)]
+    description: str | None = None
+    instructions: str | None = None
+    courseId: str | None = None
     durationMinutes: Annotated[int, Field(ge=1, le=360)] = 30
     maxScore: Annotated[int, Field(ge=1, le=1000)] = 100
     opensAt: datetime | None = None
@@ -149,6 +152,9 @@ class TrainerQuizCreateRequest(Base):
 
 class TrainerQuizUpdateRequest(Base):
     title: Annotated[str, Field(min_length=2, max_length=255)] | None = None
+    description: str | None = None
+    instructions: str | None = None
+    courseId: str | None = None
     durationMinutes: Annotated[int, Field(ge=1, le=360)] | None = None
     maxScore: Annotated[int, Field(ge=1, le=1000)] | None = None
     opensAt: datetime | None = None

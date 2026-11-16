@@ -1,17 +1,21 @@
 'use client';
 
 import {
+  AlertTriangle,
   Award,
   BarChart3,
+  Calendar,
   CalendarClock,
   CheckCircle2,
   ClipboardList,
+  Clock,
   Edit,
   Eye,
   FileSpreadsheet,
   Lock,
   Plus,
   Shield,
+  Sparkles,
   Trash2,
   Upload,
   Users,
@@ -49,9 +53,17 @@ import { useApi } from '@/hooks/useApi';
 import { ApiError, api } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 
+const DEFAULT_FEEDBACK = {
+  FAIL: "Don't be discouraged. Every attempt is a step forward in learning. Review the fundamental concepts, practice the weak areas, and you will come back stronger on the next attempt!",
+  NEED_IMPROVEMENT: 'Good effort, but there is clear room for growth. Focus on revisiting the topics where questions were missed, take time to understand the explanations, and aim higher next time!',
+  GOOD: 'Well done! You have demonstrated a solid understanding of the concepts. With a little more attention to detail and practice on advanced questions, you can reach excellence!',
+  EXCELLENT: 'Outstanding performance! You have mastered the subject matter and achieved exceptional results. Keep up the high standard and continue to inspire your peers!',
+};
+
 export default function TrainerAssessmentsPage() {
   const [selectedBatch, setSelectedBatch] = React.useState<string>('all');
   const batchesQuery = useApi<any[]>('/trainer/batches');
+  const coursesQuery = useApi<{ courses: any[]; total: number }>('/trainer/courses');
   const quizzesQuery = useApi<any[]>(
     `/trainer/assessments${selectedBatch !== 'all' ? `?batchId=${selectedBatch}` : ''}`
   );
@@ -64,23 +76,43 @@ export default function TrainerAssessmentsPage() {
   const [eediOpen, setEediOpen] = React.useState(false);
 
   const [activeQuiz, setActiveQuiz] = React.useState<any>(null);
+  const [createTab, setCreateTab] = React.useState<'details' | 'timing' | 'scheduling' | 'classification' | 'feedback' | 'preview'>('details');
 
-  // Create form state
+  // Create form state organized across Sections A - E
   const [createForm, setCreateForm] = React.useState({
+    // Section A: Basic Assessment Details
     title: '',
-    durationMinutes: 30,
+    description: '',
+    instructions: '',
+    courseId: '',
+    batchIds: [] as string[],
     maxScore: 100,
+    enableNegativeMarking: false,
+    negativeMarkValue: 0.25,
+
+    // Section B: Timing & Proctoring Configuration
+    timingMode: 'FIXED_TOTAL' as 'FIXED_TOTAL' | 'PER_QUESTION',
+    durationMinutes: 30,
+    questionDuration: 60,
+    answerRevealDuration: 10,
     cameraRequired: true,
     fullscreenRequired: true,
     maxWarnings: 3,
-    batchIds: [] as string[],
-    timingMode: 'FIXED_TOTAL' as 'FIXED_TOTAL' | 'PER_QUESTION',
-    enableTimedQuestions: false,
-    questionDuration: 10,
-    answerRevealDuration: 2,
-    autoAdvance: true,
-    allowPrevious: false,
-    allowModification: false,
+
+    // Section C: Scheduling
+    opensAt: '',
+    closesAt: '',
+
+    // Section D: Performance Classification percentage upper bounds
+    failMax: 39,
+    needImprovementMax: 59,
+    goodMax: 79,
+
+    // Section E: Motivational Feedback Configuration
+    feedbackFail: DEFAULT_FEEDBACK.FAIL,
+    feedbackNeedImprovement: DEFAULT_FEEDBACK.NEED_IMPROVEMENT,
+    feedbackGood: DEFAULT_FEEDBACK.GOOD,
+    feedbackExcellent: DEFAULT_FEEDBACK.EXCELLENT,
   });
   const [creating, setCreating] = React.useState(false);
 
@@ -99,13 +131,46 @@ export default function TrainerAssessmentsPage() {
   const [loadingEedi, setLoadingEedi] = React.useState(false);
 
   const batches = batchesQuery.data ?? [];
+  const courses = coursesQuery.data?.courses ?? [];
   const quizzes = quizzesQuery.data ?? [];
 
+  // Reset form helper
+  const resetCreateForm = () => {
+    setCreateForm({
+      title: '',
+      description: '',
+      instructions: '',
+      courseId: '',
+      batchIds: [],
+      maxScore: 100,
+      enableNegativeMarking: false,
+      negativeMarkValue: 0.25,
+      timingMode: 'FIXED_TOTAL',
+      durationMinutes: 30,
+      questionDuration: 60,
+      answerRevealDuration: 10,
+      cameraRequired: true,
+      fullscreenRequired: true,
+      maxWarnings: 3,
+      opensAt: '',
+      closesAt: '',
+      failMax: 39,
+      needImprovementMax: 59,
+      goodMax: 79,
+      feedbackFail: DEFAULT_FEEDBACK.FAIL,
+      feedbackNeedImprovement: DEFAULT_FEEDBACK.NEED_IMPROVEMENT,
+      feedbackGood: DEFAULT_FEEDBACK.GOOD,
+      feedbackExcellent: DEFAULT_FEEDBACK.EXCELLENT,
+    });
+    setCreateTab('details');
+  };
+
   // Handle Create Quiz
-  async function handleCreateQuiz(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleCreateQuiz(e?: React.FormEvent) {
+    if (e) e.preventDefault();
     if (!createForm.title.trim()) {
       toast.error('Assessment title is required');
+      setCreateTab('details');
       return;
     }
 
@@ -114,16 +179,43 @@ export default function TrainerAssessmentsPage() {
       const revDur = Number(createForm.answerRevealDuration);
       if (qDur <= revDur) {
         toast.error('Question Duration must be strictly greater than Answer Reveal Duration');
+        setCreateTab('timing');
         return;
       }
+    }
+
+    if (createForm.opensAt && createForm.closesAt) {
+      const oDate = new Date(createForm.opensAt).getTime();
+      const cDate = new Date(createForm.closesAt).getTime();
+      if (cDate <= oDate) {
+        toast.error('End Date & Time must be strictly after Start Date & Time');
+        setCreateTab('scheduling');
+        return;
+      }
+    }
+
+    const fMax = Number(createForm.failMax);
+    const niMax = Number(createForm.needImprovementMax);
+    const gMax = Number(createForm.goodMax);
+
+    if (fMax < 0 || fMax >= niMax || niMax >= gMax || gMax >= 100) {
+      toast.error('Performance brackets must be strictly ascending: 0 <= FAIL < NEED IMPROVEMENT < GOOD < 100');
+      setCreateTab('classification');
+      return;
     }
 
     setCreating(true);
     try {
       await api.post('/trainer/assessments', {
         title: createForm.title.trim(),
+        description: createForm.description.trim() || undefined,
+        instructions: createForm.instructions.trim() || undefined,
+        courseId: createForm.courseId || undefined,
         durationMinutes: Number(createForm.durationMinutes),
         maxScore: Number(createForm.maxScore),
+        batchIds: createForm.batchIds,
+        opensAt: createForm.opensAt ? new Date(createForm.opensAt).toISOString() : undefined,
+        closesAt: createForm.closesAt ? new Date(createForm.closesAt).toISOString() : undefined,
         settings: {
           timing_mode: createForm.timingMode,
           duration_minutes: Number(createForm.durationMinutes),
@@ -136,27 +228,24 @@ export default function TrainerAssessmentsPage() {
           auto_advance: true,
           allow_previous: false,
           allow_modification: false,
+          negative_marking: createForm.enableNegativeMarking ? Number(createForm.negativeMarkValue) : 0,
+          performance_classification: {
+            FAIL: [0, fMax],
+            NEED_IMPROVEMENT: [fMax + 1, niMax],
+            GOOD: [niMax + 1, gMax],
+            EXCELLENT: [gMax + 1, 100],
+          },
+          motivational_feedback: {
+            FAIL: createForm.feedbackFail.trim(),
+            NEED_IMPROVEMENT: createForm.feedbackNeedImprovement.trim(),
+            GOOD: createForm.feedbackGood.trim(),
+            EXCELLENT: createForm.feedbackExcellent.trim(),
+          },
         },
-        batchIds: createForm.batchIds,
       });
-      toast.success('Assessment created successfully');
+      toast.success('Assessment created and published successfully');
       setCreateOpen(false);
-      setCreateForm({
-        title: '',
-        durationMinutes: 30,
-        maxScore: 100,
-        cameraRequired: true,
-        fullscreenRequired: true,
-        maxWarnings: 3,
-        batchIds: [],
-        timingMode: 'FIXED_TOTAL',
-        enableTimedQuestions: false,
-        questionDuration: 10,
-        answerRevealDuration: 2,
-        autoAdvance: true,
-        allowPrevious: false,
-        allowModification: false,
-      });
+      resetCreateForm();
       quizzesQuery.refetch();
     } catch (err) {
       toast.error((err as ApiError).message || 'Failed to create assessment');
@@ -318,6 +407,29 @@ export default function TrainerAssessmentsPage() {
                       <ClipboardList className="size-5" aria-hidden />
                     </span>
                     <div className="flex items-center gap-2">
+                      {/* Scheduling Status Badge */}
+                      {(() => {
+                        const now = new Date();
+                        if (quiz.opensAt && new Date(quiz.opensAt) > now) {
+                          return (
+                            <Badge tone="info" className="text-[10px] font-bold">
+                              UPCOMING
+                            </Badge>
+                          );
+                        }
+                        if (quiz.closesAt && new Date(quiz.closesAt) < now) {
+                          return (
+                            <Badge tone="danger" className="text-[10px] font-bold">
+                              EXPIRED
+                            </Badge>
+                          );
+                        }
+                        return (
+                          <Badge tone="success" className="text-[10px] font-bold">
+                            ACTIVE
+                          </Badge>
+                        );
+                      })()}
                       {quiz.quizCode && (
                         <Badge tone="neutral" className="font-mono text-[10px]">
                           {quiz.quizCode}
@@ -332,6 +444,24 @@ export default function TrainerAssessmentsPage() {
                     <p className="mt-1 text-xs text-muted-foreground">
                       {quiz.questions} question(s) · {quiz.durationMinutes} mins · Max Score: {quiz.maxScore}
                     </p>
+                    {/* Timing & Scheduling Metadata Pills */}
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted/60 font-medium">
+                        <Clock className="size-3 text-primary" />
+                        {quiz.settings?.timing_mode === 'PER_QUESTION' ? 'Per-Question' : 'Fixed Duration'}
+                        {Number(quiz.settings?.answer_reveal_duration || 0) > 0 && (
+                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold ml-0.5">
+                            · Reveal: {quiz.settings.answer_reveal_duration}s
+                          </span>
+                        )}
+                      </span>
+                      {(quiz.opensAt || quiz.closesAt) && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted/60">
+                          <CalendarClock className="size-3 text-muted-foreground" />
+                          {quiz.opensAt ? formatDate(quiz.opensAt) : 'Immediate'} → {quiz.closesAt ? formatDate(quiz.closesAt) : 'No Deadline'}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Assigned Batches Pills */}
@@ -436,227 +566,687 @@ export default function TrainerAssessmentsPage() {
         )}
       </AsyncSection>
 
-      {/* -------------------- 1. CREATE ASSESSMENT MODAL -------------------- */}
+      {/* -------------------- 1. CREATE ASSESSMENT MODAL (SECTIONS A - E + PREVIEW) -------------------- */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Create New Assessment</DialogTitle>
+            <DialogTitle>Create &amp; Configure Assessment</DialogTitle>
           </DialogHeader>
+
+          {/* Stepped Section Navigation */}
+          <div className="flex border-b border-border overflow-x-auto gap-1 pb-1 scroll-thin">
+            {[
+              { id: 'details', label: 'A. Basic Details' },
+              { id: 'timing', label: 'B. Timing & Mode' },
+              { id: 'scheduling', label: 'C. Scheduling' },
+              { id: 'classification', label: 'D. Grading Brackets' },
+              { id: 'feedback', label: 'E. Motivational Feedback' },
+              { id: 'preview', label: 'F. Review & Publish' },
+            ].map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setCreateTab(t.id as any)}
+                className={cn(
+                  'px-3 py-1.5 text-xs font-semibold rounded-lg whitespace-nowrap transition-colors',
+                  createTab === t.id
+                    ? 'bg-primary text-primary-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
           <form onSubmit={handleCreateQuiz}>
-            <DialogBody className="space-y-4">
-              <Field label="Assessment Title" htmlFor="quiz-title">
-                <Input
-                  id="quiz-title"
-                  required
-                  placeholder="e.g. Business Communication &amp; Ethics Midterm"
-                  value={createForm.title}
-                  onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })}
-                />
-              </Field>
+            <DialogBody className="space-y-4 pt-2">
+              {/* ---------------- SECTION A: BASIC DETAILS ---------------- */}
+              {createTab === 'details' && (
+                <div className="space-y-4">
+                  <Field label="Assessment Title" htmlFor="quiz-title">
+                    <Input
+                      id="quiz-title"
+                      required
+                      placeholder="e.g. Business Communication & Ethics Midterm"
+                      value={createForm.title}
+                      onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })}
+                    />
+                  </Field>
 
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Duration (minutes)" htmlFor="quiz-duration">
-                  <Input
-                    id="quiz-duration"
-                    type="number"
-                    min={1}
-                    max={360}
-                    value={createForm.durationMinutes}
-                    onChange={(e) => setCreateForm({ ...createForm, durationMinutes: Number(e.target.value) })}
-                  />
-                </Field>
-                <Field label="Max Score" htmlFor="quiz-maxscore">
-                  <Input
-                    id="quiz-maxscore"
-                    type="number"
-                    min={1}
-                    max={1000}
-                    value={createForm.maxScore}
-                    onChange={(e) => setCreateForm({ ...createForm, maxScore: Number(e.target.value) })}
-                  />
-                </Field>
-              </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold text-heading">Course Selection</label>
+                      <Select
+                        value={createForm.courseId}
+                        onValueChange={(val) => setCreateForm({ ...createForm, courseId: val === 'none' ? '' : val })}
+                      >
+                        <SelectTrigger className="h-9 text-xs">
+                          <SelectValue placeholder="Select Course (Optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Specific Course / General Assessment</SelectItem>
+                          {courses.map((c: any) => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {c.title} ({c.code || 'Course'})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-              {/* Multi-Batch Selector */}
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold text-heading">
-                  Assign to Batches (You can select multiple)
-                </label>
-                <div className="max-h-36 overflow-y-auto rounded-xl border border-input p-2 space-y-1.5 bg-muted/20">
-                  {batches.map((b: any) => {
-                    const checked = createForm.batchIds.includes(b.id);
-                    return (
-                      <label key={b.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-muted/50 p-1.5 rounded-lg">
+                    <Field label="Total Marks" htmlFor="quiz-maxscore">
+                      <Input
+                        id="quiz-maxscore"
+                        type="number"
+                        min={1}
+                        max={1000}
+                        value={createForm.maxScore}
+                        onChange={(e) => setCreateForm({ ...createForm, maxScore: Number(e.target.value) })}
+                      />
+                    </Field>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-heading">Description</label>
+                    <textarea
+                      rows={2}
+                      placeholder="Brief overview of assessment topics and coverage..."
+                      value={createForm.description}
+                      onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
+                      className="w-full rounded-xl border border-input bg-card p-3 text-xs focus:border-primary focus:ring-1 focus:ring-primary focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-heading">Student Instructions</label>
+                    <textarea
+                      rows={2}
+                      placeholder="Guidelines, allowed materials, and examination rules for candidates..."
+                      value={createForm.instructions}
+                      onChange={(e) => setCreateForm({ ...createForm, instructions: e.target.value })}
+                      className="w-full rounded-xl border border-input bg-card p-3 text-xs focus:border-primary focus:ring-1 focus:ring-primary focus:outline-hidden"
+                    />
+                  </div>
+
+                  {/* Negative Marking Configuration */}
+                  <div className="rounded-xl border border-border p-3 space-y-2 bg-muted/20">
+                    <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={createForm.enableNegativeMarking}
+                        onChange={(e) => setCreateForm({ ...createForm, enableNegativeMarking: e.target.checked })}
+                        className="rounded border-input text-primary size-4"
+                      />
+                      <span>Enable Negative Marking for Incorrect Answers</span>
+                    </label>
+                    {createForm.enableNegativeMarking && (
+                      <div className="flex items-center gap-2 pt-1 pl-6">
+                        <span className="text-xs text-muted-foreground">Penalty per incorrect response:</span>
                         <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setCreateForm({ ...createForm, batchIds: [...createForm.batchIds, b.id] });
-                            } else {
-                              setCreateForm({ ...createForm, batchIds: createForm.batchIds.filter((id) => id !== b.id) });
-                            }
-                          }}
-                          className="rounded border-input text-primary focus:ring-primary size-4"
-                        />
-                        <span className="font-medium">{b.name}</span>
-                        <span className="text-muted-foreground text-[10px]">({b.code})</span>
-                      </label>
-                    );
-                  })}
-                  {batches.length === 0 && (
-                    <p className="text-xs text-muted-foreground p-2">No authorized batches found.</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Anti-cheat Proctoring Toggles */}
-              <div className="rounded-xl border border-border p-3 space-y-2 bg-muted/20">
-                <span className="text-xs font-bold text-heading block">Proctoring &amp; Anti-Cheat Security</span>
-                <label className="flex items-center gap-2 text-xs cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={createForm.cameraRequired}
-                    onChange={(e) => setCreateForm({ ...createForm, cameraRequired: e.target.checked })}
-                    className="rounded border-input text-primary size-4"
-                  />
-                  <span>Require Camera Monitoring (Periodic Proctoring Snapshots)</span>
-                </label>
-                <label className="flex items-center gap-2 text-xs cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={createForm.fullscreenRequired}
-                    onChange={(e) => setCreateForm({ ...createForm, fullscreenRequired: e.target.checked })}
-                    className="rounded border-input text-primary size-4"
-                  />
-                  <span>Enforce Fullscreen Mode</span>
-                </label>
-                <div className="flex items-center gap-2 pt-1">
-                  <span className="text-xs text-muted-foreground">Max Warnings before auto-submit:</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={createForm.maxWarnings}
-                    onChange={(e) => setCreateForm({ ...createForm, maxWarnings: Number(e.target.value) })}
-                    className="w-16 h-7 text-xs rounded border border-input px-2 text-center"
-                  />
-                </div>
-              </div>
-
-              {/* Timing Architecture: Two Mutually Exclusive Independent Modes */}
-              <div className="rounded-xl border border-border p-3 space-y-3 bg-muted/20">
-                <span className="text-xs font-bold text-heading block">Assessment Timing Mode</span>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                  <label
-                    className={cn(
-                      'flex flex-col p-2.5 rounded-lg border cursor-pointer transition-all',
-                      createForm.timingMode === 'FIXED_TOTAL'
-                        ? 'border-primary bg-primary/10 text-primary font-semibold ring-1 ring-primary'
-                        : 'border-border/80 bg-card hover:bg-muted/40'
-                    )}
-                  >
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="timing_mode"
-                        checked={createForm.timingMode === 'FIXED_TOTAL'}
-                        onChange={() =>
-                          setCreateForm({
-                            ...createForm,
-                            timingMode: 'FIXED_TOTAL',
-                            enableTimedQuestions: false,
-                          })
-                        }
-                        className="accent-primary"
-                      />
-                      <span>Fixed Duration Mode</span>
-                    </div>
-                    <span className="text-[10px] text-muted-foreground font-normal mt-1 leading-snug">
-                      Single continuous countdown timer for the entire assessment. Questions lock upon answer submission.
-                    </span>
-                  </label>
-
-                  <label
-                    className={cn(
-                      'flex flex-col p-2.5 rounded-lg border cursor-pointer transition-all',
-                      createForm.timingMode === 'PER_QUESTION'
-                        ? 'border-primary bg-primary/10 text-primary font-semibold ring-1 ring-primary'
-                        : 'border-border/80 bg-card hover:bg-muted/40'
-                    )}
-                  >
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="timing_mode"
-                        checked={createForm.timingMode === 'PER_QUESTION'}
-                        onChange={() =>
-                          setCreateForm({
-                            ...createForm,
-                            timingMode: 'PER_QUESTION',
-                            enableTimedQuestions: true,
-                          })
-                        }
-                        className="accent-primary"
-                      />
-                      <span>Variable Duration Mode</span>
-                    </div>
-                    <span className="text-[10px] text-muted-foreground font-normal mt-1 leading-snug">
-                      Dedicated countdown timer per question. Automatically advances or submits when time runs out.
-                    </span>
-                  </label>
-                </div>
-
-                {createForm.timingMode === 'PER_QUESTION' && (
-                  <div className="space-y-3 border-t border-border/60 pt-2 text-xs">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
-                          Question Total Duration (sec)
-                        </label>
-                        <Input
                           type="number"
-                          min={2}
-                          max={300}
-                          value={createForm.questionDuration}
-                          onChange={(e) => setCreateForm({ ...createForm, questionDuration: Number(e.target.value) })}
-                          className="h-8 text-xs"
+                          step="0.05"
+                          min="0"
+                          max="5"
+                          value={createForm.negativeMarkValue}
+                          onChange={(e) => setCreateForm({ ...createForm, negativeMarkValue: Number(e.target.value) })}
+                          className="w-20 h-7 text-xs rounded border border-input px-2 text-center"
                         />
+                        <span className="text-xs text-muted-foreground">Marks</span>
                       </div>
-                      <div>
-                        <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
-                          Answer Reveal Duration (sec)
-                        </label>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={Math.max(0, createForm.questionDuration - 1)}
-                          value={createForm.answerRevealDuration}
-                          onChange={(e) => setCreateForm({ ...createForm, answerRevealDuration: Number(e.target.value) })}
-                          className="h-8 text-xs"
-                        />
-                      </div>
-                    </div>
+                    )}
+                  </div>
 
-                    <div className="rounded-md bg-card p-2 text-[11px] text-muted-foreground border border-border">
-                      Candidate has{' '}
-                      <b className="text-foreground">
-                        {Math.max(1, createForm.questionDuration - createForm.answerRevealDuration)} seconds
-                      </b>{' '}
-                      to submit an answer, followed by{' '}
-                      <b className="text-foreground">{createForm.answerRevealDuration} seconds</b> of answer reveal before auto-advancing.
+                  {/* Multi-Batch Selector */}
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-heading">
+                      Assigned Batches (Candidate Access Scope)
+                    </label>
+                    <div className="max-h-36 overflow-y-auto rounded-xl border border-input p-2 space-y-1.5 bg-muted/20">
+                      {batches.map((b: any) => {
+                        const checked = createForm.batchIds.includes(b.id);
+                        return (
+                          <label key={b.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-muted/50 p-1.5 rounded-lg">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setCreateForm({ ...createForm, batchIds: [...createForm.batchIds, b.id] });
+                                } else {
+                                  setCreateForm({ ...createForm, batchIds: createForm.batchIds.filter((id) => id !== b.id) });
+                                }
+                              }}
+                              className="rounded border-input text-primary focus:ring-primary size-4"
+                            />
+                            <span className="font-medium">{b.name}</span>
+                            <span className="text-muted-foreground text-[10px]">({b.code})</span>
+                          </label>
+                        );
+                      })}
+                      {batches.length === 0 && (
+                        <p className="text-xs text-muted-foreground p-2">No authorized batches found.</p>
+                      )}
                     </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
+
+              {/* ---------------- SECTION B: TIMING & PROCTORING ---------------- */}
+              {createTab === 'timing' && (
+                <div className="space-y-4">
+                  {/* Mode Selector */}
+                  <div className="rounded-xl border border-border p-3 space-y-3 bg-muted/20">
+                    <span className="text-xs font-bold text-heading block">Independent Timing Mode</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      <label
+                        className={cn(
+                          'flex flex-col p-3 rounded-lg border cursor-pointer transition-all',
+                          createForm.timingMode === 'FIXED_TOTAL'
+                            ? 'border-primary bg-primary/10 text-primary font-semibold ring-1 ring-primary'
+                            : 'border-border/80 bg-card hover:bg-muted/40'
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="timing_mode"
+                            checked={createForm.timingMode === 'FIXED_TOTAL'}
+                            onChange={() => setCreateForm({ ...createForm, timingMode: 'FIXED_TOTAL' })}
+                            className="accent-primary"
+                          />
+                          <span>1. Fixed Duration Mode (Total Quiz Timer)</span>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground font-normal mt-1 leading-snug">
+                          Single continuous countdown timer for the entire assessment. Questions lock upon answer submission.
+                        </span>
+                      </label>
+
+                      <label
+                        className={cn(
+                          'flex flex-col p-3 rounded-lg border cursor-pointer transition-all',
+                          createForm.timingMode === 'PER_QUESTION'
+                            ? 'border-primary bg-primary/10 text-primary font-semibold ring-1 ring-primary'
+                            : 'border-border/80 bg-card hover:bg-muted/40'
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="timing_mode"
+                            checked={createForm.timingMode === 'PER_QUESTION'}
+                            onChange={() => setCreateForm({ ...createForm, timingMode: 'PER_QUESTION' })}
+                            className="accent-primary"
+                          />
+                          <span>2. Variable Duration Mode (Per-Question Timer)</span>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground font-normal mt-1 leading-snug">
+                          Dedicated independent countdown timer per question. Automatically reveals answer and advances when time expires.
+                        </span>
+                      </label>
+                    </div>
+
+                    {createForm.timingMode === 'FIXED_TOTAL' ? (
+                      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border/60">
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                            Total Assessment Duration (minutes)
+                          </label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={360}
+                            value={createForm.durationMinutes}
+                            onChange={(e) => setCreateForm({ ...createForm, durationMinutes: Number(e.target.value) })}
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                            Answer Reveal Duration (sec)
+                          </label>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={120}
+                            value={createForm.answerRevealDuration}
+                            onChange={(e) => setCreateForm({ ...createForm, answerRevealDuration: Number(e.target.value) })}
+                            className="h-8 text-xs"
+                          />
+                          <span className="text-[10px] text-muted-foreground block mt-1">
+                            Set to 0 to advance directly without reveal
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 pt-2 border-t border-border/60">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                              Question Total Duration (sec)
+                            </label>
+                            <Input
+                              type="number"
+                              min={2}
+                              max={300}
+                              value={createForm.questionDuration}
+                              onChange={(e) => setCreateForm({ ...createForm, questionDuration: Number(e.target.value) })}
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                              Answer Reveal Duration (sec)
+                            </label>
+                            <Input
+                              type="number"
+                              min={0}
+                              max={Math.max(0, createForm.questionDuration - 1)}
+                              value={createForm.answerRevealDuration}
+                              onChange={(e) => setCreateForm({ ...createForm, answerRevealDuration: Number(e.target.value) })}
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="rounded-md bg-card p-2.5 text-[11px] text-muted-foreground border border-border">
+                          Candidate has{' '}
+                          <b className="text-foreground">
+                            {Math.max(1, createForm.questionDuration - createForm.answerRevealDuration)} seconds
+                          </b>{' '}
+                          to answer, followed by{' '}
+                          <b className="text-foreground">{createForm.answerRevealDuration} seconds</b> of answer reveal before auto-advancing.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Proctoring & Security */}
+                  <div className="rounded-xl border border-border p-3 space-y-2 bg-muted/20">
+                    <span className="text-xs font-bold text-heading block">Proctoring &amp; Anti-Cheat Security</span>
+                    <label className="flex items-center gap-2 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={createForm.cameraRequired}
+                        onChange={(e) => setCreateForm({ ...createForm, cameraRequired: e.target.checked })}
+                        className="rounded border-input text-primary size-4"
+                      />
+                      <span>Require Camera Monitoring (Periodic Proctoring Snapshots)</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={createForm.fullscreenRequired}
+                        onChange={(e) => setCreateForm({ ...createForm, fullscreenRequired: e.target.checked })}
+                        className="rounded border-input text-primary size-4"
+                      />
+                      <span>Enforce Fullscreen Mode</span>
+                    </label>
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className="text-xs text-muted-foreground">Max Warnings before auto-submit:</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={createForm.maxWarnings}
+                        onChange={(e) => setCreateForm({ ...createForm, maxWarnings: Number(e.target.value) })}
+                        className="w-16 h-7 text-xs rounded border border-input px-2 text-center"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ---------------- SECTION C: SCHEDULING ---------------- */}
+              {createTab === 'scheduling' && (
+                <div className="space-y-4">
+                  <div className="rounded-xl bg-muted/30 border border-border p-4 text-xs space-y-2">
+                    <span className="font-bold text-heading block flex items-center gap-1.5">
+                      <Calendar className="size-4 text-primary" />
+                      Authoritative Scheduling Window
+                    </span>
+                    <p className="text-muted-foreground leading-relaxed">
+                      Configure when the assessment opens and closes. Before the start date, students see an <b>Upcoming</b> notice. After the end date, the assessment is marked <b>Expired</b> and no new attempts can be started.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-heading mb-1.5">
+                        Start Date &amp; Time (Opens At)
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={createForm.opensAt}
+                        onChange={(e) => setCreateForm({ ...createForm, opensAt: e.target.value })}
+                        className="w-full rounded-xl border border-input bg-card px-3 py-2 text-xs focus:border-primary focus:ring-1 focus:ring-primary focus:outline-hidden"
+                      />
+                      <span className="text-[10px] text-muted-foreground block mt-1">Leave empty to open immediately</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-heading mb-1.5">
+                        End Date &amp; Time (Closes At)
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={createForm.closesAt}
+                        onChange={(e) => setCreateForm({ ...createForm, closesAt: e.target.value })}
+                        className="w-full rounded-xl border border-input bg-card px-3 py-2 text-xs focus:border-primary focus:ring-1 focus:ring-primary focus:outline-hidden"
+                      />
+                      <span className="text-[10px] text-muted-foreground block mt-1">Leave empty for no deadline</span>
+                    </div>
+                  </div>
+
+                  {(createForm.opensAt || createForm.closesAt) && (
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setCreateForm({ ...createForm, opensAt: '', closesAt: '' })}
+                        className="text-xs text-muted-foreground"
+                      >
+                        Clear Schedule Dates
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ---------------- SECTION D: PERFORMANCE CLASSIFICATION ---------------- */}
+              {createTab === 'classification' && (
+                <div className="space-y-4">
+                  <div className="rounded-xl bg-muted/30 border border-border p-4 text-xs space-y-1">
+                    <span className="font-bold text-heading block">Performance Classification Ranges (0% – 100%)</span>
+                    <p className="text-muted-foreground text-[11px] leading-relaxed">
+                      Configure the upper bounds for the 4 performance categories. The system automatically ensures contiguous coverage with zero gaps or overlaps.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3 space-y-1">
+                      <span className="text-xs font-bold text-rose-700 dark:text-rose-400 block uppercase">
+                        FAIL (0% to {createForm.failMax}%)
+                      </span>
+                      <label className="text-[10px] text-muted-foreground block">Max Percentage for FAIL:</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={createForm.needImprovementMax - 1}
+                        value={createForm.failMax}
+                        onChange={(e) => setCreateForm({ ...createForm, failMax: Number(e.target.value) })}
+                        className="w-full h-8 text-xs rounded border border-input px-2 bg-card"
+                      />
+                    </div>
+
+                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-1">
+                      <span className="text-xs font-bold text-amber-700 dark:text-amber-400 block uppercase">
+                        NEED IMPROVEMENT ({Number(createForm.failMax) + 1}% to {createForm.needImprovementMax}%)
+                      </span>
+                      <label className="text-[10px] text-muted-foreground block">Max Percentage for NEED IMPROVEMENT:</label>
+                      <input
+                        type="number"
+                        min={Number(createForm.failMax) + 1}
+                        max={createForm.goodMax - 1}
+                        value={createForm.needImprovementMax}
+                        onChange={(e) => setCreateForm({ ...createForm, needImprovementMax: Number(e.target.value) })}
+                        className="w-full h-8 text-xs rounded border border-input px-2 bg-card"
+                      />
+                    </div>
+
+                    <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-3 space-y-1">
+                      <span className="text-xs font-bold text-blue-700 dark:text-blue-400 block uppercase">
+                        GOOD ({Number(createForm.needImprovementMax) + 1}% to {createForm.goodMax}%)
+                      </span>
+                      <label className="text-[10px] text-muted-foreground block">Max Percentage for GOOD:</label>
+                      <input
+                        type="number"
+                        min={Number(createForm.needImprovementMax) + 1}
+                        max={99}
+                        value={createForm.goodMax}
+                        onChange={(e) => setCreateForm({ ...createForm, goodMax: Number(e.target.value) })}
+                        className="w-full h-8 text-xs rounded border border-input px-2 bg-card"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 flex items-center justify-between text-xs">
+                    <div>
+                      <span className="font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 block">
+                        EXCELLENT Bracket
+                      </span>
+                      <span className="text-muted-foreground text-[11px]">
+                        Automatically calculated as the top tier.
+                      </span>
+                    </div>
+                    <span className="font-mono font-bold text-sm text-emerald-600 dark:text-emerald-300">
+                      {Number(createForm.goodMax) + 1}% – 100%
+                    </span>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCreateForm({ ...createForm, failMax: 39, needImprovementMax: 59, goodMax: 79 })}
+                      className="text-xs text-muted-foreground"
+                    >
+                      Reset to Standard Brackets (0-39, 40-59, 60-79, 80-100)
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* ---------------- SECTION E: MOTIVATIONAL FEEDBACK ---------------- */}
+              {createTab === 'feedback' && (
+                <div className="space-y-4">
+                  <div className="rounded-xl bg-muted/30 border border-border p-4 text-xs space-y-1">
+                    <span className="font-bold text-heading block flex items-center gap-1.5">
+                      <Sparkles className="size-4 text-primary" />
+                      Trainer-Defined Motivational Messages
+                    </span>
+                    <p className="text-muted-foreground text-[11px] leading-relaxed">
+                      Customize the feedback messages candidates receive upon assessment submission. Line breaks and paragraph formatting are strictly preserved on the student result card.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-bold text-rose-600 dark:text-rose-400 mb-1 uppercase tracking-wider">
+                        1. FAIL Category Message (0% – {createForm.failMax}%)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={createForm.feedbackFail}
+                        onChange={(e) => setCreateForm({ ...createForm, feedbackFail: e.target.value })}
+                        className="w-full rounded-xl border border-input bg-card p-3 text-xs focus:border-primary focus:ring-1 focus:ring-primary focus:outline-hidden"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-amber-600 dark:text-amber-400 mb-1 uppercase tracking-wider">
+                        2. NEED IMPROVEMENT Category Message ({Number(createForm.failMax) + 1}% – {createForm.needImprovementMax}%)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={createForm.feedbackNeedImprovement}
+                        onChange={(e) => setCreateForm({ ...createForm, feedbackNeedImprovement: e.target.value })}
+                        className="w-full rounded-xl border border-input bg-card p-3 text-xs focus:border-primary focus:ring-1 focus:ring-primary focus:outline-hidden"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-blue-600 dark:text-blue-400 mb-1 uppercase tracking-wider">
+                        3. GOOD Category Message ({Number(createForm.needImprovementMax) + 1}% – {createForm.goodMax}%)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={createForm.feedbackGood}
+                        onChange={(e) => setCreateForm({ ...createForm, feedbackGood: e.target.value })}
+                        className="w-full rounded-xl border border-input bg-card p-3 text-xs focus:border-primary focus:ring-1 focus:ring-primary focus:outline-hidden"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-emerald-600 dark:text-emerald-400 mb-1 uppercase tracking-wider">
+                        4. EXCELLENT Category Message ({Number(createForm.goodMax) + 1}% – 100%)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={createForm.feedbackExcellent}
+                        onChange={(e) => setCreateForm({ ...createForm, feedbackExcellent: e.target.value })}
+                        className="w-full rounded-xl border border-input bg-card p-3 text-xs focus:border-primary focus:ring-1 focus:ring-primary focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        setCreateForm({
+                          ...createForm,
+                          feedbackFail: DEFAULT_FEEDBACK.FAIL,
+                          feedbackNeedImprovement: DEFAULT_FEEDBACK.NEED_IMPROVEMENT,
+                          feedbackGood: DEFAULT_FEEDBACK.GOOD,
+                          feedbackExcellent: DEFAULT_FEEDBACK.EXCELLENT,
+                        })
+                      }
+                      className="text-xs text-muted-foreground"
+                    >
+                      Reset to Default Feedback Messages
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* ---------------- SECTION F: CONFIGURATION PREVIEW ---------------- */}
+              {createTab === 'preview' && (
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-border bg-card p-4 space-y-4">
+                    <div className="flex items-start justify-between gap-4 border-b border-border pb-3">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-primary tracking-wider block">
+                          Configuration Summary
+                        </span>
+                        <h3 className="text-base font-bold text-foreground">
+                          {createForm.title || <span className="text-muted-foreground italic">Untitled Assessment</span>}
+                        </h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Max Score: {createForm.maxScore} Marks · Batches: {createForm.batchIds.length} Selected
+                        </p>
+                      </div>
+                      <Badge tone={createForm.timingMode === 'PER_QUESTION' ? 'mustard' : 'indigo'}>
+                        {createForm.timingMode === 'PER_QUESTION' ? 'Per-Question Timer' : 'Fixed Duration'}
+                      </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                      <div className="rounded-lg bg-muted/40 p-2.5">
+                        <span className="text-[10px] text-muted-foreground block">Duration</span>
+                        <span className="font-semibold text-foreground">
+                          {createForm.timingMode === 'PER_QUESTION'
+                            ? `${createForm.questionDuration}s / question`
+                            : `${createForm.durationMinutes} Minutes`}
+                        </span>
+                      </div>
+                      <div className="rounded-lg bg-muted/40 p-2.5">
+                        <span className="text-[10px] text-muted-foreground block">Answer Reveal</span>
+                        <span className="font-semibold text-foreground">
+                          {createForm.answerRevealDuration > 0
+                            ? `${createForm.answerRevealDuration} seconds`
+                            : 'Disabled'}
+                        </span>
+                      </div>
+                      <div className="rounded-lg bg-muted/40 p-2.5">
+                        <span className="text-[10px] text-muted-foreground block">Negative Marking</span>
+                        <span className="font-semibold text-foreground">
+                          {createForm.enableNegativeMarking ? `-${createForm.negativeMarkValue}` : 'None'}
+                        </span>
+                      </div>
+                      <div className="rounded-lg bg-muted/40 p-2.5">
+                        <span className="text-[10px] text-muted-foreground block">Proctoring</span>
+                        <span className="font-semibold text-foreground">
+                          {createForm.cameraRequired ? 'Camera Snapshots' : 'Standard'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="text-xs space-y-1.5 border-t border-border pt-3">
+                      <span className="font-semibold text-foreground block">Schedule:</span>
+                      <p className="text-muted-foreground">
+                        Opens: {createForm.opensAt ? formatDate(createForm.opensAt) : 'Immediately'}
+                        {' · '}
+                        Closes: {createForm.closesAt ? formatDate(createForm.closesAt) : 'No Deadline'}
+                      </p>
+                    </div>
+
+                    <div className="text-xs space-y-1.5 border-t border-border pt-3">
+                      <span className="font-semibold text-foreground block">Grading Categories:</span>
+                      <div className="grid grid-cols-4 gap-2 text-center text-[10px] font-bold">
+                        <span className="p-1 rounded bg-rose-500/10 text-rose-600">
+                          FAIL: 0-{createForm.failMax}%
+                        </span>
+                        <span className="p-1 rounded bg-amber-500/10 text-amber-600">
+                          IMPROVE: {Number(createForm.failMax) + 1}-{createForm.needImprovementMax}%
+                        </span>
+                        <span className="p-1 rounded bg-blue-500/10 text-blue-600">
+                          GOOD: {Number(createForm.needImprovementMax) + 1}-{createForm.goodMax}%
+                        </span>
+                        <span className="p-1 rounded bg-emerald-500/10 text-emerald-600">
+                          EXCELLENT: {Number(createForm.goodMax) + 1}-100%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </DialogBody>
-            <DialogFooter>
+
+            <DialogFooter className="flex items-center justify-between gap-2 border-t border-border pt-4">
               <Button type="button" variant="secondary" onClick={() => setCreateOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" variant="primary" loading={creating}>
-                Create Assessment
-              </Button>
+
+              <div className="flex items-center gap-2">
+                {createTab !== 'details' && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const tabs = ['details', 'timing', 'scheduling', 'classification', 'feedback', 'preview'];
+                      const curIdx = tabs.indexOf(createTab);
+                      if (curIdx > 0) setCreateTab(tabs[curIdx - 1] as any);
+                    }}
+                  >
+                    Previous Section
+                  </Button>
+                )}
+
+                {createTab !== 'preview' ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      const tabs = ['details', 'timing', 'scheduling', 'classification', 'feedback', 'preview'];
+                      const curIdx = tabs.indexOf(createTab);
+                      if (curIdx < tabs.length - 1) setCreateTab(tabs[curIdx + 1] as any);
+                    }}
+                  >
+                    Next Section
+                  </Button>
+                ) : (
+                  <Button type="submit" variant="primary" loading={creating}>
+                    Publish Assessment
+                  </Button>
+                )}
+              </div>
             </DialogFooter>
           </form>
         </DialogContent>

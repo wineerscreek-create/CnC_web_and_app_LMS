@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from app.authz.context import ScopeContext
@@ -18,6 +18,121 @@ from app.db.postgres import get_pg_connection
 from app.services.storage import Keys, put_object, signed_url
 
 log = get_logger("app.assignment_quiz_repo")
+
+
+DEFAULT_PERFORMANCE_RANGES: dict[str, dict[str, float]] = {
+    "FAIL": {"min": 0.0, "max": 39.0},
+    "NEED_IMPROVEMENT": {"min": 40.0, "max": 59.0},
+    "GOOD": {"min": 60.0, "max": 79.0},
+    "EXCELLENT": {"min": 80.0, "max": 100.0},
+}
+
+DEFAULT_MOTIVATIONAL_MESSAGES: dict[str, str] = {
+    "FAIL": "Every mistake is an opportunity to learn. Identify your weak areas, practise consistently and try again.",
+    "NEED_IMPROVEMENT": "You are making progress. Focus on the topics where you lost marks and keep improving.",
+    "GOOD": "Good work! You have developed a solid understanding. Keep practising to reach the next level.",
+    "EXCELLENT": "Outstanding performance! Your preparation and understanding are reflected in your results. Keep challenging yourself.",
+}
+
+
+def normalize_category_key(key: str) -> str:
+    k = str(key).strip().upper().replace(" ", "_")
+    if k in ("NEED_IMPROVEMENT", "NEED_IMPROVEMENTS", "NEEDIMPROVEMENT"):
+        return "NEED_IMPROVEMENT"
+    return k
+
+
+def validate_performance_classification_settings(
+    ranges: dict[str, Any] | None,
+    messages: dict[str, Any] | None = None,
+) -> tuple[dict[str, dict[str, float]], dict[str, str]]:
+    """Strictly validates four performance categories (FAIL, NEED_IMPROVEMENT, GOOD, EXCELLENT)."""
+    req_cats = ["FAIL", "NEED_IMPROVEMENT", "GOOD", "EXCELLENT"]
+
+    clean_ranges: dict[str, dict[str, float]] = {}
+    if ranges and isinstance(ranges, dict):
+        for raw_k, v in ranges.items():
+            norm_k = normalize_category_key(raw_k)
+            if isinstance(v, (list, tuple)) and len(v) >= 2:
+                try:
+                    c_min = float(v[0])
+                    c_max = float(v[1])
+                    clean_ranges[norm_k] = {"min": c_min, "max": c_max}
+                except (ValueError, TypeError):
+                    raise ValidationError(f"Invalid min/max range values for category '{raw_k}'")
+            elif isinstance(v, dict) and "min" in v and "max" in v:
+                try:
+                    c_min = float(v["min"])
+                    c_max = float(v["max"])
+                    clean_ranges[norm_k] = {"min": c_min, "max": c_max}
+                except (ValueError, TypeError):
+                    raise ValidationError(f"Invalid min/max range values for category '{raw_k}'")
+    else:
+        clean_ranges = {k: dict(v) for k, v in DEFAULT_PERFORMANCE_RANGES.items()}
+
+    for cat in req_cats:
+        if cat not in clean_ranges:
+            clean_ranges[cat] = dict(DEFAULT_PERFORMANCE_RANGES[cat])
+
+    if clean_ranges["FAIL"]["min"] != 0:
+        raise ValidationError("Lowest category (FAIL) must start at 0%")
+    if clean_ranges["EXCELLENT"]["max"] != 100:
+        raise ValidationError("Highest category (EXCELLENT) must end at 100%")
+
+    ordered = ["FAIL", "NEED_IMPROVEMENT", "GOOD", "EXCELLENT"]
+    for i in range(len(ordered)):
+        cat = ordered[i]
+        c_min = clean_ranges[cat]["min"]
+        c_max = clean_ranges[cat]["max"]
+        if c_min > c_max:
+            raise ValidationError(f"Category '{cat}' min ({c_min}%) cannot be greater than max ({c_max}%)")
+        if i < len(ordered) - 1:
+            next_cat = ordered[i + 1]
+            n_min = clean_ranges[next_cat]["min"]
+            if c_max >= n_min:
+                raise ValidationError(f"Overlapping ranges between {cat} (max {c_max}%) and {next_cat} (min {n_min}%)")
+            if (n_min - c_max) > 1.01:
+                raise ValidationError(f"Gap detected between {cat} (max {c_max}%) and {next_cat} (min {n_min}%)")
+
+    clean_messages: dict[str, str] = {}
+    if messages and isinstance(messages, dict):
+        for raw_k, msg in messages.items():
+            norm_k = normalize_category_key(raw_k)
+            if msg and str(msg).strip():
+                clean_messages[norm_k] = str(msg).strip()
+
+    for cat in req_cats:
+        if cat not in clean_messages or not clean_messages[cat].strip():
+            clean_messages[cat] = DEFAULT_MOTIVATIONAL_MESSAGES[cat]
+
+    return clean_ranges, clean_messages
+
+
+def determine_performance_category(percentage: float, ranges: dict[str, Any] | None) -> str:
+    """Classifies percentage into FAIL, NEED IMPROVEMENT, GOOD, or EXCELLENT."""
+    p = round(float(percentage), 2)
+    active_ranges = ranges or DEFAULT_PERFORMANCE_RANGES
+
+    for cat_label, norm_key in [
+        ("EXCELLENT", "EXCELLENT"),
+        ("GOOD", "GOOD"),
+        ("NEED IMPROVEMENT", "NEED_IMPROVEMENT"),
+        ("FAIL", "FAIL"),
+    ]:
+        r = active_ranges.get(norm_key) or active_ranges.get(cat_label)
+        if r and isinstance(r, dict):
+            rmin = float(r.get("min", 0.0))
+            rmax = float(r.get("max", 100.0))
+            if rmin <= p <= rmax:
+                return cat_label
+
+    if p >= 80.0:
+        return "EXCELLENT"
+    elif p >= 60.0:
+        return "GOOD"
+    elif p >= 40.0:
+        return "NEED IMPROVEMENT"
+    return "FAIL"
 
 
 def _now() -> datetime:
@@ -301,7 +416,8 @@ class QuizRepository:
             quiz = await conn.fetchrow(
                 """
                 SELECT q.id, q.title, q.kind, q.duration_minutes, q.max_score, q.opens_at, q.closes_at,
-                       q.questions, q.settings, q.quiz_code, q.batch_id, q.institution_id
+                       q.questions, q.settings, q.quiz_code, q.batch_id, q.institution_id,
+                       q.description, q.instructions
                 FROM quizzes q
                 WHERE q.id = $1 AND q.status = 'active'
                 """,
@@ -335,9 +451,23 @@ class QuizRepository:
                 raise ScopeForbidden("This assessment is not assigned to your batch")
 
             attempt = await conn.fetchrow(
-                "SELECT score, completed_at, passed, percentage FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                """
+                SELECT qa.score, qa.possible, qa.completed_at, qa.passed, qa.percentage,
+                       qa.performance_category, qa.motivational_message, qa.correct_count,
+                       qa.incorrect_count, qa.unattempted_count, u.name as student_name
+                FROM quiz_attempts qa
+                LEFT JOIN users u ON u.id = qa.student_user_id
+                WHERE qa.quiz_id = $1 AND qa.student_user_id = $2
+                """,
                 q_uuid, student_user_id
             )
+
+        now = _now()
+        schedule_status = "ACTIVE"
+        if quiz["opens_at"] and as_utc(quiz["opens_at"]) > now:
+            schedule_status = "UPCOMING"
+        elif quiz["closes_at"] and as_utc(quiz["closes_at"]) < now:
+            schedule_status = "EXPIRED"
 
         q_list = _parse_json_list(quiz["questions"])
         settings_dict = _parse_json_dict(quiz["settings"]) if quiz["settings"] else {}
@@ -350,29 +480,32 @@ class QuizRepository:
         default_q_dur = int(settings_dict.get("question_duration", 30))
 
         questions = []
-        for q in q_list:
-            opts = []
-            if isinstance(q.get("options"), list):
-                for i, o in enumerate(q.get("options", [])):
-                    opts.append({"id": o.get("id", chr(65 + i)), "text": o.get("text", "")})
-            elif isinstance(q.get("options"), dict):
-                for k, v in q.get("options", {}).items():
-                    opts.append({"id": k, "text": str(v)})
-            q_time_limit = int(q.get("time_limit") or q.get("duration_seconds") or q.get("timeLimitSeconds") or default_q_dur)
-            questions.append({
-                "id": str(q.get("id")),
-                "text": q.get("text") or q.get("question"),
-                "image": q.get("image"),
-                "options": opts,
-                "marks": q.get("marks", 1),
-                "time_limit": q_time_limit,
-                "duration_seconds": q_time_limit,
-                "question_type": q.get("question_type") or q.get("questionType") or ("mcq_multiple" if len(q.get("correct", [])) > 1 else "mcq_single"),
-            })
+        if schedule_status != "UPCOMING":
+            for q in q_list:
+                opts = []
+                if isinstance(q.get("options"), list):
+                    for i, o in enumerate(q.get("options", [])):
+                        opts.append({"id": o.get("id", chr(65 + i)), "text": o.get("text", "")})
+                elif isinstance(q.get("options"), dict):
+                    for k, v in q.get("options", {}).items():
+                        opts.append({"id": k, "text": str(v)})
+                q_time_limit = int(q.get("time_limit") or q.get("duration_seconds") or q.get("timeLimitSeconds") or default_q_dur)
+                questions.append({
+                    "id": str(q.get("id")),
+                    "text": q.get("text") or q.get("question"),
+                    "image": q.get("image"),
+                    "options": opts,
+                    "marks": q.get("marks", 1),
+                    "time_limit": q_time_limit,
+                    "duration_seconds": q_time_limit,
+                    "question_type": q.get("question_type") or q.get("questionType") or ("mcq_multiple" if len(q.get("correct", [])) > 1 else "mcq_single"),
+                })
 
         return {
             "id": str(quiz["id"]),
             "title": quiz["title"],
+            "description": quiz.get("description"),
+            "instructions": quiz.get("instructions"),
             "kind": quiz["kind"],
             "timingMode": timing_mode,
             "timing_mode": timing_mode,
@@ -380,14 +513,22 @@ class QuizRepository:
             "maxScore": quiz["max_score"],
             "opensAt": quiz["opens_at"].isoformat() if quiz["opens_at"] else None,
             "closesAt": quiz["closes_at"].isoformat() if quiz["closes_at"] else None,
+            "scheduleStatus": schedule_status,
             "quizCode": quiz["quiz_code"],
             "settings": settings_dict,
             "questions": questions,
             "attempt": {
                 "score": attempt["score"],
+                "maxScore": attempt["possible"],
                 "completedAt": attempt["completed_at"].isoformat() if attempt["completed_at"] else None,
                 "passed": attempt["passed"],
                 "percentage": float(attempt["percentage"]) if attempt["percentage"] is not None else None,
+                "performanceCategory": attempt["performance_category"],
+                "motivationalMessage": attempt["motivational_message"],
+                "correctCount": attempt["correct_count"],
+                "incorrectCount": attempt["incorrect_count"],
+                "unattemptedCount": attempt["unattempted_count"],
+                "studentName": attempt["student_name"],
             } if attempt else None,
         }
 
@@ -415,14 +556,15 @@ class QuizRepository:
             student_inst_id = b_row["institution_id"] if b_row else None
 
             quiz = await conn.fetchrow(
-                "SELECT id, title, questions, max_score, allow_retake, closes_at, batch_id, institution_id FROM quizzes WHERE id = $1 AND status = 'active'",
+                "SELECT id, title, questions, max_score, allow_retake, closes_at, batch_id, institution_id, settings FROM quizzes WHERE id = $1 AND status = 'active'",
                 q_uuid
             )
             if not quiz:
                 raise NotFound("Quiz not found")
 
-            # Check deadline
-            if quiz["closes_at"] and quiz["closes_at"] < _now():
+            # Check deadline with grace period
+            now_utc = _now()
+            if quiz["closes_at"] and as_utc(quiz["closes_at"]) + timedelta(seconds=60) < now_utc:
                 raise BusinessRuleViolation("This assessment has already closed")
 
             # Check batch authorization
@@ -455,6 +597,9 @@ class QuizRepository:
             q_list = _parse_json_list(quiz["questions"])
             earned = 0.0
             total_marks = 0.0
+            correct_count = 0
+            incorrect_count = 0
+            unattempted_count = 0
 
             # EEDI accumulator: (eedi_term, eedi_index) -> {"earned": float, "possible": float}
             eedi_acc: dict[tuple[str, int | None], dict[str, float]] = {}
@@ -477,7 +622,7 @@ class QuizRepository:
                     chosen_list = [str(raw_ans).strip().upper()]
 
                 # Normalize correct answers
-                correct_raw = q.get("correct") or q.get("correct_answer") or q.get("correctAnswer")
+                correct_raw = q.get("correct_options") or q.get("correct") or q.get("correct_answer") or q.get("correctAnswer")
                 if not correct_raw and isinstance(q.get("options"), list):
                     correct_raw = [opt.get("id") for opt in q.get("options", []) if opt.get("correct")]
 
@@ -513,6 +658,13 @@ class QuizRepository:
                         if chosen in correct_answers:
                             is_correct = True
 
+                if not has_attempted:
+                    unattempted_count += 1
+                elif is_correct:
+                    correct_count += 1
+                else:
+                    incorrect_count += 1
+
                 q_earned = 0.0
                 if is_correct:
                     q_earned = m
@@ -538,6 +690,15 @@ class QuizRepository:
             warnings_json = json.dumps(warnings or [])
             warning_count = len(warnings or [])
 
+            settings_dict = _parse_json_dict(quiz.get("settings"))
+            perf_ranges = settings_dict.get("performance_classification") or DEFAULT_PERFORMANCE_RANGES
+            mot_messages = settings_dict.get("motivational_feedback") or DEFAULT_MOTIVATIONAL_MESSAGES
+            perf_cat = determine_performance_category(pct_score, perf_ranges)
+            mot_msg = mot_messages.get(normalize_category_key(perf_cat)) or DEFAULT_MOTIVATIONAL_MESSAGES.get(normalize_category_key(perf_cat), "Well done!")
+
+            u_row = await conn.fetchrow("SELECT name FROM users WHERE id = $1", u_uuid)
+            student_name = u_row["name"] if u_row and u_row["name"] else "Student"
+
             if existing:
                 att_id = existing["id"]
                 await conn.execute(
@@ -546,12 +707,15 @@ class QuizRepository:
                     SET score = $3, possible = $4, answers = $5::jsonb, completed_at = NOW(),
                         batch_id = $6, institution_id = $7, device_id = $8,
                         warnings = $9::jsonb, warning_count = $10, status = 'completed',
-                        percentage = $11, passed = $12
+                        percentage = $11, passed = $12, performance_category = $13,
+                        motivational_message = $14, correct_count = $15, incorrect_count = $16,
+                        unattempted_count = $17
                     WHERE id = $1 AND student_user_id = $2
                     """,
                     att_id, u_uuid, score_val, int(quiz["max_score"] or 100),
                     json.dumps(answers), student_batch_id, student_inst_id, device_id,
-                    warnings_json, warning_count, pct_score, passed
+                    warnings_json, warning_count, pct_score, passed,
+                    perf_cat, mot_msg, correct_count, incorrect_count, unattempted_count
                 )
             else:
                 att_id = uuid.uuid4()
@@ -559,15 +723,18 @@ class QuizRepository:
                     """
                     INSERT INTO quiz_attempts (
                         id, quiz_id, student_user_id, score, possible, answers, created_at, completed_at,
-                        batch_id, institution_id, device_id, warnings, warning_count, status, percentage, passed
+                        batch_id, institution_id, device_id, warnings, warning_count, status, percentage, passed,
+                        performance_category, motivational_message, correct_count, incorrect_count, unattempted_count
                     ) VALUES (
                         $1, $2, $3, $4, $5, $6::jsonb, NOW(), NOW(),
-                        $7, $8, $9, $10::jsonb, $11, 'completed', $12, $13
+                        $7, $8, $9, $10::jsonb, $11, 'completed', $12, $13,
+                        $14, $15, $16, $17, $18
                     )
                     """,
                     att_id, q_uuid, u_uuid, score_val, int(quiz["max_score"] or 100),
                     json.dumps(answers), student_batch_id, student_inst_id, device_id,
-                    warnings_json, warning_count, pct_score, passed
+                    warnings_json, warning_count, pct_score, passed,
+                    perf_cat, mot_msg, correct_count, incorrect_count, unattempted_count
                 )
 
             # Store EEDI results (TRAINER-ONLY visibility)
@@ -594,13 +761,22 @@ class QuizRepository:
                     idx, term, e_marks, p_marks, term_pct
                 )
 
-        # Student response contains user-facing score only (NO EEDI SCORES)
+        # Student response contains user-facing score and performance feedback (NO EEDI SCORES)
         return {
             "attemptId": str(att_id),
             "score": score_val,
             "maxScore": int(quiz["max_score"] or 100),
             "percentage": pct_score,
             "passed": passed,
+            "performanceCategory": perf_cat,
+            "motivationalMessage": mot_msg,
+            "correctCount": correct_count,
+            "incorrectCount": incorrect_count,
+            "unattemptedCount": unattempted_count,
+            "totalMarks": int(quiz["max_score"] or 100),
+            "obtainedMarks": score_val,
+            "studentName": student_name,
+            "assessmentName": quiz["title"],
         }
 
     @classmethod
@@ -760,7 +936,7 @@ class QuizRepository:
                         "phase_remaining_seconds": None if timing_mode == "FIXED_TOTAL" else (max(1, first_q_limit - ans_rev_dur) if ans_rev_dur > 0 else first_q_limit),
                         "question_remaining_seconds": None if timing_mode == "FIXED_TOTAL" else first_q_limit,
                         "question_duration": first_q_limit if timing_mode == "PER_QUESTION" else None,
-                        "answer_reveal_duration": ans_rev_dur if timing_mode == "PER_QUESTION" else 0,
+                        "answer_reveal_duration": ans_rev_dur,
                         "auto_advance": auto_advance,
                         "allow_previous": False,
                         "allow_modification": False,
@@ -812,7 +988,7 @@ class QuizRepository:
                         "phase_remaining_seconds": None,
                         "question_remaining_seconds": None,
                         "question_duration": None,
-                        "answer_reveal_duration": 0,
+                        "answer_reveal_duration": ans_rev_dur,
                         "auto_advance": auto_advance,
                         "allow_previous": False,
                         "allow_modification": False,
@@ -902,11 +1078,17 @@ class QuizRepository:
 
         async with get_pg_connection() as conn:
             quiz = await conn.fetchrow(
-                "SELECT id, questions, settings, duration_minutes, max_score, status, timing_mode FROM quizzes WHERE id = $1 AND status = 'active'",
+                "SELECT id, questions, settings, duration_minutes, max_score, status, timing_mode, opens_at, closes_at FROM quizzes WHERE id = $1 AND status = 'active'",
                 q_uuid,
             )
             if not quiz:
                 raise NotFound("Assessment not found")
+
+            now_utc = datetime.now(timezone.utc)
+            if quiz["opens_at"] and now_utc < as_utc(quiz["opens_at"]):
+                raise BusinessRuleViolation("Assessment has not started yet. Status: Upcoming")
+            if quiz["closes_at"] and now_utc > as_utc(quiz["closes_at"]):
+                raise BusinessRuleViolation("Assessment schedule has ended. Status: Expired")
 
             # Check if attempt already exists
             existing = await conn.fetchrow(
@@ -955,11 +1137,15 @@ class QuizRepository:
 
         async with get_pg_connection() as conn:
             quiz_row = await conn.fetchrow(
-                "SELECT settings, questions, timing_mode, duration_minutes FROM quizzes WHERE id = $1",
+                "SELECT settings, questions, timing_mode, duration_minutes, opens_at, closes_at FROM quizzes WHERE id = $1",
                 q_uuid
             )
             if not quiz_row:
                 raise NotFound("Assessment not found")
+
+            server_now = datetime.now(timezone.utc)
+            if quiz_row["closes_at"] and server_now > as_utc(quiz_row["closes_at"]) + timedelta(seconds=10):
+                raise BusinessRuleViolation("Assessment submission deadline has passed. Status: Expired")
 
             settings_dict = _parse_json_dict(quiz_row["settings"])
             timing_mode = (
@@ -1080,13 +1266,21 @@ class QuizRepository:
 
         async with get_pg_connection() as conn:
             quiz = await conn.fetchrow(
-                "SELECT id, questions, settings, status FROM quizzes WHERE id = $1",
+                "SELECT id, questions, settings, status, timing_mode FROM quizzes WHERE id = $1",
                 q_uuid
             )
             if not quiz:
                 raise NotFound("Assessment not found")
 
             settings_dict = _parse_json_dict(quiz["settings"])
+            timing_mode = (
+                quiz["timing_mode"]
+                or settings_dict.get("timing_mode")
+                or ("PER_QUESTION" if settings_dict.get("enable_timed_questions") else "FIXED_TOTAL")
+            ).upper()
+            if timing_mode not in ("FIXED_TOTAL", "PER_QUESTION"):
+                timing_mode = "FIXED_TOTAL"
+
             q_list = _parse_json_list(quiz["questions"])
             target_q = None
             target_idx = None
@@ -1099,38 +1293,68 @@ class QuizRepository:
             if not target_q:
                 raise NotFound(f"Question {question_id} not found")
 
-            # Server-Authoritative Timing Guard:
-            # Reject reveal if answering phase is still active!
-            if settings_dict.get("enable_timed_questions"):
-                attempt = await conn.fetchrow(
-                    "SELECT id, created_at, status FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
-                    q_uuid, u_uuid,
-                )
-                if not attempt:
-                    raise ScopeForbidden("Assessment attempt not started")
+            # Server-Authoritative Timing & Lock Guard:
+            attempt = await conn.fetchrow(
+                "SELECT id, created_at, status, question_states FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                q_uuid, u_uuid,
+            )
+            if not attempt:
+                raise ScopeForbidden("Assessment attempt not started")
 
-                if attempt["status"] != "completed" and target_idx is not None:
-                    server_now = datetime.now(timezone.utc)
-                    started_at = as_utc(attempt["created_at"])
-                    elapsed_seconds = max(0.0, (server_now - started_at).total_seconds())
+            if attempt["status"] != "completed":
+                q_states = _parse_json_dict(attempt["question_states"]) if attempt["question_states"] else {}
+                qid_str = str(question_id)
+                is_locked = bool(q_states.get(qid_str, {}).get("is_locked", False))
 
-                    q_dur = int(settings_dict.get("question_duration", 10))
-                    ans_rev_dur = int(settings_dict.get("answer_reveal_duration", 2))
-                    ans_dur = max(1, q_dur - ans_rev_dur)
+                if timing_mode == "FIXED_TOTAL":
+                    if not is_locked:
+                        raise ScopeForbidden("Question must be answered and locked before reveal is permitted.")
+                else:
+                    # In PER_QUESTION:
+                    if not is_locked and target_idx is not None:
+                        server_now = datetime.now(timezone.utc)
+                        started_at = as_utc(attempt["created_at"])
+                        elapsed_seconds = max(0.0, (server_now - started_at).total_seconds())
 
-                    answering_deadline = (target_idx * q_dur) + ans_dur
-                    if elapsed_seconds < answering_deadline:
-                        raise ScopeForbidden("Answering phase is still active. Reveal not authorized until answering period ends.")
+                        default_q_dur = int(settings_dict.get("question_duration", 30))
+                        ans_rev_dur = int(settings_dict.get("answer_reveal_duration", 0))
+
+                        q_limits = []
+                        for q in q_list:
+                            lim = q.get("time_limit") or q.get("duration_seconds") or q.get("timeLimitSeconds") or default_q_dur
+                            try:
+                                q_limits.append(max(5, int(lim)))
+                            except (ValueError, TypeError):
+                                q_limits.append(default_q_dur)
+
+                        q_cum = [0]
+                        for lim in q_limits:
+                            q_cum.append(q_cum[-1] + lim)
+
+                        target_limit = q_limits[target_idx] if target_idx < len(q_limits) else default_q_dur
+                        ans_dur = max(1, target_limit - ans_rev_dur) if ans_rev_dur > 0 else target_limit
+
+                        question_start = q_cum[target_idx] if target_idx < len(q_cum) else 0
+                        answering_deadline = question_start + ans_dur
+
+                        if elapsed_seconds < answering_deadline:
+                            raise ScopeForbidden("Answering phase is still active. Reveal not authorized until answering period ends.")
 
         correct_opts = []
-        if isinstance(target_q.get("correct"), list):
+        if isinstance(target_q.get("correct_options"), list):
+            correct_opts = [str(x) for x in target_q.get("correct_options")]
+        elif isinstance(target_q.get("correct"), list):
             correct_opts = [str(x) for x in target_q.get("correct")]
+        elif target_q.get("correct_options") is not None:
+            correct_opts = [str(target_q.get("correct_options"))]
         elif target_q.get("correct") is not None:
             correct_opts = [str(target_q.get("correct"))]
         elif target_q.get("correct_answer") is not None:
             correct_opts = [str(target_q.get("correct_answer"))]
         elif target_q.get("answer") is not None:
             correct_opts = [str(target_q.get("answer"))]
+        elif isinstance(target_q.get("options"), list):
+            correct_opts = [str(opt.get("id")) for opt in target_q["options"] if opt.get("correct") or opt.get("is_correct")]
 
         return {
             "question_id": str(question_id),
@@ -1221,6 +1445,9 @@ class QuizRepository:
         cls,
         ctx: ScopeContext,
         title: str,
+        description: str | None = None,
+        instructions: str | None = None,
+        course_id: str | None = None,
         duration_minutes: int = 30,
         max_score: int = 100,
         opens_at: datetime | None = None,
@@ -1232,7 +1459,13 @@ class QuizRepository:
     ) -> dict[str, Any]:
         t_uuid = _safe_uuid(ctx.user_id)
         inst_uuid = _safe_uuid(ctx.college_id)
+        c_uuid = _safe_uuid(course_id)
         b_uuids = [_safe_uuid(b) for b in (batch_ids or []) if _safe_uuid(b)]
+
+        utc_opens = as_utc(opens_at) if opens_at else None
+        utc_closes = as_utc(closes_at) if closes_at else None
+        if utc_opens and utc_closes and utc_closes <= utc_opens:
+            raise ValidationError("Assessment End Date & Time must be strictly after Start Date & Time")
 
         async with get_pg_connection() as conn:
             # STRICT RBAC CHECK: Validate trainer is authorized for EVERY target batch
@@ -1262,14 +1495,15 @@ class QuizRepository:
                 timing_mode = "PER_QUESTION" if clean_settings.get("enable_timed_questions") else "FIXED_TOTAL"
             clean_settings["timing_mode"] = timing_mode
 
+            ans_dur = int(clean_settings.get("answer_reveal_duration", 0))
+            clean_settings["answer_reveal_duration"] = max(0, ans_dur)
+
             if timing_mode == "PER_QUESTION":
                 clean_settings["enable_timed_questions"] = True
                 q_dur = int(clean_settings.get("question_duration", 30))
-                ans_dur = int(clean_settings.get("answer_reveal_duration", 0))
                 if ans_dur > 0 and q_dur <= ans_dur:
                     raise ValidationError("question_duration must be strictly greater than answer_reveal_duration")
                 clean_settings["question_duration"] = q_dur
-                clean_settings["answer_reveal_duration"] = ans_dur
                 clean_settings["auto_advance"] = True
                 clean_settings["allow_previous"] = False
                 clean_settings["allow_modification"] = False
@@ -1278,21 +1512,33 @@ class QuizRepository:
                 clean_settings["allow_previous"] = False
                 clean_settings["allow_modification"] = False
 
+            # Performance classification and motivational feedback validation
+            clean_ranges, clean_messages = validate_performance_classification_settings(
+                clean_settings.get("performance_classification"),
+                clean_settings.get("motivational_feedback"),
+            )
+            clean_settings["performance_classification"] = clean_ranges
+            clean_settings["motivational_feedback"] = clean_messages
+            if description:
+                clean_settings["description"] = description
+            if instructions:
+                clean_settings["instructions"] = instructions
+
             q_id = uuid.uuid4()
             await conn.execute(
                 """
                 INSERT INTO quizzes (
-                    id, creator_trainer_id, institution_id, title, kind,
+                    id, creator_trainer_id, institution_id, course_id, title, description, instructions, kind,
                     duration_minutes, max_score, allow_retake, opens_at, closes_at,
                     questions, settings, quiz_code, status, timing_mode, created_at, updated_at
                 ) VALUES (
-                    $1, $2, $3, $4, 'quiz',
-                    $5, $6, false, $7, $8,
-                    $9::jsonb, $10::jsonb, $11, 'active', $12, NOW(), NOW()
+                    $1, $2, $3, $4, $5, $6, $7, 'quiz',
+                    $8, $9, false, $10, $11,
+                    $12::jsonb, $13::jsonb, $14, 'active', $15, NOW(), NOW()
                 )
                 """,
-                q_id, t_uuid, inst_uuid, title.strip(),
-                max(1, duration_minutes), max_score, opens_at, closes_at,
+                q_id, t_uuid, inst_uuid, c_uuid, title.strip(), description, instructions,
+                max(1, duration_minutes), max_score, utc_opens, utc_closes,
                 json.dumps(questions or []), json.dumps(clean_settings), code, timing_mode
             )
 
@@ -1327,8 +1573,8 @@ class QuizRepository:
         async with get_pg_connection() as conn:
             quiz = await conn.fetchrow(
                 """
-                SELECT id, title, kind, duration_minutes, max_score, opens_at, closes_at,
-                       questions, settings, quiz_code, status, creator_trainer_id, created_at
+                SELECT id, title, description, instructions, course_id, kind, duration_minutes, max_score, opens_at, closes_at,
+                       questions, settings, quiz_code, status, creator_trainer_id, created_at, timing_mode
                 FROM quizzes WHERE id = $1
                 """,
                 q_uuid
@@ -1363,12 +1609,16 @@ class QuizRepository:
         return {
             "id": str(quiz["id"]),
             "title": quiz["title"],
+            "description": quiz.get("description"),
+            "instructions": quiz.get("instructions"),
+            "courseId": str(quiz["course_id"]) if quiz.get("course_id") else None,
             "kind": quiz["kind"],
             "durationMinutes": quiz["duration_minutes"],
             "maxScore": quiz["max_score"],
             "opensAt": quiz["opens_at"].isoformat() if quiz["opens_at"] else None,
             "closesAt": quiz["closes_at"].isoformat() if quiz["closes_at"] else None,
             "quizCode": quiz["quiz_code"],
+            "timingMode": quiz.get("timing_mode") or "FIXED_TOTAL",
             "settings": quiz["settings"] or {},
             "status": quiz["status"],
             "questions": _parse_json_list(quiz["questions"]),
@@ -1382,6 +1632,9 @@ class QuizRepository:
         ctx: ScopeContext,
         quiz_id: str,
         title: str | None = None,
+        description: str | None = None,
+        instructions: str | None = None,
+        course_id: str | None = None,
         duration_minutes: int | None = None,
         max_score: int | None = None,
         opens_at: datetime | None = None,
@@ -1397,12 +1650,17 @@ class QuizRepository:
             raise NotFound("Quiz not found")
 
         async with get_pg_connection() as conn:
-            quiz = await conn.fetchrow("SELECT id, creator_trainer_id, institution_id, status FROM quizzes WHERE id = $1", q_uuid)
+            quiz = await conn.fetchrow("SELECT id, creator_trainer_id, institution_id, status, opens_at, closes_at FROM quizzes WHERE id = $1", q_uuid)
             if not quiz:
                 raise NotFound("Quiz not found")
 
             if quiz["creator_trainer_id"] != t_uuid and ctx.role != Role.ADMIN and ctx.role != Role.SUPER_ADMIN:
                 raise ScopeForbidden("Only the quiz creator can edit this assessment")
+
+            eff_opens = as_utc(opens_at) if opens_at is not None else as_utc(quiz["opens_at"]) if quiz["opens_at"] else None
+            eff_closes = as_utc(closes_at) if closes_at is not None else as_utc(quiz["closes_at"]) if quiz["closes_at"] else None
+            if eff_opens and eff_closes and eff_closes <= eff_opens:
+                raise ValidationError("Assessment End Date & Time must be strictly after Start Date & Time")
 
             updates = ["updated_at = NOW()"]
             params: list[Any] = [q_uuid]
@@ -1410,6 +1668,15 @@ class QuizRepository:
             if title is not None:
                 params.append(title.strip())
                 updates.append(f"title = ${len(params)}")
+            if description is not None:
+                params.append(description)
+                updates.append(f"description = ${len(params)}")
+            if instructions is not None:
+                params.append(instructions)
+                updates.append(f"instructions = ${len(params)}")
+            if course_id is not None:
+                params.append(_safe_uuid(course_id))
+                updates.append(f"course_id = ${len(params)}")
             if duration_minutes is not None:
                 params.append(max(1, duration_minutes))
                 updates.append(f"duration_minutes = ${len(params)}")
@@ -1417,10 +1684,10 @@ class QuizRepository:
                 params.append(max_score)
                 updates.append(f"max_score = ${len(params)}")
             if opens_at is not None:
-                params.append(opens_at)
+                params.append(as_utc(opens_at))
                 updates.append(f"opens_at = ${len(params)}")
             if closes_at is not None:
-                params.append(closes_at)
+                params.append(as_utc(closes_at))
                 updates.append(f"closes_at = ${len(params)}")
             if questions is not None:
                 params.append(json.dumps(questions))
@@ -1432,14 +1699,15 @@ class QuizRepository:
                     timing_mode = "PER_QUESTION" if clean_settings.get("enable_timed_questions") else "FIXED_TOTAL"
                 clean_settings["timing_mode"] = timing_mode
 
+                ans_dur = int(clean_settings.get("answer_reveal_duration", 0))
+                clean_settings["answer_reveal_duration"] = max(0, ans_dur)
+
                 if timing_mode == "PER_QUESTION":
                     clean_settings["enable_timed_questions"] = True
                     q_dur = int(clean_settings.get("question_duration", 30))
-                    ans_dur = int(clean_settings.get("answer_reveal_duration", 0))
                     if ans_dur > 0 and q_dur <= ans_dur:
                         raise ValidationError("question_duration must be strictly greater than answer_reveal_duration")
                     clean_settings["question_duration"] = q_dur
-                    clean_settings["answer_reveal_duration"] = ans_dur
                     clean_settings["auto_advance"] = True
                     clean_settings["allow_previous"] = False
                     clean_settings["allow_modification"] = False
@@ -1447,6 +1715,13 @@ class QuizRepository:
                     clean_settings["enable_timed_questions"] = False
                     clean_settings["allow_previous"] = False
                     clean_settings["allow_modification"] = False
+
+                clean_ranges, clean_messages = validate_performance_classification_settings(
+                    clean_settings.get("performance_classification"),
+                    clean_settings.get("motivational_feedback"),
+                )
+                clean_settings["performance_classification"] = clean_ranges
+                clean_settings["motivational_feedback"] = clean_messages
 
                 params.append(json.dumps(clean_settings))
                 updates.append(f"settings = ${len(params)}::jsonb")
