@@ -79,6 +79,10 @@ reports/
 !QUIZ_LMS_IMPLEMENTATION_ROADMAP.md
 !QUIZ_MOBILE_FIX_REPORT.md
 !QUIZ_TIMER_IMPLEMENTATION_REPORT.md
+!MESSAGING_IMPLEMENTATION_REPORT.md
+!MESSAGING_SECURITY_AUDIT.md
+!MESSAGING_TEST_RESULTS.md
+!MESSAGING_DEPLOYMENT_GUIDE.md
 
 # 7. Scratch & Temporary Development Directories
 scratch/
@@ -94,6 +98,7 @@ apps/api/tests/*
 !apps/api/tests/test_offline_first_backend.py
 !apps/api/tests/test_quiz_lms_integration.py
 !apps/api/tests/test_quiz_proctoring_integration.py
+!apps/api/tests/test_institute_messaging_system.py
 apps/api/test_*.py
 apps/api/audit_*.py
 apps/api/verify_*.py
@@ -108,6 +113,7 @@ verify_assignment_flow.py
 apps/web/e2e/
 **/*.test.ts
 !apps/web/src/lib/quiz/*.test.ts
+!apps/web/src/lib/messaging/*.test.ts
 **/*.test.tsx
 **/*.spec.ts
 **/*.spec.tsx

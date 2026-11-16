@@ -578,6 +578,8 @@ async def _import_trainer(ctx: ScopeContext, row: dict[str, str], context: dict[
                     assigned_batch_uuid,
                     existing_user["id"],
                 )
+                from app.services.messaging_service import MessagingService
+                await MessagingService.sync_trainer_batch_assignment(existing_user["id"], assigned_batch_uuid, action="assign", conn=conn)
             context["seenEmails"].add(email)
             context["skipped_duplicates"] += 1
             return "duplicate_updated"
@@ -611,6 +613,8 @@ async def _import_trainer(ctx: ScopeContext, row: dict[str, str], context: dict[
                 assigned_batch_uuid,
                 new_user_id,
             )
+            from app.services.messaging_service import MessagingService
+            await MessagingService.sync_trainer_batch_assignment(new_user_id, assigned_batch_uuid, action="assign", conn=conn)
 
     # Sync to MongoDB for backward compatibility
     if not settings.USE_POSTGRES:
@@ -820,6 +824,10 @@ async def _import_student(ctx: ScopeContext, row: dict[str, str], context: dict[
             section_val,
             semester_num,
         )
+
+        if batch_uuid:
+            from app.services.messaging_service import MessagingService
+            await MessagingService.sync_student_batch_membership(new_user_id, batch_uuid, inst_uuid, conn=conn)
 
     # Sync to MongoDB for backward compatibility
     if not settings.USE_POSTGRES:

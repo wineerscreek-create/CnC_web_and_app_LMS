@@ -968,6 +968,9 @@ async def assign_students(
                     "UPDATE student_profiles SET batch_id = $1, updated_at = NOW() WHERE user_id = $2",
                     b_uuid, s_uuid,
                 )
+                from app.services.messaging_service import MessagingService
+                await MessagingService.sync_student_batch_membership(s_uuid, b_uuid, conn=conn)
+
                 active_enr = await conn.fetchrow(
                     "SELECT id FROM enrollments WHERE participant_user_id = $1 AND enrollment_status = 'ACTIVE' LIMIT 1",
                     s_uuid,
@@ -1518,6 +1521,13 @@ async def unassign_trainer(
             if res == "DELETE 0":
                 raise NotFound("Trainer assignment not found for this batch")
 
+            from app.services.messaging_service import MessagingService
+            from app.websocket.messaging_ws import messaging_hub
+            await MessagingService.sync_trainer_batch_assignment(t_uuid, b_uuid, action="revoke", conn=conn)
+            group = await MessagingService.sync_batch_group(b_uuid, conn=conn)
+            if group:
+                await messaging_hub.revoke_user_from_room(str(t_uuid), f"group:{group['id']}")
+
             await session_service.revoke_all_sessions(str(t_uuid), reason="trainer_unassigned_from_batch")
 
             await write_audit(
@@ -1679,6 +1689,9 @@ async def assign_batch_to_trainer(
                 """,
                 b_uuid, t_uuid, batch["institution_id"], start_d, end_d, w_days, status_val, admin_uuid, payload.notes
             )
+            from app.services.messaging_service import MessagingService
+            await MessagingService.sync_trainer_batch_assignment(t_uuid, b_uuid, action="assign", conn=conn)
+
             await session_service.revoke_all_sessions(str(t_uuid), reason="assignment_changed")
             return {"success": True, "message": f"Trainer assigned to {batch['name']}"}
 
@@ -1731,6 +1744,13 @@ async def reassign_trainer_batch(
                 old_b_uuid, t_uuid
             )
 
+            from app.services.messaging_service import MessagingService
+            from app.websocket.messaging_ws import messaging_hub
+            await MessagingService.sync_trainer_batch_assignment(t_uuid, old_b_uuid, action="revoke", conn=conn)
+            old_group = await MessagingService.sync_batch_group(old_b_uuid, conn=conn)
+            if old_group:
+                await messaging_hub.revoke_user_from_room(str(t_uuid), f"group:{old_group['id']}")
+
             # Assign new batch
             await conn.execute(
                 """
@@ -1751,6 +1771,7 @@ async def reassign_trainer_batch(
                 """,
                 new_b_uuid, t_uuid, new_batch["institution_id"], start_d, end_d, w_days, admin_uuid, payload.notes
             )
+            await MessagingService.sync_trainer_batch_assignment(t_uuid, new_b_uuid, action="assign", conn=conn)
             await session_service.revoke_all_sessions(str(t_uuid), reason="trainer_reassigned")
             return {"success": True, "message": f"Trainer reassigned to {new_batch['name']}"}
 

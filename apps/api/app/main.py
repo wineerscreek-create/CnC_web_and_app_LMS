@@ -225,6 +225,13 @@ def create_app() -> FastAPI:
         tags=["assessment-realtime"],
     )
 
+    from app.routers import messaging
+    app.include_router(
+        messaging.router,
+        prefix=prefix,
+        tags=["messaging"],
+    )
+
     from fastapi.staticfiles import StaticFiles
     from app.routers.user_banner import BANNER_UPLOAD_DIR
     from app.routers.user_avatar import AVATAR_UPLOAD_DIR
