@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, setAccessToken, type ApiError } from '@/lib/api';
 import { useAppDispatch, useAppSelector } from '@/store';
-import { signOut, userUpdated } from '@/store/authSlice';
+import { clearActivationState, activationCompleted, signOut, userUpdated } from '@/store/authSlice';
 
 type ActivationStep = 'email' | 'otp' | 'password';
 
@@ -39,7 +39,7 @@ function maskEmail(email: string): string {
 export function ForcePasswordChangeModal() {
   const dispatch = useAppDispatch();
   const router = useRouter();
-  const { user } = useAppSelector((state) => state.auth);
+  const { user, activationToken } = useAppSelector((state) => state.auth);
 
   // Workflow states
   const [step, setStep] = React.useState<ActivationStep>('email');
@@ -66,13 +66,47 @@ export function ForcePasswordChangeModal() {
     return () => clearInterval(timer);
   }, [cooldown]);
 
-  if (!user || !user.mustChangePassword) {
+  if (!user) {
     return null;
   }
   const currentUser = user;
-  const authHeaders = currentUser.activationToken
-    ? { Authorization: `Bearer ${currentUser.activationToken}` }
-    : undefined;
+
+  // Safe recovery path when activation session is missing or expired
+  if (!activationToken) {
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="activation-missing-title"
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade"
+      >
+        <div className="relative w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10 text-amber-500 mb-4">
+            <AlertTriangle className="size-6" />
+          </div>
+          <h2 id="activation-missing-title" className="text-lg font-bold text-foreground">
+            Activation Session Required
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Your activation session is missing or has expired. Please sign in with your student ID and temporary password to begin activation.
+          </p>
+          <Button
+            variant="primary"
+            className="mt-6 w-full font-bold"
+            onClick={() => {
+              dispatch(clearActivationState());
+              dispatch(signOut());
+              router.replace('/login');
+            }}
+          >
+            Sign In to Continue
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const authHeaders = { Authorization: `Bearer ${activationToken}` };
 
   // --- Step 1: Send OTP to Personal Email ---
   async function handleSendOtp(e: React.FormEvent) {
@@ -209,11 +243,13 @@ export function ForcePasswordChangeModal() {
       }
 
       dispatch(
-        userUpdated({
-          mustChangePassword: false,
-          personalEmail: personalEmail.trim().toLowerCase(),
-          personalEmailVerified: true,
-          activationToken: null,
+        activationCompleted({
+          user: res.data?.user || {
+            personalEmail: personalEmail.trim().toLowerCase(),
+            personalEmailVerified: true,
+            mustChangePassword: false,
+          },
+          accessToken: res.data?.accessToken,
         }),
       );
 
@@ -363,7 +399,11 @@ export function ForcePasswordChangeModal() {
                 type="button"
                 variant="secondary"
                 size="sm"
-                onClick={() => dispatch(signOut())}
+                onClick={() => {
+                  dispatch(clearActivationState());
+                  dispatch(signOut());
+                  router.replace('/login');
+                }}
                 className="text-xs text-muted-foreground gap-1.5"
               >
                 <LogOut className="size-3.5" />
@@ -450,7 +490,11 @@ export function ForcePasswordChangeModal() {
                 type="button"
                 variant="secondary"
                 size="sm"
-                onClick={() => dispatch(signOut())}
+                onClick={() => {
+                  dispatch(clearActivationState());
+                  dispatch(signOut());
+                  router.replace('/login');
+                }}
                 className="text-xs text-muted-foreground gap-1.5"
               >
                 <LogOut className="size-3.5" />
@@ -545,7 +589,11 @@ export function ForcePasswordChangeModal() {
                 type="button"
                 variant="secondary"
                 size="sm"
-                onClick={() => dispatch(signOut())}
+                onClick={() => {
+                  dispatch(clearActivationState());
+                  dispatch(signOut());
+                  router.replace('/login');
+                }}
                 className="text-xs text-muted-foreground gap-1.5"
               >
                 <LogOut className="size-3.5" />

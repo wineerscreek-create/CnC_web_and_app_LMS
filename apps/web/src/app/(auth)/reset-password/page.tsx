@@ -167,9 +167,9 @@ function TokenResetForm({ token }: { token: string }) {
 export default function ResetPasswordPage() {
   const params = useSearchParams();
   const token = params.get('token') ?? '';
-  const { user } = useAppSelector((state) => state.auth);
+  const { user, activationToken, status } = useAppSelector((state) => state.auth);
 
-  if (!token && user?.mustChangePassword) {
+  if (!token && (status === 'activation_required' || Boolean(activationToken) || Boolean(user?.mustChangePassword))) {
     return <ForcePasswordChangeModal />;
   }
 

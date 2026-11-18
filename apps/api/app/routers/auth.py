@@ -309,7 +309,7 @@ async def signup(payload: SignupRequest, request: Request) -> dict[str, Any]:
             raise Conflict("An account with this email already exists. Try signing in instead.") from exc
         if "uq_student_roll" in err_msg or "roll_number" in err_msg:
             raise Conflict("A student with this roll number is already registered at this institution.") from exc
-        logger.error(f"Error creating user {email}: {exc}", exc_info=True)
+        log.error(f"Error creating user {email}: {exc}", exc_info=True)
         raise ValidationError(f"Registration could not be completed: {str(exc)}") from exc
 
     if not settings.USE_POSTGRES and not settings.is_production:
@@ -580,6 +580,30 @@ async def login(payload: LoginRequest, request: Request, response: Response) -> 
         except Exception:
             pass
 
+    await rate_limit.clear_failed_logins(identifier)
+
+    # Case B: Newly provisioned student requiring first-login personal email activation.
+    # Takes precedence over self-registration email verification.
+    # Do not issue a normal dashboard access token or full refresh session.
+    # Issue a short-lived restricted activation token (typ="activation").
+    if user.get("mustChangePassword"):
+        activation_token = create_purpose_token(
+            user_id=str(user["_id"]),
+            purpose="activation",
+            ttl_minutes=20,
+        )
+        return {
+            "success": True,
+            "message": "First-time login: please verify your personal email and set a new permanent password.",
+            "data": {
+                "activationRequired": True,
+                "activationToken": activation_token,
+                "user": _public_user(user),
+                "redirectTo": "/reset-password",
+            },
+        }
+
+    # Case A: Existing user — standard email verification if required
     if settings.EMAIL_VERIFICATION_ENABLED and not user.get("emailVerified"):
         otp = await rate_limit.issue_otp(VERIFY, user["email"])
         link_token = create_purpose_token(
@@ -599,28 +623,6 @@ async def login(payload: LoginRequest, request: Request, response: Response) -> 
         raise Unauthenticated(
             "Your account is not assigned to a department yet. Contact your administrator."
         )
-
-    await rate_limit.clear_failed_logins(identifier)
-
-    # First-login activation requirement for accounts with mustChangePassword:
-    # Do not issue a normal dashboard access token or full refresh session.
-    # Issue a short-lived restricted activation token (typ="activation").
-    if user.get("mustChangePassword"):
-        activation_token = create_purpose_token(
-            user_id=str(user["_id"]),
-            purpose="activation",
-            ttl_minutes=20,
-        )
-        return {
-            "success": True,
-            "message": "First-time login: please verify your personal email and set a new permanent password.",
-            "data": {
-                "activationRequired": True,
-                "activationToken": activation_token,
-                "user": _public_user(user),
-                "redirectTo": "/reset-password",
-            },
-        }
 
     tokens = await session_service.open_session(
         user=user,

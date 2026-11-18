@@ -30,6 +30,8 @@ export default function LoginPage() {
   React.useEffect(() => {
     if (status === 'authenticated' && user) {
       router.replace(next && next.startsWith('/') ? next : user.home);
+    } else if (status === 'activation_required' && user) {
+      router.replace('/reset-password');
     }
   }, [status, user, next, router]);
 
@@ -40,7 +42,11 @@ export default function LoginPage() {
     const result = await dispatch(
       signIn({ identifier: identifier.trim(), password, rememberMe: remember }),
     );
-    if (signIn.rejected.match(result)) {
+    if (signIn.fulfilled.match(result)) {
+      if (result.payload.activationRequired) {
+        router.replace('/reset-password');
+      }
+    } else if (signIn.rejected.match(result)) {
       const payload = result.payload as any;
       if (payload?.verificationRequired) {
         const dest = next && next.startsWith('/') ? `&next=${encodeURIComponent(next)}` : '';

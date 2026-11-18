@@ -581,3 +581,121 @@ async def test_21_activation_context_dependency_validation():
         with pytest.raises(RoleForbidden) as exc:
             await get_activation_context(req_act)
         assert "Account activation already completed" in str(exc.value)
+
+
+async def test_22_first_login_takes_precedence_over_unverified_institutional_email():
+    """First-login activation takes strict precedence over standard email verification when must_change_password=True."""
+    from app.routers.auth import login
+    from starlette.requests import Request
+    from starlette.responses import Response
+
+    dummy_request = Request({"type": "http", "headers": [], "client": ("127.0.0.1", 1234)})
+    dummy_response = Response()
+
+    # Student with unverified institutional email but requiring activation
+    mock_student = {
+        "id": uuid.uuid4(),
+        "name": "Pre-created Student",
+        "email": "student.precreated@aryacollege.in",
+        "password_hash": hash_password("TempPass123!"),
+        "role": "STUDENT",
+        "status": "ACTIVE",
+        "email_verified": False,  # Institutional email is unverified
+        "must_change_password": True,  # Needs first-login personal email activation
+        "failed_login_attempts": 0,
+        "locked_until": None,
+        "college_id": uuid.uuid4(),
+        "college_name": "Engineering College",
+        "department_id": uuid.uuid4(),
+        "department_name": "Computer Science",
+        "avatar_color": None,
+        "avatar_url": None,
+        "personal_email": None,
+        "personal_email_verified": False,
+    }
+
+    with patch.object(UserRepository, "get_by_identifier", AsyncMock(return_value=mock_student)), \
+         patch("app.routers.auth.settings.EMAIL_VERIFICATION_ENABLED", True):
+
+        payload = LoginRequest(identifier="student.precreated@aryacollege.in", password="TempPass123!")
+        res = await login(payload, dummy_request, dummy_response)
+
+        # Must enter activation flow, NOT normal email verification
+        assert res["success"] is True
+        assert res["data"]["activationRequired"] is True
+        assert "activationToken" in res["data"]
+        assert "accessToken" not in res["data"]
+        assert res["data"].get("verificationRequired") is not True
+
+
+async def test_23_existing_verified_user_receives_normal_session():
+    """Existing user with must_change_password=False and email_verified=True logs in normally."""
+    from app.routers.auth import login
+    from starlette.requests import Request
+    from starlette.responses import Response
+
+    dummy_request = Request({"type": "http", "headers": [], "client": ("127.0.0.1", 1234)})
+    dummy_response = Response()
+
+    existing_user = {
+        "id": uuid.uuid4(),
+        "name": "Normal Verified Student",
+        "email": "student.normal@aryacollege.in",
+        "password_hash": hash_password("NormalPass123!"),
+        "role": "STUDENT",
+        "status": "ACTIVE",
+        "email_verified": True,
+        "must_change_password": False,
+        "failed_login_attempts": 0,
+        "locked_until": None,
+        "college_id": uuid.uuid4(),
+        "college_name": "Engineering College",
+        "department_id": uuid.uuid4(),
+        "department_name": "Computer Science",
+        "avatar_color": None,
+        "avatar_url": None,
+        "personal_email": "normal.personal@gmail.com",
+        "personal_email_verified": True,
+    }
+
+    with patch.object(UserRepository, "get_by_identifier", AsyncMock(return_value=existing_user)), \
+         patch.object(UserRepository, "update_login_activity", AsyncMock()), \
+         patch.object(session_service, "open_session", AsyncMock(return_value={"accessToken": "mock_acc_token", "refreshToken": "mock_ref_token", "accessTokenExpiresAt": "2026-11-19T00:00:00Z"})):
+
+        payload = LoginRequest(identifier="student.normal@aryacollege.in", password="NormalPass123!")
+        res = await login(payload, dummy_request, dummy_response)
+
+        assert res["success"] is True
+        assert res["data"].get("activationRequired", False) is False
+        assert "activationToken" not in res["data"]
+        assert res["data"]["accessToken"] == "mock_acc_token"
+
+
+async def test_24_incorrect_password_rejected():
+    """Incorrect password raises Unauthenticated and records failed login."""
+    from app.routers.auth import login
+    from starlette.requests import Request
+    from starlette.responses import Response
+
+    dummy_request = Request({"type": "http", "headers": [], "client": ("127.0.0.1", 1234)})
+    dummy_response = Response()
+
+    mock_user = {
+        "id": uuid.uuid4(),
+        "name": "Password Check User",
+        "email": "student.pwdcheck@aryacollege.in",
+        "password_hash": hash_password("CorrectPass123!"),
+        "role": "STUDENT",
+        "status": "ACTIVE",
+        "email_verified": True,
+        "must_change_password": False,
+    }
+
+    with patch.object(UserRepository, "get_by_identifier", AsyncMock(return_value=mock_user)), \
+         patch("app.routers.auth.write_security_event", AsyncMock()):
+
+        payload = LoginRequest(identifier="student.pwdcheck@aryacollege.in", password="WrongPassword999!")
+        with pytest.raises(Unauthenticated) as exc:
+            await login(payload, dummy_request, dummy_response)
+        assert "incorrect" in str(exc.value)
+

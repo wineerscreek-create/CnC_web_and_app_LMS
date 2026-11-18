@@ -32,9 +32,15 @@ from app.core.errors import Conflict, NotFound, ValidationError
 
 @pytest.fixture
 async def cleanup_test_data():
+    async def _clean():
+        async with get_pg_connection() as conn:
+            await conn.execute("DELETE FROM trainer_profiles WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%@teststaffmgmt.com')")
+            await conn.execute("DELETE FROM staff_profiles WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%@teststaffmgmt.com')")
+            await conn.execute("DELETE FROM course_invitations WHERE trainer_id IN (SELECT id FROM users WHERE email LIKE '%@teststaffmgmt.com')")
+            await conn.execute("DELETE FROM users WHERE email LIKE '%@teststaffmgmt.com'")
+    await _clean()
     yield
-    async with get_pg_connection() as conn:
-        await conn.execute("DELETE FROM users WHERE email LIKE '%@teststaffmgmt.com'")
+    await _clean()
 
 
 @pytest.mark.asyncio

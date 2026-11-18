@@ -63,13 +63,14 @@ export interface SessionUser {
   profile?: Record<string, any> | null;
 }
 
-export type AuthStatus = 'idle' | 'restoring' | 'authenticated' | 'anonymous';
+export type AuthStatus = 'idle' | 'restoring' | 'authenticated' | 'anonymous' | 'activation_required';
 
-interface AuthState {
+export interface AuthState {
   status: AuthStatus;
   user: SessionUser | null;
   error: string | null;
   signingIn: boolean;
+  activationToken: string | null;
 }
 
 const initialState: AuthState = {
@@ -77,6 +78,7 @@ const initialState: AuthState = {
   user: null,
   error: null,
   signingIn: false,
+  activationToken: null,
 };
 
 /** Rehydrate from the HttpOnly refresh cookie on first load, or offline cache if disconnected. */
@@ -125,13 +127,21 @@ export const signIn = createAsyncThunk(
         // Activation token is strictly restricted to first-login activation.
         // Never set as normal accessToken or store as active session.
         setAccessToken(null);
-        const user = { ...(response.data.user as SessionUser) };
-        user.activationToken = response.data.activationToken;
-        user.mustChangePassword = true;
-        return user;
+        return {
+          user: response.data.user as SessionUser,
+          activationToken: response.data.activationToken as string,
+          activationRequired: true,
+          redirectTo: response.data.redirectTo || '/reset-password',
+        };
       }
       setAccessToken(response.data.accessToken);
-      return response.data.user as SessionUser;
+      return {
+        user: response.data.user as SessionUser,
+        activationToken: null,
+        activationRequired: false,
+        accessToken: response.data.accessToken,
+        redirectTo: response.data.redirectTo,
+      };
     } catch (error) {
       const apiError = error as ApiError;
       return rejectWithValue({
@@ -171,10 +181,36 @@ const authSlice = createSlice({
       setStoredOfflineUser(null);
       state.status = 'anonymous';
       state.user = null;
+      state.activationToken = null;
       setAccessToken(null);
     },
     clearAuthError(state) {
       state.error = null;
+    },
+    clearActivationState(state) {
+      state.activationToken = null;
+      if (state.status === 'activation_required') {
+        state.status = 'anonymous';
+        state.user = null;
+      }
+    },
+    activationCompleted(
+      state,
+      action: PayloadAction<{ user?: Partial<SessionUser>; accessToken?: string }>,
+    ) {
+      state.status = 'authenticated';
+      state.activationToken = null;
+      if (action.payload.accessToken) {
+        setAccessToken(action.payload.accessToken);
+      }
+      if (state.user) {
+        state.user = {
+          ...state.user,
+          ...action.payload.user,
+          mustChangePassword: false,
+        };
+        setStoredOfflineUser(state.user);
+      }
     },
     userUpdated(state, action: PayloadAction<Partial<SessionUser>>) {
       if (state.user) {
@@ -191,11 +227,13 @@ const authSlice = createSlice({
       .addCase(restoreSession.fulfilled, (state, action) => {
         state.status = 'authenticated';
         state.user = action.payload;
+        state.activationToken = null;
         setStoredOfflineUser(action.payload);
       })
       .addCase(restoreSession.rejected, (state) => {
         state.status = 'anonymous';
         state.user = null;
+        state.activationToken = null;
       })
       .addCase(signIn.pending, (state) => {
         state.signingIn = true;
@@ -203,14 +241,23 @@ const authSlice = createSlice({
       })
       .addCase(signIn.fulfilled, (state, action) => {
         state.signingIn = false;
-        state.status = 'authenticated';
-        state.user = action.payload;
-        setStoredOfflineUser(action.payload);
         state.error = null;
+        if (action.payload.activationRequired) {
+          state.status = 'activation_required';
+          state.user = action.payload.user;
+          state.activationToken = action.payload.activationToken;
+          setStoredOfflineUser(null);
+        } else {
+          state.status = 'authenticated';
+          state.user = action.payload.user;
+          state.activationToken = null;
+          setStoredOfflineUser(action.payload.user);
+        }
       })
       .addCase(signIn.rejected, (state, action) => {
         state.signingIn = false;
         state.status = 'anonymous';
+        state.activationToken = null;
         state.error = (action.payload as { message?: string })?.message ?? 'Sign-in failed';
       })
       .addCase(signOut.fulfilled, (state) => {
@@ -220,6 +267,7 @@ const authSlice = createSlice({
         setStoredOfflineUser(null);
         state.status = 'anonymous';
         state.user = null;
+        state.activationToken = null;
       })
       .addCase(signOutEverywhere.fulfilled, (state) => {
         if (state.user?.id) {
@@ -228,9 +276,17 @@ const authSlice = createSlice({
         setStoredOfflineUser(null);
         state.status = 'anonymous';
         state.user = null;
+        state.activationToken = null;
       });
   },
 });
 
-export const { sessionExpired, clearAuthError, userUpdated } = authSlice.actions;
+export const {
+  sessionExpired,
+  clearAuthError,
+  clearActivationState,
+  activationCompleted,
+  userUpdated,
+} = authSlice.actions;
+
 export default authSlice.reducer;
