@@ -39,12 +39,10 @@ export function RouteGuard({
   }, [status, user, allowed, router]);
 
   if (status === 'authenticated' && user && allowed.includes(user.role as Role)) {
-    return (
-      <>
-        {user.mustChangePassword && <ForcePasswordChangeModal />}
-        {children}
-      </>
-    );
+    if (user.mustChangePassword) {
+      return <ForcePasswordChangeModal />;
+    }
+    return <>{children}</>;
   }
 
   return (

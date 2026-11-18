@@ -98,6 +98,27 @@ class ChangePasswordRequest(Base):
         return value
 
 
+class FirstLoginSendOtpRequest(Base):
+    personalEmail: EmailStr
+
+
+class FirstLoginVerifyOtpRequest(Base):
+    otp: Annotated[str, Field(min_length=6, max_length=6, pattern=r"^\d{6}$")]
+    personalEmail: EmailStr | None = None
+
+
+class FirstLoginCompleteRequest(Base):
+    password: Annotated[str, Field(min_length=8, max_length=128)]
+    confirmPassword: Annotated[str, Field(min_length=8, max_length=128)]
+
+    @field_validator("confirmPassword")
+    @classmethod
+    def _match(cls, value: str, info: Any) -> str:
+        if info.data.get("password") and value != info.data["password"]:
+            raise ValueError("Passwords do not match")
+        return value
+
+
 # --------------------------------------------------------------------------- student
 class ProgressUpdate(Base):
     lessonId: ObjectIdStr | None = None

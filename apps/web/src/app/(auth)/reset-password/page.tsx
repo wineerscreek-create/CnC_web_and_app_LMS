@@ -6,15 +6,14 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import * as React from 'react';
 
 import { PasswordStrength, passwordScore } from '@/components/auth/password-strength';
+import { ForcePasswordChangeModal } from '@/components/auth/force-password-change-modal';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/input';
 import { ApiError, api } from '@/lib/api';
+import { useAppSelector } from '@/store';
 
-export default function ResetPasswordPage() {
+function TokenResetForm({ token }: { token: string }) {
   const router = useRouter();
-  const params = useSearchParams();
-  const token = params.get('token') ?? '';
-
   const [password, setPassword] = React.useState('');
   const [confirm, setConfirm] = React.useState('');
   const [showPassword, setShowPassword] = React.useState(false);
@@ -75,28 +74,6 @@ export default function ResetPasswordPage() {
         <Button asChild variant="primary" className="mt-5 font-bold" size="lg">
           <Link href="/login">Sign in now</Link>
         </Button>
-      </div>
-    );
-  }
-
-  if (!token) {
-    return (
-      <div className="text-center">
-        <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-accent/15 text-gold-text">
-          <KeyRound className="size-5" aria-hidden />
-        </span>
-        <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-heading">Password reset link required</h1>
-        <p className="mt-2 text-base text-muted-foreground">
-          To reset your password, please use the reset link sent to your registered email address.
-        </p>
-        <div className="mt-6 flex flex-col gap-3">
-          <Button asChild variant="primary" size="lg" className="w-full font-bold">
-            <Link href="/forgot-password">Request password reset link</Link>
-          </Button>
-          <Button asChild variant="ghost" size="lg" className="w-full">
-            <Link href="/login">Back to sign in</Link>
-          </Button>
-        </div>
       </div>
     );
   }
@@ -185,4 +162,38 @@ export default function ResetPasswordPage() {
       </p>
     </>
   );
+}
+
+export default function ResetPasswordPage() {
+  const params = useSearchParams();
+  const token = params.get('token') ?? '';
+  const { user } = useAppSelector((state) => state.auth);
+
+  if (!token && user?.mustChangePassword) {
+    return <ForcePasswordChangeModal />;
+  }
+
+  if (!token) {
+    return (
+      <div className="text-center">
+        <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-accent/15 text-gold-text">
+          <KeyRound className="size-5" aria-hidden />
+        </span>
+        <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-heading">Password reset link required</h1>
+        <p className="mt-2 text-base text-muted-foreground">
+          To reset your password, please use the reset link sent to your registered email address.
+        </p>
+        <div className="mt-6 flex flex-col gap-3">
+          <Button asChild variant="primary" size="lg" className="w-full font-bold">
+            <Link href="/forgot-password">Request password reset link</Link>
+          </Button>
+          <Button asChild variant="ghost" size="lg" className="w-full">
+            <Link href="/login">Back to sign in</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return <TokenResetForm token={token} />;
 }

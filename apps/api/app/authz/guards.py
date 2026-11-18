@@ -42,7 +42,39 @@ async def _bearer_payload(request: Request) -> dict[str, Any]:
     header = request.headers.get("authorization", "")
     if not header.lower().startswith(BEARER):
         raise Unauthenticated("Authentication required")
-    return decode_token(header[len(BEARER):].strip(), expected_type="access")
+    raw_token = header[len(BEARER):].strip()
+    return decode_token(raw_token, expected_type="access")
+
+
+async def get_activation_context(request: Request) -> dict[str, Any]:
+    """Dependency for first-login activation endpoints. Strictly requires typ='activation'."""
+    header = request.headers.get("authorization", "")
+    if not header.lower().startswith(BEARER):
+        raise Unauthenticated("Authentication required")
+    raw_token = header[len(BEARER):].strip()
+    payload = decode_token(raw_token, expected_type="activation")
+    user_id_raw = payload.get("sub")
+    if not user_id_raw:
+        raise Unauthenticated("Invalid activation token")
+
+    from app.repositories.user_repo import UserRepository
+    user = await UserRepository.get_by_id(str(user_id_raw))
+    if not user:
+        raise Unauthenticated("Account not found")
+    if not user.get("must_change_password"):
+        raise RoleForbidden("Account activation already completed")
+    if str(user.get("status", "")).lower() != "active":
+        raise Unauthenticated("This account is not active")
+
+    return {
+        "userId": str(user["id"]),
+        "email": user["email"],
+        "name": user.get("name") or "",
+        "role": str(user["role"]),
+        "collegeId": str(user["institution_id"]) if user.get("institution_id") else None,
+        "departmentId": str(user["department_id"]) if user.get("department_id") else None,
+        "mustChangePassword": True,
+    }
 
 
 async def get_scope_context(request: Request) -> ScopeContext:
@@ -64,7 +96,7 @@ async def get_scope_context(request: Request) -> ScopeContext:
 
     redis = get_redis()
     try:
-        if await redis.exists(K.denylist(jti)):
+        if jti and await redis.exists(K.denylist(jti)):
             raise Unauthenticated("Your session has been signed out")
         if not await redis.exists(K.session(str(user_id), session_id)):
             raise Unauthenticated("Your session is no longer active")

@@ -16,17 +16,25 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 
 from app.authz.audit import write_audit, write_security_event
 from app.authz.context import ScopeContext
-from app.authz.guards import CurrentUser, assert_dev_endpoints_enabled, get_scope_context
+from app.authz.guards import (
+    CurrentUser,
+    assert_dev_endpoints_enabled,
+    get_activation_context,
+    get_scope_context,
+)
 from app.authz.roles import COLLEGE_BOUND, DEPARTMENT_BOUND, ROLE_HOME, ROLE_LABEL, Role, parse_role
 from app.core.config import settings
 from app.core.errors import (
     Conflict,
     NotFound,
+    RateLimited,
     RoleForbidden,
+    ServiceUnavailable,
     Unauthenticated,
     ValidationError,
 )
 from app.core.logging import get_logger
+from app.core.redis_client import K, get_redis
 from app.core.security import (
     assert_password_policy,
     create_purpose_token,
@@ -42,6 +50,9 @@ from app.db.postgres import get_pg_connection
 from app.repositories.user_repo import UserRepository
 from app.schemas.requests import (
     ChangePasswordRequest,
+    FirstLoginCompleteRequest,
+    FirstLoginSendOtpRequest,
+    FirstLoginVerifyOtpRequest,
     ForgotPasswordRequest,
     LoginRequest,
     ResendOtpRequest,
@@ -52,6 +63,7 @@ from app.schemas.requests import (
 from app.services import rate_limit, session_service
 from app.services.email_service import (
     ConsoleEmailProvider,
+    send_first_login_otp_email,
     send_password_reset_email,
     send_verification_email,
 )
@@ -115,6 +127,12 @@ def _public_user(user: dict[str, Any]) -> dict[str, Any]:
         "departmentId": str(user.get("departmentId") or user.get("department_id") or "") or None,
         "departmentName": user.get("departmentName") or user.get("department_name"),
         "emailVerified": bool(user.get("emailVerified") if user.get("emailVerified") is not None else user.get("email_verified", True)),
+        "personalEmail": user.get("personalEmail") or user.get("personal_email"),
+        "personalEmailVerified": bool(
+            user.get("personalEmailVerified")
+            if user.get("personalEmailVerified") is not None
+            else user.get("personal_email_verified", False)
+        ),
         "status": str(user.get("status", "active")).lower(),
         "avatarColor": user.get("avatarColor") or user.get("avatar_color") or "#6366f1",
         "avatarUrl": user.get("avatarUrl") or user.get("avatar_url") or None,
@@ -217,6 +235,8 @@ async def _find_user_by_identifier(identifier: str) -> dict[str, Any] | None:
         "institutionId": pg_user.get("roll_number") or (str(pg_user["institution_id"]) if pg_user.get("institution_id") else None),
         "status": str(pg_user["status"]).lower(),
         "emailVerified": bool(pg_user.get("email_verified", True)),
+        "personalEmail": pg_user.get("personal_email"),
+        "personalEmailVerified": bool(pg_user.get("personal_email_verified", False)),
         "avatarColor": pg_user.get("avatar_color") or "#6366f1",
         "mustChangePassword": bool(pg_user.get("must_change_password", False)),
         "preferences": pg_user.get("preferences") or {},
@@ -581,6 +601,27 @@ async def login(payload: LoginRequest, request: Request, response: Response) -> 
         )
 
     await rate_limit.clear_failed_logins(identifier)
+
+    # First-login activation requirement for accounts with mustChangePassword:
+    # Do not issue a normal dashboard access token or full refresh session.
+    # Issue a short-lived restricted activation token (typ="activation").
+    if user.get("mustChangePassword"):
+        activation_token = create_purpose_token(
+            user_id=str(user["_id"]),
+            purpose="activation",
+            ttl_minutes=20,
+        )
+        return {
+            "success": True,
+            "message": "First-time login: please verify your personal email and set a new permanent password.",
+            "data": {
+                "activationRequired": True,
+                "activationToken": activation_token,
+                "user": _public_user(user),
+                "redirectTo": "/reset-password",
+            },
+        }
+
     tokens = await session_service.open_session(
         user=user,
         ip=ip,
@@ -731,7 +772,12 @@ async def forgot_password(payload: ForgotPasswordRequest, request: Request) -> d
     await rate_limit.enforce_rate_limit("forgot", _client_ip(request) or "anon", "10/hour")
     user = await UserRepository.get_by_identifier(identifier)
     if user and str(user.get("status", "")).upper() == "ACTIVE":
-        email = user.get("email")
+        # Deliver to verified personal email first (critical for Arya students without college webmail access)
+        email = (
+            user.get("personal_email")
+            if (user.get("personal_email_verified") and user.get("personal_email"))
+            else user.get("email")
+        )
         if email:
             raw_token = secrets.token_urlsafe(32)
             token_hash = hash_token(raw_token)
@@ -852,6 +898,303 @@ async def change_password(
         ctx, action="update", entity_type="users", entity_id=ctx.user_id, detail="password changed"
     )
     return {"success": True, "message": "Password updated"}
+
+
+# --------------------------------------------------------------------------- first-login activation
+LUA_VERIFY_AND_DEL_OTP = """
+local stored = redis.call('GET', KEYS[1])
+if not stored then
+    return 0
+end
+if stored == ARGV[1] then
+    redis.call('DEL', KEYS[1])
+    return 1
+else
+    return -1
+end
+"""
+
+
+@router.post("/first-login/send-otp")
+async def first_login_send_otp(
+    payload: FirstLoginSendOtpRequest,
+    request: Request,
+    ctx: dict[str, Any] = Depends(get_activation_context),
+) -> dict[str, Any]:
+    user_id = ctx["userId"]
+    personal_email = payload.personalEmail.strip().lower()
+
+    # Reject if user enters their institutional email as personal email
+    if personal_email == ctx["email"].lower():
+        raise ValidationError(
+            "Please provide a personal email address (e.g. Gmail), not your institutional college email."
+        )
+
+    # Enforce uniqueness across verified personal emails
+    existing_personal = await UserRepository.get_by_personal_email(personal_email)
+    if existing_personal and str(existing_personal["id"]) != user_id:
+        raise ValidationError("This personal email is already registered and verified with another account.")
+
+    # Also check if another user has this as their primary email
+    existing_primary = await UserRepository.get_by_email(personal_email)
+    if existing_primary and str(existing_primary["id"]) != user_id:
+        raise ValidationError("This email address is already in use by another account.")
+
+    # Rate limit and cooldown checks
+    ip = _client_ip(request) or "anon"
+    await rate_limit.enforce_rate_limit("first_login_otp", ip, "20/hour")
+    await rate_limit.enforce_rate_limit("first_login_user", user_id, "10/hour")
+
+    cooldown_key = f"otp:cooldown:first_login:{user_id}"
+    try:
+        redis = get_redis()
+        if await redis.exists(cooldown_key):
+            ttl = await redis.ttl(cooldown_key)
+            raise RateLimited(f"Please wait {ttl} seconds before requesting a new code.", retry_after=ttl)
+    except RateLimited:
+        raise
+    except Exception as exc:
+        log.error("first_login_cooldown_check_failed", extra={"userId": user_id, "error": str(exc)})
+        raise ServiceUnavailable("Security state store unavailable. Please try again.")
+
+    from app.core.security import generate_otp
+    otp = generate_otp(6)
+    hashed_otp = hash_token(otp)
+
+    # Bind OTP to both user_id AND personal_email so it cannot be used for any other email
+    otp_key = f"otp:first_login:{user_id}:{personal_email}"
+    pending_key = f"otp:pending_email:{user_id}"
+    attempts_key = f"otp:attempts:first_login:{user_id}"
+
+    # Fail closed: Persist required security state in Redis BEFORE sending email
+    try:
+        await redis.setex(otp_key, settings.OTP_TTL_MINUTES * 60, hashed_otp)
+        await redis.setex(pending_key, settings.OTP_TTL_MINUTES * 60, personal_email)
+        await redis.delete(attempts_key)
+        await redis.setex(cooldown_key, 60, "1")
+    except Exception as exc:
+        log.error("first_login_redis_store_failed", extra={"userId": user_id, "error": str(exc)})
+        raise ServiceUnavailable("Security state store unavailable. Please try again.")
+
+    try:
+        await send_first_login_otp_email(
+            to=personal_email,
+            name=ctx.get("name", "Student"),
+            otp=otp,
+        )
+    except Exception as exc:
+        log.error("first_login_otp_send_failed", extra={"userId": user_id, "error": str(exc)})
+        # Clean up temporary state on email delivery failure so user isn't stuck waiting on cooldown
+        try:
+            await redis.delete(otp_key, pending_key, cooldown_key)
+        except Exception:
+            pass
+        raise ServiceUnavailable(
+            "Failed to deliver verification code to your email. Please check the address or try again."
+        )
+
+    return {
+        "success": True,
+        "message": "Verification code sent to your personal email.",
+        "data": {
+            "email": personal_email,
+            "cooldownSeconds": 60,
+            "expiresInMinutes": settings.OTP_TTL_MINUTES,
+        },
+    }
+
+
+@router.post("/first-login/verify-otp")
+async def first_login_verify_otp(
+    payload: FirstLoginVerifyOtpRequest,
+    ctx: dict[str, Any] = Depends(get_activation_context),
+) -> dict[str, Any]:
+    user_id = ctx["userId"]
+    redis = get_redis()
+
+    pending_key = f"otp:pending_email:{user_id}"
+    try:
+        raw_email = await redis.get(pending_key)
+    except Exception as exc:
+        log.error("first_login_pending_read_failed", extra={"userId": user_id, "error": str(exc)})
+        raise ServiceUnavailable("Security state store unavailable. Please try again.")
+
+    if not raw_email:
+        raise ValidationError("No pending verification found or code has expired. Please request a new OTP.")
+
+    pending_email = raw_email.decode("utf-8") if isinstance(raw_email, bytes) else str(raw_email)
+
+    # If personalEmail was passed, verify it matches the pending challenge
+    if payload.personalEmail and payload.personalEmail.strip().lower() != pending_email.lower():
+        raise ValidationError("Email mismatch with pending verification challenge. Please request a fresh OTP.")
+
+    otp_key = f"otp:first_login:{user_id}:{pending_email}"
+    attempts_key = f"otp:attempts:first_login:{user_id}"
+
+    try:
+        attempts = int(await redis.get(attempts_key) or 0)
+        if attempts >= 5:
+            await redis.delete(otp_key, pending_key, attempts_key)
+            raise ValidationError("Too many incorrect attempts. This code has been invalidated. Please request a new OTP.")
+    except ValidationError:
+        raise
+    except Exception as exc:
+        log.error("first_login_attempts_check_failed", extra={"userId": user_id, "error": str(exc)})
+        raise ServiceUnavailable("Security state store unavailable. Please try again.")
+
+    # Atomic verify and delete in Redis via Lua script
+    otp_digest = hash_token(payload.otp.strip())
+    try:
+        verify_status = await redis.eval(LUA_VERIFY_AND_DEL_OTP, 1, otp_key, otp_digest)
+    except Exception as exc:
+        log.error("first_login_lua_eval_failed", extra={"userId": user_id, "error": str(exc)})
+        raise ServiceUnavailable("Security state store unavailable. Please try again.")
+
+    if verify_status == 0:
+        raise ValidationError("Verification code has expired or was already used. Please request a new OTP.")
+
+    if verify_status == -1:
+        # Invalid code
+        try:
+            new_attempts = await redis.incr(attempts_key)
+            if new_attempts >= 5:
+                await redis.delete(otp_key, pending_key, attempts_key)
+                raise ValidationError("Too many incorrect attempts. This code has been invalidated. Please request a new OTP.")
+            remaining = max(0, 5 - new_attempts)
+            raise ValidationError(f"Invalid verification code. {remaining} attempt(s) remaining.")
+        except ValidationError:
+            raise
+        except Exception as exc:
+            log.error("first_login_attempt_incr_failed", extra={"userId": user_id, "error": str(exc)})
+            raise ValidationError("Invalid verification code. Please check and try again.")
+
+    # verify_status == 1: Atomic verification success!
+    proof_key = f"first_login_verified:{user_id}"
+    try:
+        await redis.setex(proof_key, 20 * 60, pending_email)
+        await redis.delete(attempts_key, pending_key)
+    except Exception as exc:
+        log.error("first_login_proof_save_failed", extra={"userId": user_id, "error": str(exc)})
+        raise ServiceUnavailable("Security state store unavailable. Please try again.")
+
+    return {
+        "success": True,
+        "message": "Personal email verified successfully. You may now set your permanent password.",
+        "data": {
+            "email": pending_email,
+            "verified": True,
+        },
+    }
+
+
+@router.post("/first-login/complete")
+async def first_login_complete(
+    payload: FirstLoginCompleteRequest,
+    request: Request,
+    response: Response,
+    ctx: dict[str, Any] = Depends(get_activation_context),
+) -> dict[str, Any]:
+    user_id = ctx["userId"]
+    redis = get_redis()
+
+    proof_key = f"first_login_verified:{user_id}"
+    try:
+        raw_proof = await redis.get(proof_key)
+    except Exception as exc:
+        log.error("first_login_proof_read_failed", extra={"userId": user_id, "error": str(exc)})
+        raise ServiceUnavailable("Security state store unavailable. Please try again.")
+
+    if not raw_proof:
+        raise ValidationError(
+            "Email verification required. Please verify your personal email before setting a password."
+        )
+
+    verified_email = raw_proof.decode("utf-8") if isinstance(raw_proof, bytes) else str(raw_proof)
+
+    # Validate password complexity rules
+    assert_password_policy(payload.password)
+
+    user = await UserRepository.get_by_id(user_id)
+    if not user:
+        raise Unauthenticated("Account not found")
+
+    if verify_password(payload.password, user.get("password_hash", "")):
+        raise ValidationError("Choose a password you haven't used before")
+
+    # Atomic DB update enforcing must_change_password=TRUE and checking row count
+    new_hash = hash_password(payload.password)
+    updated = await UserRepository.complete_first_login_activation(
+        user_id=user_id,
+        personal_email=verified_email,
+        password_hash=new_hash,
+    )
+    if not updated:
+        raise RoleForbidden("Account activation already completed or account is ineligible.")
+
+    # Clean up verification proof from Redis only after successful DB activation
+    try:
+        await redis.delete(proof_key)
+    except Exception:
+        pass
+
+    # Fetch updated user record from PostgreSQL
+    updated_user = await UserRepository.get_by_id(user_id)
+    if not updated_user:
+        raise Unauthenticated("Account not found")
+
+    role = parse_role(updated_user["role"])
+    ip = _client_ip(request)
+
+    session_user_payload = {
+        "_id": str(updated_user["id"]),
+        "id": str(updated_user["id"]),
+        "name": updated_user["name"],
+        "email": updated_user["email"],
+        "role": updated_user["role"],
+        "collegeId": str(updated_user["institution_id"]) if updated_user.get("institution_id") else None,
+        "departmentId": str(updated_user["department_id"]) if updated_user.get("department_id") else None,
+        "status": str(updated_user["status"]).lower(),
+        "emailVerified": bool(updated_user.get("email_verified", True)),
+        "personalEmail": verified_email,
+        "personalEmailVerified": True,
+        "mustChangePassword": False,
+    }
+
+    # Open full authenticated session and set refresh cookie
+    tokens = await session_service.open_session(
+        user=session_user_payload,
+        ip=ip,
+        user_agent=request.headers.get("user-agent"),
+        remember_me=True,
+    )
+    _set_refresh_cookie(response, tokens["refreshToken"], remember=True)
+
+    await write_audit(
+        None,
+        action="activate",
+        entity_type="users",
+        entity_id=user_id,
+        detail=f"first-login personal email ({verified_email}) verified and permanent password set",
+        actor_label=f"{updated_user.get('name')} ({role})",
+        college_id=str(updated_user["institution_id"]) if updated_user.get("institution_id") else None,
+        department_id=str(updated_user["department_id"]) if updated_user.get("department_id") else None,
+    )
+
+    return {
+        "success": True,
+        "message": "Account successfully activated! Welcome to your dashboard.",
+        "data": {
+            "accessToken": tokens["accessToken"],
+            "accessTokenExpiresAt": tokens["accessTokenExpiresAt"],
+            "user": _public_user({
+                **dict(updated_user),
+                "personalEmail": verified_email,
+                "personalEmailVerified": True,
+                "mustChangePassword": False,
+            }),
+            "redirectTo": ROLE_HOME.get(role, "/"),
+        },
+    }
 
 
 # --------------------------------------------------------------------------- session info

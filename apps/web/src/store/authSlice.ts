@@ -54,6 +54,9 @@ export interface SessionUser {
   avatarColor?: string | null;
   avatarUrl?: string | null;
   mustChangePassword: boolean;
+  personalEmail?: string | null;
+  personalEmailVerified?: boolean;
+  activationToken?: string | null;
   home: string;
   preferences?: Record<string, boolean>;
   assignedBatchIds?: string[];
@@ -117,6 +120,15 @@ export const signIn = createAsyncThunk(
           verificationRequired: response.data?.verificationRequired,
           email: response.data?.email,
         });
+      }
+      if (response.data?.activationRequired && response.data?.activationToken) {
+        // Activation token is strictly restricted to first-login activation.
+        // Never set as normal accessToken or store as active session.
+        setAccessToken(null);
+        const user = { ...(response.data.user as SessionUser) };
+        user.activationToken = response.data.activationToken;
+        user.mustChangePassword = true;
+        return user;
       }
       setAccessToken(response.data.accessToken);
       return response.data.user as SessionUser;

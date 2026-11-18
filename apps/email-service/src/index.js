@@ -174,37 +174,39 @@ app.post("/send", requireApiKey, async (req, res) => {
 // ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
-app.listen(PORT, () => {
-  console.log(
-    JSON.stringify({
-      level: "info",
-      event: "email_service_started",
-      port: PORT,
-      provider: "mailjet",
-      dryRun: process.env.EMAIL_DRY_RUN === "true",
-    })
-  );
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(
+      JSON.stringify({
+        level: "info",
+        event: "email_service_started",
+        port: PORT,
+        provider: "mailjet",
+        dryRun: process.env.EMAIL_DRY_RUN === "true",
+      })
+    );
 
-  // Validate Mailjet credentials at startup (non-fatal warning only)
-  if (process.env.EMAIL_DRY_RUN !== "true") {
-    if (!process.env.MAILJET_API_KEY || !process.env.MAILJET_SECRET_KEY) {
-      console.warn(
-        JSON.stringify({
-          level: "warn",
-          event: "mailjet_credentials_missing",
-          hint: "Set MAILJET_API_KEY and MAILJET_SECRET_KEY environment variables",
-        })
-      );
-    } else {
-      console.log(
-        JSON.stringify({
-          level: "info",
-          event: "mailjet_credentials_present",
-          from: maskEmail(process.env.EMAIL_FROM || ""),
-        })
-      );
+    // Validate Mailjet credentials at startup (non-fatal warning only)
+    if (process.env.EMAIL_DRY_RUN !== "true") {
+      if (!process.env.MAILJET_API_KEY || !process.env.MAILJET_SECRET_KEY) {
+        console.warn(
+          JSON.stringify({
+            level: "warn",
+            event: "mailjet_credentials_missing",
+            hint: "Set MAILJET_API_KEY and MAILJET_SECRET_KEY environment variables",
+          })
+        );
+      } else {
+        console.log(
+          JSON.stringify({
+            level: "info",
+            event: "mailjet_credentials_present",
+            from: maskEmail(process.env.EMAIL_FROM || ""),
+          })
+        );
+      }
     }
-  }
-});
+  });
+}
 
 module.exports = app; // exported for tests

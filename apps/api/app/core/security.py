@@ -18,7 +18,7 @@ from app.core.errors import Unauthenticated, ValidationError
 
 _ph = PasswordHasher(time_cost=3, memory_cost=64 * 1024, parallelism=2)
 
-TokenType = Literal["access", "refresh", "verify", "reset"]
+TokenType = Literal["access", "refresh", "verify", "reset", "activation"]
 
 
 # --------------------------------------------------------------------------- passwords

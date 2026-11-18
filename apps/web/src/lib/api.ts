@@ -196,7 +196,9 @@ export async function request<T = any>(path: string, options: RequestOptions = {
   const isRaw = raw || isFormData;
 
   const requestHeaders = new Headers(headers as HeadersInit);
-  if (accessToken) requestHeaders.set('Authorization', `Bearer ${accessToken}`);
+  if (accessToken && !requestHeaders.has('Authorization')) {
+    requestHeaders.set('Authorization', `Bearer ${accessToken}`);
+  }
   if (!isRaw && body !== undefined && !requestHeaders.has('Content-Type')) {
     requestHeaders.set('Content-Type', 'application/json');
   }

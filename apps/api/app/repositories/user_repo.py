@@ -59,6 +59,7 @@ class UserRepository:
                 SELECT u.id, u.email, u.password_hash, u.name, u.role, u.institution_id, u.department_id,
                        u.phone, u.status, u.last_login_at, u.created_at, u.email_verified,
                        u.activation_token, u.activation_token_expires_at, u.must_change_password,
+                       u.personal_email, u.personal_email_verified, u.personal_email_verified_at,
                        u.avatar_color, u.avatar_url, u.preferences,
                        u.reset_password_token_hash, u.reset_password_token_expires_at,
                        i.name as college_name, d.name as department_name
@@ -79,6 +80,7 @@ class UserRepository:
                 SELECT u.id, u.email, u.password_hash, u.name, u.role, u.institution_id, u.department_id,
                        u.phone, u.status, u.last_login_at, u.created_at, u.email_verified,
                        u.activation_token, u.activation_token_expires_at, u.must_change_password,
+                       u.personal_email, u.personal_email_verified, u.personal_email_verified_at,
                        u.avatar_color, u.avatar_url, u.preferences,
                        u.reset_password_token_hash, u.reset_password_token_expires_at,
                        i.name as college_name, d.name as department_name
@@ -92,8 +94,24 @@ class UserRepository:
             return dict(row) if row else None
 
     @staticmethod
+    async def get_by_personal_email(personal_email: str) -> dict[str, Any] | None:
+        async with get_pg_connection() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT u.id, u.email, u.personal_email, u.personal_email_verified, u.name, u.role
+                FROM users u
+                WHERE LOWER(u.personal_email) = LOWER($1)
+                  AND u.personal_email_verified = TRUE
+                  AND u.deleted_at IS NULL
+                LIMIT 1
+                """,
+                personal_email.strip(),
+            )
+            return dict(row) if row else None
+
+    @staticmethod
     async def get_by_identifier(identifier: str) -> dict[str, Any] | None:
-        """Find user by email or by college roll number."""
+        """Find user by institutional email, personal email, or college roll number."""
         clean_id = identifier.strip()
         async with get_pg_connection() as conn:
             row = await conn.fetchrow(
@@ -101,6 +119,7 @@ class UserRepository:
                 SELECT u.id, u.email, u.password_hash, u.name, u.role, u.institution_id, u.department_id,
                        u.phone, u.status, u.last_login_at, u.created_at, u.email_verified,
                        u.activation_token, u.activation_token_expires_at, u.must_change_password,
+                       u.personal_email, u.personal_email_verified, u.personal_email_verified_at,
                        u.avatar_color, u.avatar_url, u.preferences,
                        u.reset_password_token_hash, u.reset_password_token_expires_at,
                        sp.roll_number,
@@ -109,7 +128,11 @@ class UserRepository:
                 LEFT JOIN student_profiles sp ON sp.user_id = u.id
                 LEFT JOIN institutions i ON i.id = u.institution_id
                 LEFT JOIN departments d ON d.id = u.department_id
-                WHERE (LOWER(u.email) = LOWER($1) OR LOWER(u.email) = LOWER($1) || '@aryacollege.in' OR UPPER(sp.roll_number) = UPPER($1) OR u.id::text = $1)
+                WHERE (LOWER(u.email) = LOWER($1)
+                   OR LOWER(u.email) = LOWER($1) || '@aryacollege.in'
+                   OR (u.personal_email IS NOT NULL AND u.personal_email_verified = TRUE AND LOWER(u.personal_email) = LOWER($1))
+                   OR UPPER(sp.roll_number) = UPPER($1)
+                   OR u.id::text = $1)
                   AND u.deleted_at IS NULL
                 LIMIT 1
                 """,
@@ -272,6 +295,47 @@ class UserRepository:
                 password_hash,
                 parsed_id,
             )
+
+    @staticmethod
+    async def complete_first_login_activation(
+        user_id: UUID | str, personal_email: str, password_hash: str
+    ) -> bool:
+        """Atomically set verified personal email, update password, and clear must_change_password.
+
+        Guarantees:
+        - Only succeeds if must_change_password is currently TRUE.
+        - Enforces single-use activation and prevents race conditions.
+        - Returns True if exactly 1 row was updated, False otherwise.
+        """
+        parsed_id = _parse_uuid(user_id)
+        if not parsed_id:
+            return False
+        async with get_pg_connection() as conn:
+            import asyncpg
+            try:
+                res = await conn.execute(
+                    """
+                    UPDATE users
+                    SET password_hash = $1,
+                        personal_email = $2,
+                        personal_email_verified = TRUE,
+                        personal_email_verified_at = NOW(),
+                        must_change_password = FALSE,
+                        password_changed_at = NOW(),
+                        updated_at = NOW()
+                    WHERE id = $3
+                      AND must_change_password = TRUE
+                      AND deleted_at IS NULL
+                    """,
+                    password_hash,
+                    personal_email.strip().lower(),
+                    parsed_id,
+                )
+                count = int(res.split(" ")[-1]) if res else 0
+                return count == 1
+            except asyncpg.UniqueViolationError:
+                from app.core.errors import ValidationError
+                raise ValidationError("This personal email is already registered and verified with another account.")
 
     @staticmethod
     async def set_password_reset_token(

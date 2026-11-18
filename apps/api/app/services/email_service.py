@@ -326,6 +326,52 @@ async def send_password_reset_email(
     await get_email_provider().send(to=to, subject=subject, body=body, html=html)
 
 
+import html as html_lib
+
+async def send_first_login_otp_email(*, to: str, name: str, otp: str) -> None:
+    # Do not include sensitive OTP values in email subjects
+    subject = f"Verify your personal email — {BRAND}"
+    safe_name = html_lib.escape(name)
+    first_name = safe_name.split()[0] if safe_name else safe_name
+
+    body = (
+        f"Hi {name},\n\n"
+        f"Welcome to {BRAND}!\n\n"
+        f"Your verification code to link your personal email and activate your account is: {otp}\n"
+        f"This code expires in {settings.OTP_TTL_MINUTES} minutes.\n\n"
+        f"Please enter this code in the password reset / activation screen to set your permanent password.\n\n"
+        f"If you did not initiate this action, please contact support immediately.\n"
+    )
+
+    body_html = f"""
+    <p style="margin:0 0 8px;font-size:16px;color:#374151;">Hi <strong>{first_name}</strong>,</p>
+    <p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.6;">
+      To complete your first-time login and activate your <strong>{BRAND}</strong> account, please verify your personal email address.
+    </p>
+
+    <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#374151;text-align:center;">
+      Your verification code
+    </p>
+    <div style="text-align:center;margin:0 0 24px;">
+      <span style="display:inline-block;padding:16px 32px;background:#f5f3ff;
+                   border:2px dashed #7c3aed;border-radius:10px;
+                   font-size:36px;font-weight:800;letter-spacing:8px;color:#4f46e5;">
+        {otp}
+      </span>
+    </div>
+
+    <p style="margin:0 0 20px;font-size:13px;color:#9ca3af;text-align:center;">
+      ⏱ This code expires in <strong>{settings.OTP_TTL_MINUTES} minutes</strong>.
+    </p>
+
+    <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">
+      🔒 Never share this code with anyone. {BRAND} will never ask for your code.
+    </p>
+    """
+    email_html = _html_base(subject, body_html)
+    await get_email_provider().send(to=to, subject=subject, body=body, html=email_html)
+
+
 async def send_security_alert(*, to: str, name: str, detail: str) -> None:
     subject = f"{BRAND} security alert"
     body = f"Hi {name},\n\n{detail}\n\nIf this wasn't you, please reset your password.\n"
