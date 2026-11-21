@@ -110,6 +110,7 @@ class Settings(BaseSettings):
 
     # ---------- email ----------
     EMAIL_VERIFICATION_ENABLED: bool = True
+    LOGIN_EMAIL_OTP_ENABLED: bool = False  # Feature flag: when False, skips login-time email OTP gate
     EMAIL_PROVIDER: Literal["console", "smtp", "nodemailer"] = "console"
     SMTP_HOST: str | None = None
     SMTP_PORT: int = 587

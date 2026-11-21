@@ -5,6 +5,7 @@ user blocking, search, attachments, and real-time event distribution.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 import jwt
@@ -162,7 +163,13 @@ async def start_direct_conversation(
     ctx: ScopeContext = AuthCtx,
 ) -> dict[str, Any]:
     """Initiates or fetches a direct conversation with a target user."""
-    target_user_id = payload.get("targetUserId")
+    target_user_id = (
+        payload.get("targetUserId")
+        or payload.get("target_user_id")
+        or payload.get("recipientId")
+        or payload.get("userId")
+        or payload.get("user_id")
+    )
     if not target_user_id:
         raise ValidationError("targetUserId is required.")
 
@@ -264,7 +271,13 @@ async def search_users(
 @router.post("/users/block")
 async def block_user(payload: dict[str, Any], ctx: ScopeContext = AuthCtx) -> dict[str, Any]:
     """Blocks a user from direct messaging interactions."""
-    target_user_id = payload.get("targetUserId")
+    target_user_id = (
+        payload.get("targetUserId")
+        or payload.get("target_user_id")
+        or payload.get("blocked_id")
+        or payload.get("userId")
+        or payload.get("user_id")
+    )
     reason = payload.get("reason")
     if not target_user_id:
         raise ValidationError("targetUserId is required.")
@@ -286,7 +299,13 @@ async def block_user(payload: dict[str, Any], ctx: ScopeContext = AuthCtx) -> di
 @router.post("/users/unblock")
 async def unblock_user(payload: dict[str, Any], ctx: ScopeContext = AuthCtx) -> dict[str, Any]:
     """Unblocks a user from direct messaging interactions."""
-    target_user_id = payload.get("targetUserId")
+    target_user_id = (
+        payload.get("targetUserId")
+        or payload.get("target_user_id")
+        or payload.get("blocked_id")
+        or payload.get("userId")
+        or payload.get("user_id")
+    )
     if not target_user_id:
         raise ValidationError("targetUserId is required.")
 

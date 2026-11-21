@@ -8,11 +8,13 @@ import {
   Download,
   FileSpreadsheet,
   RefreshCw,
+  RotateCcw,
   StopCircle,
   Users,
   AlertTriangle,
   Clock,
   ShieldAlert,
+  Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -20,6 +22,14 @@ import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/cn';
@@ -41,9 +51,14 @@ interface MonitoredStudent {
   remaining_seconds: number;
   warnings: number;
   camera_on: boolean;
+  camera_status?: string;
   fullscreen: boolean;
   online: boolean;
   status: string;
+  candidate_status?: string;
+  submission_reason?: string;
+  is_recovered?: boolean;
+  attempt_id?: string;
   last_seen_seconds_ago: number;
   stale: boolean;
 }
@@ -68,6 +83,13 @@ export default function TrainerAssessmentMonitorPage() {
   const [endingQuiz, setEndingQuiz] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
+
+  // Assessment Reassignment & Recovery state
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState<MonitoredStudent | null>(null);
+  const [recoveryAction, setRecoveryAction] = useState<'RESTART' | 'RESUME'>('RESUME');
+  const [recoveryReason, setRecoveryReason] = useState('');
+  const [recovering, setRecovering] = useState(false);
 
   const socketRef = useRef<WebSocket | null>(null);
   const snapshotsRef = useRef(snapshots);
@@ -221,6 +243,27 @@ export default function TrainerAssessmentMonitorPage() {
             } else if (evt === 'submit') {
               pushActivity(`✔ ${data.roll_number} submitted`);
               fetchMonitorData();
+            } else if (evt === 'abandonment_warning') {
+              pushActivity(`⚠ Abandonment warning on ${data.roll_number || 'Candidate'}`);
+              setStudents((prev) =>
+                prev.map((s) =>
+                  s.session_id === data.session_id
+                    ? { ...s, candidate_status: 'ABANDONMENT_WARNING', status: 'abandonment_warning' }
+                    : s
+                )
+              );
+            } else if (evt === 'abandonment_cancel') {
+              pushActivity(`✔ Candidate ${data.roll_number || 'Candidate'} returned to exam`);
+              setStudents((prev) =>
+                prev.map((s) =>
+                  s.session_id === data.session_id
+                    ? { ...s, candidate_status: 'IN_PROGRESS', status: 'in_progress' }
+                    : s
+                )
+              );
+            } else if (evt === 'attempt_recovered') {
+              pushActivity(`↺ Candidate ${data.roll_number || 'Candidate'} attempt recovered (${data.action})`);
+              fetchMonitorData();
             }
           } catch (e) {
             // Ignore parse errors
@@ -242,22 +285,58 @@ export default function TrainerAssessmentMonitorPage() {
     };
   }, [params.quizId, handleSnapshotMessage, pushActivity, fetchMonitorData]);
 
-  // Clean up snapshots when students go offline or submit
+  // Only remove snapshots when an attempt is definitively completed or submitted
   useEffect(() => {
-    const activeIds = new Set(
-      students.filter((s) => s.online && s.status === 'in_progress').map((s) => s.session_id)
+    const finishedIds = new Set(
+      students
+        .filter((s) => s.status === 'completed' || s.status === 'submitted' || s.candidate_status === 'COMPLETED' || s.candidate_status === 'SUBMITTED')
+        .map((s) => s.session_id)
     );
     setSnapshots((prev) => {
       const next = { ...prev };
+      let modified = false;
       Object.keys(next).forEach((sessionId) => {
-        if (!activeIds.has(sessionId)) {
+        if (finishedIds.has(sessionId)) {
           URL.revokeObjectURL(next[sessionId].url);
           delete next[sessionId];
+          modified = true;
         }
       });
-      return next;
+      return modified ? next : prev;
     });
   }, [students]);
+
+  function openRecoveryModal(student: MonitoredStudent) {
+    setSelectedStudent(student);
+    setRecoveryAction('RESUME');
+    setRecoveryReason('');
+    setRecoveryOpen(true);
+  }
+
+  async function handleConfirmRecovery() {
+    if (!params.quizId || !selectedStudent) return;
+    const attemptId = selectedStudent.attempt_id || selectedStudent.session_id;
+    if (!attemptId) return;
+    if (!recoveryReason.trim() || recoveryReason.trim().length < 5) {
+      toast.error('Please enter a recovery reason of at least 5 characters');
+      return;
+    }
+
+    setRecovering(true);
+    try {
+      await api.post(`/trainer/assessments/${params.quizId}/attempts/${attemptId}/recover`, {
+        action: recoveryAction,
+        reason: recoveryReason.trim(),
+      });
+      toast.success(`Assessment successfully ${recoveryAction === 'RESUME' ? 'resumed' : 'restarted'} for candidate!`);
+      setRecoveryOpen(false);
+      fetchMonitorData();
+    } catch (err) {
+      toast.error((err as ApiError).message || 'Failed to recover assessment attempt');
+    } finally {
+      setRecovering(false);
+    }
+  }
 
   // Force End Quiz
   const handleForceEnd = async () => {
@@ -288,16 +367,24 @@ export default function TrainerAssessmentMonitorPage() {
         name: r.name,
         batchName: r.batchName,
         marks: r.score,
-        maxMarks: r.possible || 100,
+        maxMarks: r.maxScore || r.possible || 100,
         percentage: r.percentage || 0,
         passed: Boolean(r.passed),
-        warnings: r.warningCount || 0,
+        warnings: r.warnings ?? r.warningCount ?? 0,
         sessionId: r.studentId,
+        attemptId: r.attemptId,
+        assessmentId: params.quizId,
+        submissionTimestamp: r.submittedAt || r.completedAt,
+        status: r.status,
+        submissionReason: r.submissionReason,
+        snapshots: r.snapshots || [],
       }));
 
       await exportAssessmentResultsToExcel(
         quizInfo?.name || 'Assessment',
-        rows
+        rows,
+        undefined,
+        { assessmentId: params.quizId }
       );
       toast.success('Excel workbook with embedded camera snapshots exported successfully!');
     } catch (err) {
@@ -319,9 +406,10 @@ export default function TrainerAssessmentMonitorPage() {
     return `${sec}s ago`;
   };
 
-  const activeCount = students.filter((s) => s.online && s.status === 'in_progress').length;
-  const submittedCount = students.filter((s) => s.status === 'submitted' || s.status === 'completed').length;
+  const activeCount = students.filter((s) => s.online && (s.status === 'in_progress' || s.candidate_status === 'IN_PROGRESS')).length;
+  const submittedCount = students.filter((s) => s.status === 'submitted' || s.status === 'completed' || s.candidate_status === 'SUBMITTED' || s.candidate_status === 'COMPLETED').length;
   const warningsTotal = students.reduce((acc, s) => acc + (s.warnings || 0), 0);
+  const liveFeedsCount = Object.values(snapshots).filter((s) => nowMs - s.updatedAt < 30000).length;
 
   return (
     <div className="mx-auto max-w-7xl p-4 sm:p-6 space-y-6">
@@ -427,17 +515,29 @@ export default function TrainerAssessmentMonitorPage() {
                     <th className="p-3">Camera Feed</th>
                     <th className="p-3">FS</th>
                     <th className="p-3">Status</th>
+                    <th className="p-3 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
                   {students.map((s) => {
                     const snap = snapshots[s.session_id];
+                    const candStatus = s.candidate_status || s.status;
+                    const isEligibleForRecovery =
+                      candStatus === 'SUBMITTED' ||
+                      candStatus === 'COMPLETED' ||
+                      candStatus === 'ABANDONED' ||
+                      candStatus === 'AUTO_SUBMITTED' ||
+                      s.status === 'submitted' ||
+                      s.status === 'completed' ||
+                      s.status === 'abandoned';
+
                     return (
                       <tr
                         key={s.session_id}
                         className={cn(
                           'hover:bg-card-hover transition-colors',
-                          s.stale && 'bg-amber-500/5'
+                          s.stale && 'bg-amber-500/5',
+                          candStatus === 'ABANDONMENT_WARNING' && 'bg-rose-500/10 animate-pulse'
                         )}
                       >
                         <td className="p-3 font-mono font-medium text-ink-1">{s.roll_number}</td>
@@ -496,23 +596,55 @@ export default function TrainerAssessmentMonitorPage() {
                           )}
                         </td>
                         <td className="p-3">
-                          <span
-                            className={cn(
-                              'rounded px-2 py-0.5 text-[10px] font-semibold uppercase',
-                              s.status === 'in_progress'
-                                ? 'bg-blue-100 text-blue-800'
-                                : 'bg-emerald-100 text-emerald-800'
-                            )}
-                          >
-                            {s.status.replace('_', ' ')}
-                          </span>
+                          {candStatus === 'ABANDONMENT_WARNING' ? (
+                            <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-rose-500/20 text-rose-600 border border-rose-500/30 animate-pulse">
+                              Abandon Warning
+                            </span>
+                          ) : candStatus === 'ABANDONED' ? (
+                            <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-rose-100 text-rose-800">
+                              Abandoned
+                            </span>
+                          ) : candStatus === 'TEMPORARILY_DISCONNECTED' ? (
+                            <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-amber-100 text-amber-800">
+                              Disconnected
+                            </span>
+                          ) : candStatus === 'SUBMITTED' || candStatus === 'COMPLETED' || candStatus === 'AUTO_SUBMITTED' || s.status === 'submitted' || s.status === 'completed' ? (
+                            <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-emerald-100 text-emerald-800">
+                              Completed
+                            </span>
+                          ) : (
+                            <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-blue-100 text-blue-800">
+                              In Progress
+                            </span>
+                          )}
+                          {s.is_recovered && (
+                            <span className="block text-[9px] text-purple-600 dark:text-purple-400 font-semibold mt-0.5">
+                              Recovered
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3 text-right">
+                          {isEligibleForRecovery ? (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => openRecoveryModal(s)}
+                              className="h-6 text-[10px] gap-1"
+                              title="Reassign or recover this student assessment attempt"
+                            >
+                              <RotateCcw className="size-2.5" />
+                              Recover
+                            </Button>
+                          ) : (
+                            <span className="text-[10px] text-ink-3">—</span>
+                          )}
                         </td>
                       </tr>
                     );
                   })}
                   {students.length === 0 && !loading && (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-ink-3">
+                      <td colSpan={9} className="p-8 text-center text-ink-3">
                         No candidate sessions registered yet.
                       </td>
                     </tr>
@@ -529,33 +661,44 @@ export default function TrainerAssessmentMonitorPage() {
           <Card>
             <CardHeader className="border-b border-line px-4 py-3">
               <CardTitle className="text-sm font-semibold flex items-center justify-between">
-                <span>Live Camera Feeds ({Object.keys(snapshots).length})</span>
+                <span>Live Camera Feeds ({liveFeedsCount})</span>
                 <Camera className="size-4 text-ink-3" />
               </CardTitle>
             </CardHeader>
             <CardBody className="p-4">
               <div className="grid grid-cols-2 gap-3 max-h-[460px] overflow-y-auto pr-1">
-                {Object.entries(snapshots).map(([sessionId, snap]) => (
-                  <div
-                    key={sessionId}
-                    className="flex flex-col items-center rounded-lg border border-line bg-app p-2 text-center"
-                  >
-                    <div className="relative h-24 w-full overflow-hidden rounded bg-black">
-                      <img
-                        src={snap.url}
-                        alt={`${snap.name} feed`}
-                        className="h-full w-full object-cover"
-                      />
-                      <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 text-[9px] font-medium text-emerald-400">
-                        {fmtAge(snap.updatedAt)}
-                      </span>
+                {Object.entries(snapshots).map(([sessionId, snap]) => {
+                  const isLive = nowMs - snap.updatedAt < 30000;
+                  return (
+                    <div
+                      key={sessionId}
+                      className="flex flex-col items-center rounded-lg border border-line bg-app p-2 text-center"
+                    >
+                      <div className="relative h-24 w-full overflow-hidden rounded bg-black">
+                        <img
+                          src={snap.url}
+                          alt={`${snap.name} feed`}
+                          className="h-full w-full object-cover"
+                        />
+                        <span
+                          className={cn(
+                            'absolute bottom-1 right-1 rounded px-1 text-[9px] font-medium',
+                            isLive
+                              ? 'bg-black/70 text-emerald-400'
+                              : 'bg-black/70 text-amber-400'
+                          )}
+                        >
+                          {isLive ? 'LIVE · ' : 'SNAPSHOT · '}
+                          {fmtAge(snap.updatedAt)}
+                        </span>
+                      </div>
+                      <p className="mt-1.5 text-xs font-semibold text-ink-1 truncate w-full">
+                        {snap.name}
+                      </p>
+                      <p className="text-[10px] font-mono text-ink-3">{snap.rollNumber}</p>
                     </div>
-                    <p className="mt-1.5 text-xs font-semibold text-ink-1 truncate w-full">
-                      {snap.name}
-                    </p>
-                    <p className="text-[10px] font-mono text-ink-3">{snap.rollNumber}</p>
-                  </div>
-                ))}
+                  );
+                })}
                 {Object.keys(snapshots).length === 0 && (
                   <div className="col-span-2 py-8 text-center text-xs text-ink-3">
                     Waiting for camera feeds to stream...
@@ -599,6 +742,105 @@ export default function TrainerAssessmentMonitorPage() {
         onConfirm={handleForceEnd}
         pending={endingQuiz}
       />
+
+      {/* Reassignment & Recovery Modal */}
+      <Dialog open={recoveryOpen} onOpenChange={setRecoveryOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="size-5 text-primary" />
+              Recover Assessment Attempt
+            </DialogTitle>
+          </DialogHeader>
+          <DialogBody className="space-y-4 text-xs">
+            {selectedStudent && (
+              <div className="rounded-xl border border-line bg-app p-3 space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-ink-3">Candidate:</span>
+                  <span className="font-semibold text-ink-1">{selectedStudent.name} ({selectedStudent.roll_number})</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-ink-3">Status:</span>
+                  <span className="font-mono font-semibold text-ink-1 uppercase">{selectedStudent.candidate_status || selectedStudent.status}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="font-semibold text-ink-1 block">Select Recovery Action:</label>
+
+              <div
+                onClick={() => setRecoveryAction('RESUME')}
+                className={cn(
+                  'rounded-xl border p-3 cursor-pointer transition-all space-y-1',
+                  recoveryAction === 'RESUME'
+                    ? 'border-primary bg-primary/10 shadow-xs'
+                    : 'border-line bg-card hover:bg-card-hover'
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-ink-1">Option B: Resume Assessment (Recommended)</span>
+                  <Badge tone={recoveryAction === 'RESUME' ? 'teal' : 'neutral'} className="text-[10px]">
+                    Preserve Progress
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-ink-3 leading-relaxed">
+                  Restores previously saved answers, question navigation position, and remaining time. The candidate continues seamlessly without losing work.
+                </p>
+              </div>
+
+              <div
+                onClick={() => setRecoveryAction('RESTART')}
+                className={cn(
+                  'rounded-xl border p-3 cursor-pointer transition-all space-y-1',
+                  recoveryAction === 'RESTART'
+                    ? 'border-primary bg-primary/10 shadow-xs'
+                    : 'border-line bg-card hover:bg-card-hover'
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-ink-1">Option A: Restart Assessment</span>
+                  <Badge tone={recoveryAction === 'RESTART' ? 'amber' : 'neutral'} className="text-[10px]">
+                    Fresh Attempt
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-ink-3 leading-relaxed">
+                  Creates a fresh assessment attempt starting from Question 1 and resets the timer to full duration. Preserves previous attempt in audit history.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-1.5 pt-1">
+              <label className="font-semibold text-ink-1 block">
+                Recovery Reason <span className="text-red-500">*</span>:
+              </label>
+              <textarea
+                value={recoveryReason}
+                onChange={(e) => setRecoveryReason(e.target.value)}
+                placeholder="e.g. Accidental navigation / power outage during exam. Trainer authorized recovery."
+                className="w-full h-20 rounded-lg border border-line bg-app p-2.5 text-xs text-ink-1 focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <span className="text-[10px] text-ink-3">
+                This recovery action and reason will be immutably recorded in quiz_recovery_logs.
+              </span>
+            </div>
+          </DialogBody>
+          <DialogFooter className="flex items-center justify-end gap-2 w-full">
+            <Button variant="secondary" size="sm" onClick={() => setRecoveryOpen(false)} disabled={recovering}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleConfirmRecovery}
+              loading={recovering}
+              disabled={!recoveryReason.trim() || recoveryReason.trim().length < 5}
+            >
+              Confirm Recovery
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

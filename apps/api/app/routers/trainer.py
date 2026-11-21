@@ -18,7 +18,7 @@ from typing import Any
 from uuid import UUID
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 
 from app.authz.audit import write_audit
 from app.authz.context import ScopeContext
@@ -57,6 +57,7 @@ from app.repositories.collections import (
     PaymentRepo,
 )
 from app.schemas.requests import (
+    AssessmentRecoveryRequest,
     AiOverrideRequest,
     AlertPatch,
     AssignmentPatch,
@@ -809,7 +810,19 @@ async def sessions(
                 pass
 
         async with get_pg_connection() as conn:
-            conds = ["ts.trainer_user_id = $1"]
+            conds = [
+                """(
+                    ts.trainer_user_id = $1 
+                    OR ts.batch_id IN (
+                        SELECT bt.batch_id 
+                        FROM batch_trainers bt 
+                        WHERE bt.trainer_user_id = $1 
+                          AND (bt.status IS NULL OR bt.status = 'ACTIVE')
+                          AND (bt.start_date IS NULL OR bt.start_date <= CURRENT_DATE)
+                          AND (bt.end_date IS NULL OR bt.end_date >= CURRENT_DATE)
+                    )
+                )"""
+            ]
             params: list[Any] = [tr_uuid]
             if b_uuid:
                 params.append(b_uuid)
@@ -823,7 +836,12 @@ async def sessions(
             query_sql = f"""
                 SELECT ts.id, ts.institution_id, ts.department_id, ts.batch_id, ts.trainer_user_id,
                        ts.topic, ts.room, ts.session_date, ts.status, ts.created_at, b.name as batch_name,
-                       (SELECT count(*) FROM attendance_records ar WHERE ar.session_id = ts.id) as attendance_count
+                       (SELECT count(*) FROM attendance_records ar WHERE ar.session_id = ts.id) as attendance_count,
+                       (SELECT count(*) FROM student_profiles sp WHERE sp.batch_id = ts.batch_id) as total_students,
+                       (SELECT count(*) FROM attendance_records ar WHERE ar.session_id = ts.id AND ar.status = 'PRESENT') as present_count,
+                       (SELECT count(*) FROM attendance_records ar WHERE ar.session_id = ts.id AND ar.status = 'ABSENT') as absent_count,
+                       (SELECT count(*) FROM attendance_records ar WHERE ar.session_id = ts.id AND ar.status = 'LATE') as late_count,
+                       (SELECT count(*) FROM attendance_records ar WHERE ar.session_id = ts.id AND ar.status = 'LEAVE') as leave_count
                 FROM training_sessions ts
                 LEFT JOIN batches b ON ts.batch_id = b.id
                 WHERE {where_clause}
@@ -831,20 +849,32 @@ async def sessions(
                 LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}
             """
             rows = await conn.fetch(query_sql, *params, pageSize, offset)
-            items = [
-                {
+            items = []
+            for r in rows:
+                tot = int(r["total_students"] or 0)
+                pres = int(r["present_count"] or 0)
+                abs_cnt = int(r["absent_count"] or 0)
+                late_cnt = int(r["late_count"] or 0)
+                leave_cnt = int(r["leave_count"] or 0)
+                att_cnt = int(r["attendance_count"] or 0)
+                pct = round((pres / max(1, tot)) * 100.0, 1) if tot > 0 and att_cnt > 0 else (round((pres / max(1, att_cnt)) * 100.0, 1) if att_cnt > 0 else None)
+                items.append({
                     "id": str(r["id"]),
                     "_id": str(r["id"]),
-                    "batchId": str(r["batch_id"]),
-                    "batchName": r["batch_name"],
+                    "batchId": str(r["batch_id"]) if r["batch_id"] else None,
+                    "batchName": r["batch_name"] or "Assigned Batch",
                     "topic": r["topic"],
                     "room": r["room"],
                     "date": r["session_date"].isoformat() if r["session_date"] else None,
                     "status": r["status"],
-                    "attendanceMarkedAt": r["created_at"].isoformat() if r["attendance_count"] > 0 and r["created_at"] else None,
-                }
-                for r in rows
-            ]
+                    "attendanceMarkedAt": r["created_at"].isoformat() if att_cnt > 0 and r["created_at"] else None,
+                    "totalStudents": tot,
+                    "presentStudents": pres,
+                    "absentStudents": abs_cnt,
+                    "lateStudents": late_cnt,
+                    "leaveStudents": leave_cnt,
+                    "attendancePercentage": pct,
+                })
             return {
                 "success": True,
                 "items": items,
@@ -1026,7 +1056,7 @@ async def session_attendance(session_id: str, ctx: ScopeContext = TrainerCtx) ->
                         }
                         for r in rows
                     ],
-                    "statuses": ["present", "absent", "late", "excused"],
+                    "statuses": ["present", "absent", "late", "leave"],
                 },
             }
 
@@ -1066,7 +1096,7 @@ async def session_attendance(session_id: str, ctx: ScopeContext = TrainerCtx) ->
 async def mark_attendance(
     payload: AttendanceRequest, ctx: ScopeContext = TrainerCtx
 ) -> dict[str, Any]:
-    """Attendance can only be marked on the trainer's own session, never in the future."""
+    """Attendance can only be marked on the trainer's assigned session, never in the future."""
     session = await require_trainer_session_scope(ctx, payload.trainingSessionId)
 
     if settings.USE_POSTGRES:
@@ -1074,14 +1104,26 @@ async def mark_attendance(
         from uuid import UUID
         s_uuid = UUID(str(session.get("id") or session.get("_id")))
         tr_uuid = UUID(str(ctx.user_id))
+        b_uuid = UUID(str(session["batchId"])) if session.get("batchId") else None
+        inst_uuid = UUID(str(session["collegeId"])) if session.get("collegeId") else None
+        raw_d = session.get("date")
+        s_date = None
+        if raw_d:
+            try:
+                s_date = datetime.strptime(str(raw_d)[:10], "%Y-%m-%d").date()
+            except Exception:
+                s_date = datetime.now(timezone.utc).date()
+        else:
+            s_date = datetime.now(timezone.utc).date()
+
         written = 0
         async with get_pg_connection() as conn:
             for entry in payload.entries:
                 st_uuid = UUID(str(entry.studentUserId))
-                st_status = entry.status.upper() if entry.status else "PRESENT"
-                if st_status not in ("PRESENT", "ABSENT", "LATE", "EXCUSED"):
-                    st_status = "PRESENT"
-                
+                raw_st = (entry.status or "PRESENT").upper()
+                if raw_st not in ("PRESENT", "ABSENT", "LATE", "LEAVE", "PENDING", "EXCUSED"):
+                    raw_st = "PRESENT"
+
                 existing_ar = await conn.fetchrow(
                     "SELECT id FROM attendance_records WHERE session_id = $1 AND participant_user_id = $2",
                     s_uuid, st_uuid
@@ -1090,28 +1132,163 @@ async def mark_attendance(
                     await conn.execute(
                         """
                         UPDATE attendance_records
-                        SET status = $1::attendance_status_enum, remarks = $2, marked_by = $3, marked_at = NOW()
+                        SET status = $1::attendance_status_enum, remarks = $2, marked_by = $3,
+                            institution_id = COALESCE(attendance_records.institution_id, $5),
+                            batch_id = COALESCE(attendance_records.batch_id, $6),
+                            attendance_date = COALESCE(attendance_records.attendance_date, $7),
+                            marking_method = 'TRAINER_MANUAL',
+                            marked_at = NOW(), updated_at = NOW()
                         WHERE id = $4
                         """,
-                        st_status, entry.remark, tr_uuid, existing_ar["id"]
+                        raw_st, entry.remark, tr_uuid, existing_ar["id"],
+                        inst_uuid, b_uuid, s_date
                     )
                 else:
                     await conn.execute(
                         """
-                        INSERT INTO attendance_records (id, session_id, participant_user_id, status, remarks, marked_by, marked_at, created_at)
-                        VALUES (gen_random_uuid(), $1, $2, $3::attendance_status_enum, $4, $5, NOW(), NOW())
+                        INSERT INTO attendance_records (
+                            id, session_id, participant_user_id, status, remarks, marked_by,
+                            institution_id, batch_id, attendance_date, marking_method,
+                            marked_at, created_at, updated_at
+                        )
+                        VALUES (
+                            gen_random_uuid(), $1, $2, $3::attendance_status_enum, $4, $5,
+                            $6, $7, $8, 'TRAINER_MANUAL',
+                            NOW(), NOW(), NOW()
+                        )
                         """,
-                        s_uuid, st_uuid, st_status, entry.remark, tr_uuid
+                        s_uuid, st_uuid, raw_st, entry.remark, tr_uuid,
+                        inst_uuid, b_uuid, s_date
                     )
                 written += 1
 
             await conn.execute("UPDATE training_sessions SET status = 'COMPLETED', updated_at = NOW() WHERE id = $1", s_uuid)
+
+        # Broadcast real-time event to batch group
+        if b_uuid:
+            try:
+                from app.websocket.messaging_ws import messaging_hub
+                await messaging_hub.broadcast_to_room(
+                    room_name=f"batch_{str(b_uuid)}",
+                    event="attendance.marked",
+                    data={
+                        "sessionId": str(s_uuid),
+                        "batchId": str(b_uuid),
+                        "markedBy": str(tr_uuid),
+                        "participantCount": written,
+                        "sessionStatus": "COMPLETED",
+                    },
+                )
+            except Exception:
+                pass
 
         return {
             "success": True,
             "message": f"Attendance saved for {written} participant(s)",
             "data": {"written": written, "rejected": []},
         }
+
+
+@router.get("/attendance/export")
+async def export_trainer_attendance(
+    batchId: str | None = Query(None),
+    dateFrom: str | None = Query(None),
+    dateTo: str | None = Query(None),
+    ctx: ScopeContext = TrainerCtx,
+):
+    """Exports attendance records to CSV for the trainer's batches with date range filters."""
+    from fastapi.responses import Response
+    import io, csv
+    from uuid import UUID
+
+    if settings.USE_POSTGRES and ctx.user_id:
+        from app.db.postgres import get_pg_connection
+        tr_uuid = UUID(str(ctx.user_id))
+        conds = [
+            """(
+                ts.trainer_user_id = $1 
+                OR ts.batch_id IN (
+                    SELECT bt.batch_id FROM batch_trainers bt 
+                    WHERE bt.trainer_user_id = $1 AND (bt.status IS NULL OR bt.status = 'ACTIVE')
+                )
+            )"""
+        ]
+        params: list[Any] = [tr_uuid]
+        if batchId:
+            resolved_batch = await require_trainer_batch_scope(ctx, batchId)
+            params.append(UUID(str(resolved_batch)))
+            conds.append(f"ts.batch_id = ${len(params)}")
+        if dateFrom:
+            try:
+                d_from = datetime.strptime(dateFrom[:10], "%Y-%m-%d").date()
+                params.append(d_from)
+                conds.append(f"ts.session_date >= ${len(params)}")
+            except Exception:
+                pass
+        if dateTo:
+            try:
+                d_to = datetime.strptime(dateTo[:10], "%Y-%m-%d").date()
+                params.append(d_to)
+                conds.append(f"ts.session_date <= ${len(params)}")
+            except Exception:
+                pass
+
+        where_sql = " AND ".join(conds)
+        async with get_pg_connection() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT 
+                    ts.session_date,
+                    b.name as batch_name,
+                    ts.topic as session_topic,
+                    u.name as student_name,
+                    u.email as student_email,
+                    sp.roll_number,
+                    ar.status,
+                    ar.marking_method,
+                    ar.marked_at,
+                    ar.remarks
+                FROM attendance_records ar
+                JOIN training_sessions ts ON ts.id = ar.session_id
+                JOIN batches b ON b.id = ts.batch_id
+                JOIN users u ON u.id = ar.participant_user_id
+                LEFT JOIN student_profiles sp ON sp.user_id = u.id
+                WHERE {where_sql}
+                ORDER BY ts.session_date DESC, b.name ASC, sp.roll_number ASC
+                """,
+                *params,
+            )
+
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow([
+                "Date", "Batch", "Session Topic", "Roll Number",
+                "Student Name", "Student Email", "Status", "Marking Method", "Marked At", "Remarks"
+            ])
+            for r in rows:
+                writer.writerow([
+                    str(r["session_date"]) if r["session_date"] else "",
+                    r["batch_name"] or "",
+                    r["session_topic"] or "",
+                    r["roll_number"] or "",
+                    r["student_name"] or "",
+                    r["student_email"] or "",
+                    str(r["status"] or ""),
+                    r["marking_method"] or "TRAINER_MANUAL",
+                    r["marked_at"].isoformat() if r["marked_at"] else "",
+                    r["remarks"] or "",
+                ])
+
+            csv_data = output.getvalue()
+            return Response(
+                content=csv_data,
+                media_type="text/csv",
+                headers={
+                    "Content-Disposition": 'attachment; filename="attendance_report.csv"'
+                },
+            )
+
+    return Response(content="Date,Batch,Status\n", media_type="text/csv")
 
     session_date = session.get("date")
     session_date = as_utc(session_date)
@@ -2311,6 +2488,190 @@ async def get_trainer_assessment_results(
 ) -> dict[str, Any]:
     data = await QuizRepository.get_trainer_quiz_results(ctx, quiz_id, batch_id=batchId)
     return {"success": True, "data": data}
+
+
+@router.get("/assessments/{quiz_id}/export-excel")
+async def export_trainer_assessment_excel(
+    quiz_id: str,
+    batchId: str | None = Query(None),
+    ctx: ScopeContext = TrainerCtx,
+) -> Response:
+    """Generates and streams a verified Excel workbook (.xlsx) with embedded proctoring camera snapshots."""
+    import io
+    import re
+    import base64
+    from PIL import Image as PILImage, ImageFile
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.drawing.image import Image as OpenpyxlImage
+
+    data = await QuizRepository.get_trainer_quiz_results(ctx, quiz_id, batch_id=batchId)
+    quiz_title = data.get("title") or "Assessment"
+    results = data.get("results") or []
+
+    wb = Workbook()
+    header_fill = PatternFill(start_color="FFE2E8F0", end_color="FFE2E8F0", fill_type="solid")
+    header_font = Font(name="Calibri", size=11, bold=True)
+    regular_font = Font(name="Calibri", size=10)
+    center_align = Alignment(horizontal="center", vertical="center")
+    left_align = Alignment(horizontal="left", vertical="center")
+
+    # Sheet 1: Results
+    ws_results = wb.active
+    ws_results.title = "Results"
+    ws_results.views.sheetView[0].state = "frozen"
+    ws_results.views.sheetView[0].ySplit = 1
+
+    res_headers = [
+        "Rank", "Roll Number", "Student Name", "Batch",
+        "Marks", "Max Marks", "Percentage", "Result", "Warnings",
+        "Submission Timestamp", "Attempt Status", "Submission Reason"
+    ]
+    ws_results.append(res_headers)
+    for col_idx in range(1, len(res_headers) + 1):
+        cell = ws_results.cell(row=1, column=col_idx)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_align
+    ws_results.row_dimensions[1].height = 24
+
+    for r in results:
+        ws_results.append([
+            r.get("rank"),
+            r.get("rollNumber") or "—",
+            r.get("name") or "—",
+            r.get("batchName") or "—",
+            r.get("score", 0),
+            r.get("maxScore", 100),
+            f"{r.get('percentage', 0)}%",
+            "Pass" if r.get("passed") else "Fail",
+            r.get("warnings", 0),
+            r.get("completedAt") or r.get("submittedAt") or "—",
+            r.get("status") or "—",
+            r.get("submissionReason") or "—",
+        ])
+
+    for row_num in range(2, ws_results.max_row + 1):
+        ws_results.row_dimensions[row_num].height = 20
+        for col_num in range(1, len(res_headers) + 1):
+            cell = ws_results.cell(row=row_num, column=col_num)
+            cell.font = regular_font
+            if col_num in (1, 5, 6, 7, 8, 9):
+                cell.alignment = center_align
+
+    res_col_widths = [8, 16, 24, 16, 10, 12, 12, 10, 12, 24, 16, 22]
+    for idx, width in enumerate(res_col_widths, start=1):
+        ws_results.column_dimensions[ws_results.cell(row=1, column=idx).column_letter].width = width
+
+    # Sheet 2: Camera Snapshots
+    ws_camera = wb.create_sheet(title="Camera Snapshots")
+    ws_camera.views.sheetView[0].state = "frozen"
+    ws_camera.views.sheetView[0].ySplit = 1
+
+    cam_headers = [
+        "Student Name", "Roll Number", "Assessment ID", "Attempt ID",
+        "Snapshot Timestamp", "Warning/Event Type", "Camera Snapshot"
+    ]
+    ws_camera.append(cam_headers)
+    for col_idx in range(1, len(cam_headers) + 1):
+        cell = ws_camera.cell(row=1, column=col_idx)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_align
+    ws_camera.row_dimensions[1].height = 24
+
+    cam_col_widths = [24, 16, 36, 36, 22, 20, 24]
+    for idx, width in enumerate(cam_col_widths, start=1):
+        ws_camera.column_dimensions[ws_camera.cell(row=1, column=idx).column_letter].width = width
+
+    current_cam_row = 2
+    for r in results:
+        student_name = r.get("name") or "—"
+        roll_num = r.get("rollNumber") or "—"
+        att_id = r.get("attemptId") or "—"
+        snapshots = r.get("snapshots") or []
+
+        if snapshots:
+            for s in snapshots:
+                s_ts = s.get("timestamp") or "—"
+                s_type = s.get("eventType") or s.get("event_type") or "PERIODIC"
+                img_data = s.get("imageData") or s.get("image_data") or ""
+
+                ws_camera.append([student_name, roll_num, quiz_id, att_id, s_ts, s_type, ""])
+                ws_camera.row_dimensions[current_cam_row].height = 68
+
+                for c_idx in range(1, 7):
+                    c = ws_camera.cell(row=current_cam_row, column=c_idx)
+                    c.font = regular_font
+                    c.alignment = left_align
+
+                if img_data:
+                    try:
+                        clean_b64 = img_data.split(",")[-1].strip()
+                        img_bytes = base64.b64decode(clean_b64)
+                        pil_img = PILImage.open(io.BytesIO(img_bytes))
+                        pil_img.thumbnail((120, 90))
+                        thumb_io = io.BytesIO()
+                        pil_img.save(thumb_io, format="JPEG", quality=85)
+                        thumb_io.seek(0)
+
+                        openpyxl_img = OpenpyxlImage(thumb_io)
+                        openpyxl_img.width = 100
+                        openpyxl_img.height = 75
+                        ws_camera.add_image(openpyxl_img, f"G{current_cam_row}")
+                    except Exception as err:
+                        import logging
+                        logging.getLogger("app").warning("excel_image_embed_error", extra={"error": str(err)})
+                        print(f"DEBUG_IMAGE_ERROR: {err}")
+                        err_cell = ws_camera.cell(row=current_cam_row, column=7)
+                        err_cell.value = "Image render error"
+                        err_cell.font = regular_font
+                        err_cell.alignment = center_align
+
+                current_cam_row += 1
+        else:
+            ws_camera.append([student_name, roll_num, quiz_id, att_id, "—", "—", "No camera snapshot available."])
+            ws_camera.row_dimensions[current_cam_row].height = 24
+            for c_idx in range(1, 7):
+                c = ws_camera.cell(row=current_cam_row, column=c_idx)
+                c.font = regular_font
+                c.alignment = left_align
+            no_snap_cell = ws_camera.cell(row=current_cam_row, column=7)
+            no_snap_cell.font = Font(name="Calibri", size=10, italic=True, color="64748B")
+            no_snap_cell.alignment = center_align
+            current_cam_row += 1
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    safe_title = re.sub(r'[^a-zA-Z0-9_\-]', '_', quiz_title)
+    return Response(
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{safe_title}_results_with_camera_snapshots.xlsx\""
+        },
+    )
+
+
+@router.post("/assessments/{quiz_id}/attempts/{attempt_id}/recover")
+async def recover_student_assessment_attempt(
+    quiz_id: str,
+    attempt_id: str,
+    payload: AssessmentRecoveryRequest,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    """Recovers an accidentally submitted or abandoned assessment attempt via RESTART or RESUME."""
+    res = await QuizRepository.recover_assessment_attempt(
+        ctx=ctx,
+        quiz_id=quiz_id,
+        attempt_id=attempt_id,
+        action=payload.action,
+        reason=payload.reason,
+    )
+    return {"success": True, "data": res}
 
 
 @router.get("/assessments/{quiz_id}/eedi-analytics")

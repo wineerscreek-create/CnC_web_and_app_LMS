@@ -4,6 +4,14 @@
  */
 import { getCameraSnapshotSamples } from "./cameraSnapshots";
 
+export interface SnapshotItem {
+  id?: string;
+  timestamp?: string | number;
+  eventType?: string;
+  imageData?: string;
+  frame?: string;
+}
+
 export interface StudentResultRow {
   rank: number;
   rollNumber: string;
@@ -16,14 +24,34 @@ export interface StudentResultRow {
   percentage: number;
   passed: boolean;
   warnings?: number;
+  warningCount?: number;
   sessionId?: string;
+  attemptId?: string;
+  assessmentId?: string;
   batchName?: string;
+  submissionTimestamp?: string;
+  completedAt?: string;
+  status?: string;
+  submissionReason?: string;
+  snapshots?: Array<SnapshotItem | string>;
+}
+
+function formatSnapshotTimestamp(ts?: string | number): string {
+  if (!ts) return "—";
+  try {
+    const d = typeof ts === "number" ? new Date(ts) : new Date(String(ts));
+    if (isNaN(d.getTime())) return String(ts);
+    return d.toISOString().replace("T", " ").substring(0, 19);
+  } catch {
+    return String(ts);
+  }
 }
 
 export async function exportAssessmentResultsToExcel(
   quizName: string,
   results: StudentResultRow[],
-  cameraSamplesOverride?: Array<{ session_id: string; name: string; roll_number: string; snapshots: string[] }>
+  cameraSamplesOverride?: Array<{ session_id: string; name: string; roll_number: string; snapshots: string[] }>,
+  options?: { assessmentId?: string }
 ): Promise<void> {
   const { default: ExcelJS } = await import("exceljs");
   const cameraSamples = cameraSamplesOverride || getCameraSnapshotSamples();
@@ -44,6 +72,9 @@ export async function exportAssessmentResultsToExcel(
     "Percentage",
     "Result",
     "Warnings",
+    "Submission Timestamp",
+    "Attempt Status",
+    "Submission Reason",
   ];
   resultSheet.addRow(resultHeaders);
   resultSheet.getRow(1).font = { bold: true };
@@ -55,34 +86,47 @@ export async function exportAssessmentResultsToExcel(
   resultSheet.views = [{ state: "frozen", ySplit: 1 }];
 
   results.forEach((item) => {
+    const warningsCount = item.warnings ?? item.warningCount ?? 0;
+    const subTime = item.submissionTimestamp || item.completedAt || "—";
+    const status = item.status || (item.passed ? "Completed" : "Submitted");
+    const reason = item.submissionReason || "—";
+
     resultSheet.addRow([
       item.rank,
-      item.rollNumber,
-      item.name,
+      item.rollNumber || "—",
+      item.name || "—",
       item.batchName || "—",
       item.marks,
       item.maxMarks,
       `${item.percentage}%`,
       item.passed ? "Pass" : "Fail",
-      item.warnings || 0,
+      warningsCount,
+      subTime,
+      status,
+      reason,
     ]);
   });
 
-  resultSheet.columns.forEach((col) => {
-    col.width = 16;
+  resultSheet.columns.forEach((col, idx) => {
+    if (idx === 0) col.width = 8;
+    else if (idx === 1) col.width = 16;
+    else if (idx === 2) col.width = 24;
+    else if (idx === 3) col.width = 16;
+    else if (idx === 9) col.width = 22;
+    else if (idx === 11) col.width = 22;
+    else col.width = 14;
   });
-  if (resultSheet.columns[2]) resultSheet.columns[2].width = 24;
 
   // Sheet 2: Camera Snapshots
   const cameraSheet = workbook.addWorksheet("Camera Snapshots");
   const snapshotColumns = [
-    { header: "Student Name", key: "student", width: 22 },
+    { header: "Student Name", key: "student", width: 24 },
     { header: "Roll Number", key: "roll", width: 16 },
-    ...Array.from({ length: 10 }, (_, index) => ({
-      header: `Snapshot ${index + 1}`,
-      key: `snapshot${index + 1}`,
-      width: 14,
-    })),
+    { header: "Assessment ID", key: "assessmentId", width: 36 },
+    { header: "Attempt ID", key: "attemptId", width: 36 },
+    { header: "Snapshot Timestamp", key: "timestamp", width: 22 },
+    { header: "Warning/Event Type", key: "eventType", width: 20 },
+    { header: "Camera Snapshot", key: "snapshot", width: 24 },
   ];
   cameraSheet.columns = snapshotColumns;
   cameraSheet.getRow(1).font = { bold: true };
@@ -93,42 +137,88 @@ export async function exportAssessmentResultsToExcel(
   };
   cameraSheet.views = [{ state: "frozen", ySplit: 1 }];
 
-  const samplesByRoll = new Map(cameraSamples.map((s) => [s.roll_number.toLowerCase(), s]));
+  const samplesByRoll = new Map(cameraSamples.map((s) => [(s.roll_number || "").toLowerCase(), s]));
   const samplesBySession = new Map(cameraSamples.map((s) => [s.session_id, s]));
 
+  const defaultAssessmentId = options?.assessmentId || results[0]?.assessmentId || quizName;
+
   results.forEach((res) => {
-    const studentSample =
-      (res.sessionId ? samplesBySession.get(res.sessionId) : null) ||
-      samplesByRoll.get((res.rollNumber || "").toLowerCase()) || {
-        name: res.name,
-        roll_number: res.rollNumber,
-        snapshots: [],
-      };
+    const studentAssessmentId = res.assessmentId || defaultAssessmentId;
+    const studentAttemptId = res.attemptId || res.sessionId || "—";
 
-    const row = cameraSheet.addRow({
-      student: studentSample.name,
-      roll: studentSample.roll_number,
-    });
-    row.height = 92;
+    // Gather snapshots from either res.snapshots (database) or live cameraSamples
+    let rawSnapshots: Array<{ timestamp?: string | number; eventType?: string; image: string }> = [];
 
-    studentSample.snapshots.slice(0, 10).forEach((image, index) => {
-      try {
-        const base64Data = image.includes(",") ? image.split(",")[1] : image;
-        if (!base64Data) return;
-
-        const imageId = workbook.addImage({
-          base64: base64Data,
-          extension: "jpeg",
-        });
-
-        cameraSheet.addImage(imageId, {
-          tl: { col: index + 2, row: row.number - 1 },
-          ext: { width: 68, height: 88 },
-        });
-      } catch (err) {
-        console.warn("Failed to embed snapshot into Excel row", err);
+    if (res.snapshots && res.snapshots.length > 0) {
+      rawSnapshots = res.snapshots.map((s) => {
+        if (typeof s === "string") {
+          return { image: s, eventType: "PERIODIC" };
+        }
+        return {
+          timestamp: s.timestamp,
+          eventType: s.eventType || "PERIODIC",
+          image: s.imageData || s.frame || "",
+        };
+      });
+    } else {
+      const fallbackSample =
+        (res.sessionId ? samplesBySession.get(res.sessionId) : null) ||
+        samplesByRoll.get((res.rollNumber || "").toLowerCase());
+      if (fallbackSample && fallbackSample.snapshots.length > 0) {
+        rawSnapshots = fallbackSample.snapshots.map((img) => ({
+          image: img,
+          eventType: "PERIODIC",
+        }));
       }
-    });
+    }
+
+    if (rawSnapshots.length > 0) {
+      rawSnapshots.forEach((snap) => {
+        const row = cameraSheet.addRow({
+          student: res.name || "—",
+          roll: res.rollNumber || "—",
+          assessmentId: studentAssessmentId,
+          attemptId: studentAttemptId,
+          timestamp: formatSnapshotTimestamp(snap.timestamp),
+          eventType: snap.eventType || "PERIODIC",
+          snapshot: "",
+        });
+        row.height = 68;
+
+        try {
+          const rawImg = snap.image || "";
+          const base64Data = rawImg.includes(",") ? rawImg.split(",")[1].trim() : rawImg.trim();
+          if (base64Data) {
+            const imageId = workbook.addImage({
+              base64: base64Data,
+              extension: "jpeg",
+            });
+
+            // Column 7 (0-based index 6)
+            cameraSheet.addImage(imageId, {
+              tl: { col: 6, row: row.number - 1 },
+              ext: { width: 96, height: 72 },
+              editAs: "oneCell",
+            });
+          }
+        } catch (err) {
+          console.warn("Failed to embed snapshot image into Excel cell", err);
+        }
+      });
+    } else {
+      const row = cameraSheet.addRow({
+        student: res.name || "—",
+        roll: res.rollNumber || "—",
+        assessmentId: studentAssessmentId,
+        attemptId: studentAttemptId,
+        timestamp: "—",
+        eventType: "—",
+        snapshot: "No camera snapshot available.",
+      });
+      row.height = 24;
+      const snapCell = row.getCell(7);
+      snapCell.font = { italic: true, color: { argb: "FF64748B" } };
+    }
   });
 
   const buffer = await workbook.xlsx.writeBuffer();

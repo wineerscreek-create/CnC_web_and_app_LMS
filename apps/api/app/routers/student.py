@@ -57,6 +57,7 @@ from app.repositories.collections import (
 )
 from app.schemas.requests import (
     CompletePracticeRequest,
+    DraftAnswerRequest,
     GameAttemptRequest,
     ProfileUpdate,
     ProgressUpdate,
@@ -65,6 +66,7 @@ from app.schemas.requests import (
     SettingsUpdate,
     StartPracticeRequest,
 )
+from app.repositories.assignment_quiz_repo import _safe_uuid
 from app.services import analytics, chat_service, payment_service, trial_service
 from app.services.ai_provider import FEEDBACK_DIMENSIONS, READINESS_DIMENSIONS
 from app.services.scoring import PILLAR_LABELS, PILLARS, band_for
@@ -283,64 +285,164 @@ async def _learning_hours(ctx: ScopeContext, *, days: int = 7) -> float:
 
 async def build_continue_learning(ctx: ScopeContext) -> dict[str, Any] | None:
     """Most recently touched course + the next lesson to resume."""
-    progress = await CourseProgressRepo(ctx).find_all(
-        {"studentUserId": ctx.user_id}, limit=1, sort=[("lastAccessedAt", -1)]
-    )
-    if not progress:
-        course = await CourseRepo(ctx).find_one({"published": True})
-        if not course:
+    if settings.USE_POSTGRES or settings.is_production:
+        from app.db.postgres import get_pg_connection
+        u_uuid = _safe_uuid(ctx.user_id)
+        if not u_uuid:
             return None
-        return {
-            "courseId": str(course["_id"]),
-            "courseTitle": course.get("title"),
-            "slug": course.get("slug"),
-            "icon": course.get("icon"),
-            "percent": 0,
-            "nextLesson": None,
-            "moduleLabel": "Not started",
-            "trainerName": course.get("trainerName"),
-            "state": "not_started",
-        }
+        try:
+            async with get_pg_connection() as conn:
+                row = await conn.fetchrow("""
+                    SELECT c.id AS course_id, c.title AS course_title, c.slug, c.category,
+                           u.name AS trainer_name, e.current_period, c.total_periods
+                    FROM enrollments e
+                    JOIN courses c ON e.course_id = c.id
+                    LEFT JOIN users u ON c.created_by = u.id
+                    WHERE e.participant_user_id = $1 AND e.enrollment_status = 'ACTIVE'
+                    ORDER BY e.updated_at DESC
+                    LIMIT 1
+                """, u_uuid)
+                if not row:
+                    row = await conn.fetchrow("""
+                        SELECT c.id AS course_id, c.title AS course_title, c.slug, c.category,
+                               u.name AS trainer_name, 1 AS current_period, c.total_periods
+                        FROM courses c
+                        LEFT JOIN users u ON c.created_by = u.id
+                        WHERE c.published = TRUE AND c.deleted_at IS NULL
+                        ORDER BY c.order_index ASC, c.created_at ASC
+                        LIMIT 1
+                    """)
+                if not row:
+                    return None
 
-    row = progress[0]
-    db = get_db()
-    course = await db.courses.find_one({"_id": row["courseId"]})
-    next_lesson = None
-    module_label = None
-    if row.get("nextLessonId"):
-        lesson = await db.lessons.find_one({"_id": row["nextLessonId"]})
-        if lesson:
-            next_lesson = {"id": str(lesson["_id"]), "title": lesson.get("title")}
-            module = await db.modules.find_one({"_id": lesson.get("moduleId")})
-            if module:
-                module_label = f"Module {module.get('order', 1)} · {module.get('title')}"
-    return {
-        "courseId": str(row["courseId"]),
-        "courseTitle": (course or {}).get("title"),
-        "slug": (course or {}).get("slug"),
-        "icon": (course or {}).get("icon"),
-        "percent": round(row.get("percent", 0), 1),
-        "nextLesson": next_lesson,
-        "moduleLabel": module_label or (course or {}).get("category"),
-        "trainerName": (course or {}).get("trainerName"),
-        "timeRemainingMinutes": row.get("timeRemainingMinutes"),
-        "state": "in_progress",
-    }
+                next_lesson_row = await conn.fetchrow("""
+                    SELECT l.id AS lesson_id, l.title AS lesson_title, m.title AS module_title, m.order_index AS module_order
+                    FROM modules m
+                    JOIN lessons l ON l.module_id = m.id
+                    WHERE m.course_id = $1 AND m.deleted_at IS NULL AND l.deleted_at IS NULL
+                    ORDER BY m.order_index ASC, l.order_index ASC
+                    LIMIT 1
+                """, row["course_id"])
+                next_lesson = None
+                module_label = row["category"] or "Module 1"
+                if next_lesson_row:
+                    next_lesson = {"id": str(next_lesson_row["lesson_id"]), "title": next_lesson_row["lesson_title"]}
+                    module_label = f"Module {next_lesson_row['module_order'] + 1} · {next_lesson_row['module_title']}"
+
+                total = row["total_periods"] or 1
+                current = row["current_period"] or 1
+                pct = round(min(100.0, max(0.0, (current / total) * 100)), 1)
+                return {
+                    "courseId": str(row["course_id"]),
+                    "courseTitle": row["course_title"],
+                    "slug": row["slug"],
+                    "icon": None,
+                    "percent": pct,
+                    "nextLesson": next_lesson,
+                    "moduleLabel": module_label,
+                    "trainerName": row["trainer_name"],
+                    "state": "in_progress" if row.get("current_period") else "not_started",
+                }
+        except Exception:
+            return None
+
+    try:
+        progress = await CourseProgressRepo(ctx).find_all(
+            {"studentUserId": ctx.user_id}, limit=1, sort=[("lastAccessedAt", -1)]
+        )
+        if not progress:
+            course = await CourseRepo(ctx).find_one({"published": True})
+            if not course:
+                return None
+            return {
+                "courseId": str(course["_id"]),
+                "courseTitle": course.get("title"),
+                "slug": course.get("slug"),
+                "icon": course.get("icon"),
+                "percent": 0,
+                "nextLesson": None,
+                "moduleLabel": "Not started",
+                "trainerName": course.get("trainerName"),
+                "state": "not_started",
+            }
+
+        row = progress[0]
+        db = get_db()
+        course = await db.courses.find_one({"_id": row["courseId"]})
+        next_lesson = None
+        module_label = None
+        if row.get("nextLessonId"):
+            lesson = await db.lessons.find_one({"_id": row["nextLessonId"]})
+            if lesson:
+                next_lesson = {"id": str(lesson["_id"]), "title": lesson.get("title")}
+                module = await db.modules.find_one({"_id": lesson.get("moduleId")})
+                if module:
+                    module_label = f"Module {module.get('order', 1)} · {module.get('title')}"
+        return {
+            "courseId": str(row["courseId"]),
+            "courseTitle": (course or {}).get("title"),
+            "slug": (course or {}).get("slug"),
+            "icon": (course or {}).get("icon"),
+            "percent": round(row.get("percent", 0), 1),
+            "nextLesson": next_lesson,
+            "moduleLabel": module_label or (course or {}).get("category"),
+            "trainerName": (course or {}).get("trainerName"),
+            "timeRemainingMinutes": row.get("timeRemainingMinutes"),
+            "state": "in_progress",
+        }
+    except Exception:
+        return None
 
 
 async def _daily_quest(ctx: ScopeContext) -> dict[str, Any]:
     """Three small tasks that reset daily; completion is derived from today's real activity."""
     start_of_day = _now().replace(hour=0, minute=0, second=0, microsecond=0)
-    db = get_db()
-    watched = await db.course_progress.count_documents(
-        {"studentUserId": ctx.user_id, "lastAccessedAt": {"$gte": start_of_day}}
-    )
-    practised = await db.practice_sessions.count_documents(
-        {"studentUserId": ctx.user_id, "createdAt": {"$gte": start_of_day}}
-    )
-    quizzed = await db.assessment_attempts.count_documents(
-        {"studentUserId": ctx.user_id, "createdAt": {"$gte": start_of_day}}
-    )
+    watched, practised, quizzed = 0, 0, 0
+    if settings.USE_POSTGRES or settings.is_production:
+        from app.db.postgres import get_pg_connection
+        u_uuid = _safe_uuid(ctx.user_id)
+        if u_uuid:
+            try:
+                async with get_pg_connection() as conn:
+                    quizzed_val = await conn.fetchval(
+                        "SELECT COUNT(*) FROM quiz_attempts WHERE student_user_id = $1 AND created_at >= $2",
+                        u_uuid, start_of_day
+                    )
+                    quizzed = int(quizzed_val or 0)
+            except Exception:
+                quizzed = 0
+    else:
+        try:
+            db = get_db()
+            watched = await db.course_progress.count_documents(
+                {"studentUserId": ctx.user_id, "lastAccessedAt": {"$gte": start_of_day}}
+            )
+            practised = await db.practice_sessions.count_documents(
+                {"studentUserId": ctx.user_id, "createdAt": {"$gte": start_of_day}}
+            )
+            quizzed = await db.assessment_attempts.count_documents(
+                {"studentUserId": ctx.user_id, "createdAt": {"$gte": start_of_day}}
+            )
+        except Exception:
+            watched, practised, quizzed = 0, 0, 0
+
+    tasks = [
+        {"code": "watch", "label": "Watch: Active Listening", "xp": 20, "icon": "play",
+         "done": watched > 0, "href": "/student/learning"},
+        {"code": "practice", "label": "Practice: Elevator Pitch", "xp": 15, "icon": "target",
+         "done": practised > 0, "href": "/student/practice"},
+        {"code": "quiz", "label": "Quiz: Grammar Check", "xp": 15, "icon": "help-circle",
+         "done": quizzed > 0, "href": "/student/assessments"},
+    ]
+    done = sum(1 for t in tasks if t["done"])
+    return {
+        "tasks": tasks,
+        "completed": done,
+        "total": len(tasks),
+        "totalXp": sum(t["xp"] for t in tasks),
+        "earnedXp": sum(t["xp"] for t in tasks if t["done"]),
+        "resetsAt": start_of_day + timedelta(days=1),
+    }
     tasks = [
         {"code": "watch", "label": "Watch: Active Listening", "xp": 20, "icon": "play",
          "done": watched > 0, "href": "/student/learning"},
@@ -640,19 +742,38 @@ async def dashboard(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
     profile = await _profile(ctx)
     score = await EediScoreRepo(ctx).find_one({"studentUserId": ctx.user_id}) or {}
 
-    db = get_db()
     pending_assignments = 0
-    if profile.get("batchId"):
-        submitted = set(
-            await db.assignment_submissions.distinct(
-                "assignmentId", {"studentUserId": ctx.user_id}
-            )
-        )
-        open_assignments = await db.assignments.find(
-            {"batchId": profile["batchId"], "deletedAt": None, "dueAt": {"$gte": _now()}},
-            {"_id": 1},
-        ).to_list(length=200)
-        pending_assignments = len([a for a in open_assignments if a["_id"] not in submitted])
+    if settings.USE_POSTGRES or settings.is_production:
+        if profile.get("batchId"):
+            from app.db.postgres import get_pg_connection
+            b_uuid = _safe_uuid(profile["batchId"])
+            u_uuid = _safe_uuid(ctx.user_id)
+            if b_uuid and u_uuid:
+                try:
+                    async with get_pg_connection() as conn:
+                        total_open = await conn.fetchval(
+                            "SELECT COUNT(*) FROM assignments WHERE batch_id = $1 AND (due_date >= NOW() OR due_date IS NULL)",
+                            b_uuid
+                        )
+                        pending_assignments = int(total_open or 0)
+                except Exception:
+                    pending_assignments = 0
+    else:
+        try:
+            db = get_db()
+            if profile.get("batchId"):
+                submitted = set(
+                    await db.assignment_submissions.distinct(
+                        "assignmentId", {"studentUserId": ctx.user_id}
+                    )
+                )
+                open_assignments = await db.assignments.find(
+                    {"batchId": profile["batchId"], "deletedAt": None, "dueAt": {"$gte": _now()}},
+                    {"_id": 1},
+                ).to_list(length=200)
+                pending_assignments = len([a for a in open_assignments if a["_id"] not in submitted])
+        except Exception:
+            pending_assignments = 0
 
     unreviewed = await AiScoreRepo(ctx).count(
         {"studentUserId": ctx.user_id, "trainerReviewState": "pending"}
@@ -3100,6 +3221,126 @@ async def student_attendance(ctx: ScopeContext = StudentCtx) -> dict[str, Any]:
     return {"success": True, "data": {"records": serialize(rows)}}
 
 
+@router.post("/attendance/verify")
+async def verify_student_attendance(
+    payload: dict[str, Any],
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Allows an authenticated student to mark their self-attendance for an active session."""
+    session_id_raw = payload.get("sessionId") or payload.get("session_id")
+    if not session_id_raw:
+        raise ValidationError("sessionId is required.")
+
+    if settings.USE_POSTGRES and ctx.user_id:
+        from app.db.postgres import get_pg_connection
+        from uuid import UUID
+        s_uuid = UUID(str(session_id_raw))
+        st_uuid = UUID(str(ctx.user_id))
+
+        async with get_pg_connection() as conn:
+            # 1. Fetch training session
+            session = await conn.fetchrow(
+                """
+                SELECT id, institution_id, department_id, batch_id, session_date, starts_at, ends_at, status
+                FROM training_sessions
+                WHERE id = $1
+                """,
+                s_uuid,
+            )
+            if not session:
+                raise NotFound("Training session not found.")
+
+            b_uuid = session["batch_id"]
+
+            # 2. Check student's batch assignment
+            is_member = await conn.fetchval(
+                """
+                SELECT 1 FROM student_profiles WHERE user_id = $1 AND batch_id = $2
+                UNION
+                SELECT 1 FROM enrollments WHERE participant_user_id = $1 AND batch_id = $2 AND (enrollment_status IS NULL OR enrollment_status = 'ACTIVE')
+                LIMIT 1
+                """,
+                st_uuid,
+                b_uuid,
+            )
+            if not is_member:
+                raise ScopeForbidden("You are not assigned to the batch for this session.")
+
+            # 3. Check time window: session date should be today or active
+            now_dt = datetime.now(timezone.utc)
+            today_date = now_dt.date()
+
+            # 4. Check if already marked
+            existing = await conn.fetchrow(
+                "SELECT id, status, marked_at FROM attendance_records WHERE session_id = $1 AND participant_user_id = $2",
+                s_uuid,
+                st_uuid,
+            )
+            if existing:
+                return {
+                    "success": True,
+                    "message": "Attendance already recorded.",
+                    "data": {
+                        "attendanceId": str(existing["id"]),
+                        "status": str(existing["status"]).lower(),
+                        "markedAt": existing["marked_at"].isoformat() if existing["marked_at"] else None,
+                        "alreadyMarked": True,
+                    },
+                }
+
+            # 5. Insert attendance record
+            ar_id = await conn.fetchval(
+                """
+                INSERT INTO attendance_records (
+                    id, session_id, participant_user_id, status, marked_by,
+                    institution_id, batch_id, attendance_date, marking_method,
+                    marked_at, created_at, updated_at
+                )
+                VALUES (
+                    gen_random_uuid(), $1, $2, 'PRESENT'::attendance_status_enum, $2,
+                    $3, $4, $5, 'STUDENT_SELF',
+                    NOW(), NOW(), NOW()
+                )
+                RETURNING id
+                """,
+                s_uuid,
+                st_uuid,
+                session["institution_id"],
+                b_uuid,
+                session["session_date"] or today_date,
+            )
+
+            # 6. Broadcast real-time attendance event
+            try:
+                from app.websocket.messaging_ws import messaging_hub
+                await messaging_hub.broadcast_to_room(
+                    room_name=f"batch_{str(b_uuid)}",
+                    event="attendance.marked",
+                    data={
+                        "sessionId": str(s_uuid),
+                        "batchId": str(b_uuid),
+                        "studentUserId": str(st_uuid),
+                        "status": "present",
+                        "markingMethod": "STUDENT_SELF",
+                    },
+                )
+            except Exception:
+                pass
+
+            return {
+                "success": True,
+                "message": "Attendance verified successfully.",
+                "data": {
+                    "attendanceId": str(ar_id),
+                    "status": "present",
+                    "markedAt": now_dt.isoformat(),
+                    "alreadyMarked": False,
+                },
+            }
+
+    return {"success": True, "message": "Attendance recorded."}
+
+
 @router.post("/reports/progress")
 async def export_progress(
     payload: dict[str, Any] | None = None,
@@ -3290,7 +3531,7 @@ async def submit_assessment(
     if settings.USE_POSTGRES:
         answers_map: dict[str, Any] = {}
         for a in payload.answers:
-            qid = str(a.get("questionId") or "")
+            qid = str(a.get("questionId") or a.get("question_id") or "")
             if not qid:
                 continue
             if a.get("selectedOptions") is not None:
@@ -3302,12 +3543,14 @@ async def submit_assessment(
             elif a.get("answer") is not None:
                 answers_map[qid] = a.get("answer")
 
+        reason = payload.submissionReason or "STUDENT_MANUAL_SUBMIT"
         res = await QuizRepository.submit_quiz_attempt(
             ctx,
             quiz_id,
             answers_map,
             device_id=payload.deviceId,
             warnings=payload.warnings,
+            submission_reason=reason,
         )
         await _award_xp(ctx, amount=int(res["score"] / 5), source="quiz", label="Assessment")
         return {"success": True, "data": res}
@@ -3341,17 +3584,88 @@ async def submit_assessment(
 @router.post("/assessments/{quiz_id}/draft-answer")
 async def save_draft_answer(
     quiz_id: str,
-    payload: dict[str, Any],
+    payload: DraftAnswerRequest,
     ctx: ScopeContext = StudentCtx,
 ) -> dict[str, Any]:
     """Persists in-progress answer on question navigation and periodic autosaves."""
-    qid = str(payload.get("questionId") or payload.get("question_id") or "")
-    ans = payload.get("selectedOptions") or payload.get("numericalAnswer") or payload.get("optionId") or payload.get("answer")
-    marked = bool(payload.get("markedForReview") or payload.get("marked_for_review"))
+    qid = str(payload.questionId or payload.question_id or "")
+    if payload.selectedOptions is not None:
+        ans = payload.selectedOptions
+    elif payload.numericalAnswer is not None:
+        ans = payload.numericalAnswer
+    elif payload.optionId is not None:
+        ans = payload.optionId
+    else:
+        ans = payload.answer
+
+    marked = bool(payload.markedForReview or payload.marked_for_review)
     res = await QuizRepository.save_student_draft_answer(
-        ctx, quiz_id, qid, ans, marked_for_review=marked
+        ctx,
+        quiz_id,
+        qid,
+        ans,
+        marked_for_review=marked,
+        version=payload.version,
+        time_spent_seconds=payload.timeSpentSeconds,
     )
     return {"success": True, "data": res}
+
+
+@router.post("/assessments/{quiz_id}/abandonment-warning")
+async def report_abandonment_warning(
+    quiz_id: str,
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Student switched tabs, minimized browser, or left assessment window. Starts 20s grace period."""
+    res = await QuizRepository.record_abandonment_warning(ctx, quiz_id)
+    return {"success": True, "data": res}
+
+
+@router.post("/assessments/{quiz_id}/abandonment-cancel")
+async def cancel_abandonment_warning(
+    quiz_id: str,
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Student returned to assessment within 20s grace period. Cancels abandonment timeout."""
+    res = await QuizRepository.cancel_abandonment_warning(ctx, quiz_id)
+    return {"success": True, "data": res}
+
+
+@router.post("/assessments/{quiz_id}/abandonment-timeout")
+async def process_abandonment_timeout(
+    quiz_id: str,
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """20s grace period expired without return. Auto-submits with ABANDONMENT_TIMEOUT."""
+    res = await QuizRepository.handle_abandonment_timeout(ctx, quiz_id)
+    return {"success": True, "data": res}
+
+
+@router.post("/assessments/{quiz_id}/heartbeat")
+async def student_heartbeat(
+    quiz_id: str,
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Authoritative server-side heartbeat, remaining time check, and session keepalive."""
+    res = await QuizRepository.record_student_heartbeat(ctx, quiz_id)
+    return {"success": True, "data": res}
+
+
+@router.post("/assessments/{quiz_id}/preflight-check")
+async def assessment_preflight_check(
+    quiz_id: str,
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Verifies student assessment eligibility, camera requirements, and session readiness without starting timer."""
+    timing = await QuizRepository.get_student_attempt_timing(quiz_id, str(ctx.user_id))
+    return {
+        "success": True,
+        "data": {
+            "eligible": not timing.get("is_completed"),
+            "timing": timing,
+            "sessionReady": True,
+        },
+    }
 
 
 @router.post("/assessments/{quiz_id}/questions/{question_id}/reveal")
@@ -3377,9 +3691,34 @@ async def report_proctoring_warning(
     res = await QuizRepository.record_student_warning(
         ctx, quiz_id, warning_type=wtype, detail=detail
     )
+    snap = payload.get("snapshot") or payload.get("frame")
+    if snap:
+        try:
+            await QuizRepository.save_camera_snapshot(ctx, quiz_id, snap, event_type=wtype)
+        except Exception:
+            pass
     # Also notify real-time hub if active
     from app.websocket.assessment_ws import assessment_hub
     await assessment_hub.handle_warning(quiz_id, str(ctx.user_id), wtype, res["warning_count"])
+    return {"success": True, "data": res}
+
+
+@router.post("/assessments/{quiz_id}/snapshot")
+async def upload_camera_snapshot(
+    quiz_id: str,
+    payload: dict[str, Any],
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Uploads and persists a candidate proctoring camera snapshot."""
+    frame = payload.get("snapshot") or payload.get("frame") or payload.get("imageData") or payload.get("image")
+    if not frame:
+        raise BadRequest("Snapshot frame is required")
+    etype = str(payload.get("event_type") or payload.get("eventType") or "PERIODIC")
+    res = await QuizRepository.save_camera_snapshot(
+        ctx, quiz_id, frame, event_type=etype
+    )
+    from app.websocket.assessment_ws import assessment_hub
+    await assessment_hub.handle_snapshot(quiz_id, str(ctx.user_id), frame, event_type=etype)
     return {"success": True, "data": res}
 
 

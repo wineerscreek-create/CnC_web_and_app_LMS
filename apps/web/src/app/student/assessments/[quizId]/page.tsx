@@ -14,6 +14,13 @@ import {
   Maximize2,
   Save,
   Bookmark,
+  RefreshCw,
+  Wifi,
+  WifiOff,
+  Camera,
+  CameraOff,
+  AlertCircle,
+  Check,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -122,6 +129,23 @@ export default function AssessmentAttemptPage() {
   const [serverStartTime, setServerStartTime] = React.useState<number | null>(null);
   const [serverTimeOffset, setServerTimeOffset] = React.useState<number>(0);
   const [lockedQuestions, setLockedQuestions] = React.useState<Record<string, boolean>>({});
+
+  // Assessment Engine Preflight & Verification State
+  const [cameraState, setCameraState] = React.useState<'INITIALIZING' | 'READY' | 'PERMISSION_DENIED' | 'UNAVAILABLE'>('INITIALIZING');
+  const [preflightReady, setPreflightReady] = React.useState<boolean>(false);
+  const [preflightChecking, setPreflightChecking] = React.useState<boolean>(true);
+  const [browserCompatible, setBrowserCompatible] = React.useState<boolean>(true);
+  const [networkLatencyMs, setNetworkLatencyMs] = React.useState<number | null>(null);
+
+  // Abandonment Detection State (20-second Grace Period)
+  const [abandonmentWarning, setAbandonmentWarning] = React.useState<boolean>(false);
+  const [abandonmentCountdown, setAbandonmentCountdown] = React.useState<number>(20);
+  const abandonmentTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // Debounced Autosave State & Monotonic Versioning
+  const [saveStatus, setSaveStatus] = React.useState<'saved' | 'saving' | 'unsaved' | 'error'>('saved');
+  const versionRef = React.useRef<number>(0);
+  const debouncedSaveTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const socketRef = React.useRef<WebSocket | null>(null);
   const submittedRef = React.useRef<boolean>(false);
@@ -247,18 +271,54 @@ export default function AssessmentAttemptPage() {
     };
   }, [params.quizId, alreadyDone, result, connectAssessmentSocket]);
 
-  // Heartbeat every 15 seconds to sync authoritative server timer
+  // Preflight Verification System (Runs before assessment start)
   React.useEffect(() => {
-    if (alreadyDone || result) return;
+    if (alreadyDone || result || started || !params.quizId) return;
+
+    let cancelled = false;
+    async function runPreflight() {
+      setPreflightChecking(true);
+      // 1. Browser check
+      const isCompat = typeof window !== 'undefined' && Boolean(navigator?.mediaDevices?.getUserMedia);
+      setBrowserCompatible(isCompat);
+
+      // 2. Network and session readiness check
+      try {
+        const start = Date.now();
+        await api.post(`/student/assessments/${params.quizId}/preflight-check`);
+        if (!cancelled) {
+          setNetworkLatencyMs(Date.now() - start);
+          setPreflightReady(true);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setPreflightReady(true);
+        }
+      } finally {
+        if (!cancelled) setPreflightChecking(false);
+      }
+    }
+
+    runPreflight();
+    return () => {
+      cancelled = true;
+    };
+  }, [params.quizId, alreadyDone, result, started]);
+
+  // Heartbeat every 15 seconds to sync authoritative server timer and session status
+  React.useEffect(() => {
+    if (alreadyDone || result || !started) return;
 
     const interval = setInterval(() => {
       if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
         socketRef.current.send(JSON.stringify({ event: 'heartbeat', id: Date.now() }));
+      } else if (isOnline && params.quizId) {
+        api.post(`/student/assessments/${params.quizId}/heartbeat`).catch(() => {});
       }
     }, 15000);
 
     return () => clearInterval(interval);
-  }, [alreadyDone, result]);
+  }, [alreadyDone, result, started, isOnline, params.quizId]);
 
   // Keep refs synchronized
   React.useEffect(() => {
@@ -387,14 +447,18 @@ export default function AssessmentAttemptPage() {
     [params.quizId]
   );
 
-  // Instant Answer Saving
+  // Debounced Autosave with Monotonic Versioning and Retries
   const saveCurrentDraft = React.useCallback(
-    async (overrideAnswer?: any, markReview?: boolean) => {
+    async (overrideAnswer?: any, markReview?: boolean, immediate = false) => {
       if (!currentQuestion) return;
       const qid = currentQuestion.id;
-      const currentAns = overrideAnswer !== undefined ? overrideAnswer : answers[qid];
+      const currentAns = overrideAnswer !== undefined ? overrideAnswer : (answersRef.current[qid] ?? answers[qid]);
 
-      // 1. Update local IndexedDB draft
+      versionRef.current += 1;
+      const currentVersion = versionRef.current;
+      setSaveStatus('saving');
+
+      // 1. Update local IndexedDB draft immediately
       if (user?.id) {
         const compoundId = `${user.id}_${params.quizId}`;
         offlineDB.assessmentDrafts
@@ -402,35 +466,68 @@ export default function AssessmentAttemptPage() {
             id: compoundId,
             userId: user.id,
             quizId: params.quizId,
-            answers: { ...answers, [qid]: currentAns },
+            answers: { ...answersRef.current, [qid]: currentAns },
             elapsedSeconds: elapsed,
             updatedAt: new Date().toISOString(),
           })
           .catch(() => {});
       }
 
-      // 2. Transmit to server if online
-      if (isOnline) {
-        api
-          .post(`/student/assessments/${params.quizId}/draft-answer`, {
+      const transmitToServer = async (retryCount = 0): Promise<void> => {
+        if (!isOnline) {
+          setSaveStatus('saved');
+          return;
+        }
+        try {
+          await api.post(`/student/assessments/${params.quizId}/draft-answer`, {
             questionId: qid,
             answer: currentAns,
+            version: currentVersion,
             markedForReview: markReview !== undefined ? markReview : reviews[qid],
-          })
-          .catch(() => {});
+            timeSpentSeconds: elapsed,
+            clientTimestamp: new Date().toISOString(),
+          });
 
-        // 3. Notify real-time WebSocket of progress
-        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-          socketRef.current.send(
-            JSON.stringify({
-              event: 'answer_saved',
-              data: {
-                question_id: qid,
-                current_index: currentIndex,
-              },
-            })
-          );
+          // Only mark as saved if a newer version hasn't started saving
+          if (versionRef.current === currentVersion) {
+            setSaveStatus('saved');
+          }
+
+          // Real-time WebSocket progress broadcast
+          if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+            socketRef.current.send(
+              JSON.stringify({
+                event: 'answer_saved',
+                data: {
+                  question_id: qid,
+                  current_index: currentIndex,
+                  version: currentVersion,
+                },
+              })
+            );
+          }
+        } catch (err: any) {
+          if (retryCount < 2) {
+            const backoffDelay = (retryCount + 1) * 800;
+            setTimeout(() => void transmitToServer(retryCount + 1), backoffDelay);
+          } else {
+            console.warn('Draft answer autosave failed after retries', err);
+            setSaveStatus('unsaved');
+          }
         }
+      };
+
+      if (debouncedSaveTimerRef.current) {
+        clearTimeout(debouncedSaveTimerRef.current);
+        debouncedSaveTimerRef.current = null;
+      }
+
+      if (immediate) {
+        await transmitToServer();
+      } else {
+        debouncedSaveTimerRef.current = setTimeout(() => {
+          void transmitToServer();
+        }, 500);
       }
     },
     [currentQuestion, answers, reviews, elapsed, user?.id, params.quizId, isOnline, currentIndex]
@@ -446,8 +543,8 @@ export default function AssessmentAttemptPage() {
     lockedQuestionsRef.current[curQ.id] = true;
     setLockedQuestions((prev) => ({ ...prev, [curQ.id]: true }));
 
-    // 2. Auto-save current answer (saves whatever is selected, or null)
-    await saveCurrentDraft();
+    // 2. Auto-save current answer immediately
+    await saveCurrentDraft(undefined, undefined, true);
 
     // 3. If on the final question, auto-submit the entire assessment!
     if (currentIndexRef.current >= questions.length - 1) {
@@ -560,7 +657,7 @@ export default function AssessmentAttemptPage() {
               if (curQ) {
                 lockedQuestionsRef.current[curQ.id] = true;
                 setLockedQuestions((l) => ({ ...l, [curQ.id]: true }));
-                void saveCurrentDraft();
+                void saveCurrentDraft(undefined, undefined, true);
                 void startRevealPhase(curQ.id, Math.max(1, prev - 1));
               }
               return Math.max(1, prev - 1);
@@ -590,14 +687,71 @@ export default function AssessmentAttemptPage() {
     saveCurrentDraft,
   ]);
 
-  // Autosave interval every 5 seconds
+  // Periodic safety autosave interval every 10 seconds
   React.useEffect(() => {
     if (!started || alreadyDone || result || !currentQuestion) return;
     const interval = setInterval(() => {
-      void saveCurrentDraft();
-    }, 5000);
+      void saveCurrentDraft(undefined, undefined, true);
+    }, 10000);
     return () => clearInterval(interval);
   }, [started, alreadyDone, result, currentQuestion, saveCurrentDraft]);
+
+  // Abandonment Warning Trigger (Page visibility hidden or window blur)
+  const handleAbandonmentDetected = React.useCallback(() => {
+    if (!started || submittedRef.current || isSubmittingRef.current || alreadyDone || result) return;
+    if (abandonmentTimerRef.current) return;
+
+    setAbandonmentWarning(true);
+    setAbandonmentCountdown(20);
+
+    // Notify server via REST and WebSocket
+    if (isOnline && params.quizId) {
+      api.post(`/student/assessments/${params.quizId}/abandonment-warning`).catch(() => {});
+    }
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ event: 'abandonment_warning', data: { timeout_seconds: 20 } }));
+    }
+
+    abandonmentTimerRef.current = setInterval(() => {
+      setAbandonmentCountdown((prev) => {
+        if (prev <= 1) {
+          if (abandonmentTimerRef.current) {
+            clearInterval(abandonmentTimerRef.current);
+            abandonmentTimerRef.current = null;
+          }
+          setAbandonmentWarning(false);
+          // Auto-submit with authoritative reason ABANDONMENT_TIMEOUT
+          if (isOnline && params.quizId) {
+            api.post(`/student/assessments/${params.quizId}/abandonment-timeout`).catch(() => {});
+          }
+          void submitAssessmentRef.current('ABANDONMENT_TIMEOUT');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [started, alreadyDone, result, isOnline, params.quizId]);
+
+  // Abandonment Warning Restoration (Student returns)
+  const handleAbandonmentRestored = React.useCallback(() => {
+    if (abandonmentTimerRef.current) {
+      clearInterval(abandonmentTimerRef.current);
+      abandonmentTimerRef.current = null;
+    }
+    if (abandonmentWarning) {
+      setAbandonmentWarning(false);
+      setAbandonmentCountdown(20);
+      toast.info('Session restored. Please remain on the examination window.');
+
+      // Notify server via REST and WebSocket
+      if (isOnline && params.quizId) {
+        api.post(`/student/assessments/${params.quizId}/abandonment-cancel`).catch(() => {});
+      }
+      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+        socketRef.current.send(JSON.stringify({ event: 'abandonment_cancel', data: {} }));
+      }
+    }
+  }, [abandonmentWarning, isOnline, params.quizId]);
 
   // Wire Anti-Cheat Subsystem
   const { warningCount, isFullscreen, requestFullscreen, exitFullscreen } = useAntiCheat({
@@ -606,16 +760,35 @@ export default function AssessmentAttemptPage() {
     fullscreenRequired,
     maxWarnings,
     onAutoSubmit: (reason) => submitAssessment(reason),
+    onAbandonmentDetected: handleAbandonmentDetected,
+    onAbandonmentRestored: handleAbandonmentRestored,
   });
 
   // Submission handler
   const submitAssessment = React.useCallback(
-    async (reason = 'student_submitted') => {
+    async (reason = 'STUDENT_MANUAL_SUBMIT') => {
       if (isSubmittingRef.current || submittedRef.current) return;
       isSubmittingRef.current = true;
       submittedRef.current = true;
       clearActiveTimer();
+      if (abandonmentTimerRef.current) {
+        clearInterval(abandonmentTimerRef.current);
+        abandonmentTimerRef.current = null;
+      }
+      setAbandonmentWarning(false);
       setSubmitting(true);
+
+      // Normalize reason to authoritative constants
+      const authoritativeReason =
+        reason === 'auto_timeout' || reason === 'per_question_final_timeout'
+          ? 'TIMER_EXPIRED'
+          : reason === 'abandonment_timeout' || reason === 'ABANDONMENT_TIMEOUT'
+          ? 'ABANDONMENT_TIMEOUT'
+          : reason === 'forced_by_admin'
+          ? 'TRAINER_END_ASSESSMENT'
+          : reason === 'exam_completed' || reason === 'student_submitted'
+          ? 'STUDENT_MANUAL_SUBMIT'
+          : reason;
 
       const deviceId =
         typeof window !== 'undefined'
@@ -675,7 +848,7 @@ export default function AssessmentAttemptPage() {
           answers: formattedAnswers,
           durationSeconds: elapsed,
           deviceId,
-          warnings: [],
+          submissionReason: authoritativeReason,
         });
 
         setResult(response.data);
@@ -687,7 +860,7 @@ export default function AssessmentAttemptPage() {
             JSON.stringify({
               event: 'submit',
               data: {
-                reason,
+                reason: authoritativeReason,
                 score: response.data.score,
                 passed: response.data.passed,
               },
@@ -897,6 +1070,7 @@ export default function AssessmentAttemptPage() {
     const qid = currentQuestion.id;
     setAnswers((prev) => ({ ...prev, [qid]: value }));
     answersRef.current = { ...answersRef.current, [qid]: value };
+    void saveCurrentDraft(value, undefined, false);
   };
 
   const effectiveQuery = React.useMemo(() => {
@@ -1127,73 +1301,133 @@ export default function AssessmentAttemptPage() {
           );
         }
 
-        // SCENARIO 2: Pre-Flight Start Screen (Clean, Focused Entry)
+        // SCENARIO 2: Pre-Assessment Verification Screen (PREPARING -> READY -> IN_PROGRESS)
         if (!started) {
+          const cameraIsReady = !cameraRequired || cameraState === 'READY';
+          const canStart = cameraIsReady && browserCompatible;
+
           return (
             <div className="min-h-screen w-full flex items-center justify-center bg-background p-4 sm:p-6">
               <Card className="max-w-xl w-full shadow-2xl border border-border">
                 <CardHeader className="text-center pb-2">
                   <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold uppercase tracking-wider mb-2 self-center">
-                    Official Examination
+                    Official Examination Preflight
                   </div>
                   <CardTitle className="text-2xl font-bold tracking-tight text-foreground">{data.title}</CardTitle>
                   <CardSubtitle className="mt-1 text-muted-foreground">
                     {questions.length} Questions · {data.durationMinutes} Minutes Allotted · {data.maxScore ?? 100} Marks
                   </CardSubtitle>
                 </CardHeader>
-                <CardBody className="space-y-5 pt-4">
+                <CardBody className="space-y-5 pt-3">
                   {/* Camera verification before entering exam */}
                   {cameraRequired && (
-                    <div className="flex flex-col items-center">
-                      <span className="text-xs font-semibold text-muted-foreground mb-2">
-                        Webcam &amp; Proctoring Verification
-                      </span>
-                      <CameraFeed
-                        required={cameraRequired}
-                        captureSnapshots={false}
-                        quizId={params.quizId}
-                      />
+                    <div className="flex flex-col items-center space-y-2">
+                      <div className="flex items-center justify-between w-full px-1">
+                        <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                          <Camera className="size-4 text-primary" />
+                          Webcam Proctoring Verification
+                        </span>
+                        {cameraState === 'READY' ? (
+                          <Badge tone="success" className="text-[10px]">
+                            <Check className="size-3 mr-1" /> Camera Ready
+                          </Badge>
+                        ) : cameraState === 'PERMISSION_DENIED' ? (
+                          <Badge tone="danger" className="text-[10px]">
+                            <AlertCircle className="size-3 mr-1" /> Permission Denied
+                          </Badge>
+                        ) : cameraState === 'UNAVAILABLE' ? (
+                          <Badge tone="amber" className="text-[10px]">
+                            <CameraOff className="size-3 mr-1" /> Device Unavailable
+                          </Badge>
+                        ) : (
+                          <Badge tone="neutral" className="text-[10px]">
+                            <RefreshCw className="size-3 mr-1 animate-spin" /> Initializing
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="w-full flex justify-center">
+                        <CameraFeed
+                          required={cameraRequired}
+                          captureSnapshots={false}
+                          quizId={params.quizId}
+                          onStateChange={setCameraState}
+                        />
+                      </div>
+
+                      {cameraState === 'PERMISSION_DENIED' && (
+                        <div className="w-full rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-700 dark:text-rose-300 space-y-1">
+                          <p className="font-semibold flex items-center gap-1.5">
+                            <AlertTriangle className="size-4 shrink-0 text-rose-600" />
+                            Camera Access Required
+                          </p>
+                          <p className="text-[11px] leading-relaxed">
+                            Your browser has blocked camera access. Click the camera icon or site settings in your browser address bar to allow permissions, then retry.
+                          </p>
+                        </div>
+                      )}
+
+                      {cameraState === 'UNAVAILABLE' && (
+                        <div className="w-full rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300 space-y-1">
+                          <p className="font-semibold flex items-center gap-1.5">
+                            <AlertTriangle className="size-4 shrink-0 text-amber-600" />
+                            No Camera Detected
+                          </p>
+                          <p className="text-[11px] leading-relaxed">
+                            No functional webcam device was detected. Ensure your camera is plugged in and not in use by another application.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {/* Examination Rules */}
-                  <div className="rounded-xl bg-muted/40 p-4 text-xs space-y-2.5 border border-border/80">
-                    <div className="flex items-center gap-2.5 font-medium text-foreground">
-                      <Maximize2 className="size-4 text-primary shrink-0" />
-                      <span>Dedicated fullscreen mode is required during the examination.</span>
-                    </div>
-                    {timingMode === 'PER_QUESTION' ? (
-                      <div className="flex items-center gap-2.5 font-medium text-amber-600 dark:text-amber-400">
-                        <Clock className="size-4 shrink-0" />
-                        <span>
-                          Per-Question Timing: Each question has an independent timer. Attempted or expired questions lock immediately.
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2.5 font-medium text-primary">
-                        <Clock className="size-4 shrink-0" />
-                        <span>
-                          Fixed Duration: Total {data.durationMinutes} minutes countdown. Previous questions cannot be revisited.
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2.5 text-muted-foreground">
-                      <AlertTriangle className="size-4 text-amber-500 shrink-0" />
-                      <span>
-                        Exiting fullscreen or switching browser tabs will record proctoring warnings.
+                  {/* Preflight System Checklist */}
+                  <div className="rounded-xl bg-muted/40 p-4 text-xs space-y-2 border border-border/80">
+                    <span className="font-semibold text-foreground block mb-1">Pre-Assessment Verification</span>
+                    <div className="flex items-center justify-between text-muted-foreground">
+                      <span className="flex items-center gap-2">
+                        <CheckCircle2 className={cn('size-3.5', browserCompatible ? 'text-emerald-500' : 'text-rose-500')} />
+                        Browser Compatibility &amp; Fullscreen
                       </span>
+                      <span className="font-medium text-foreground">{browserCompatible ? 'Supported' : 'Unsupported'}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-muted-foreground">
+                      <span className="flex items-center gap-2">
+                        <CheckCircle2 className={cn('size-3.5', isOnline ? 'text-emerald-500' : 'text-amber-500')} />
+                        Network Connectivity
+                      </span>
+                      <span className="font-medium text-foreground">
+                        {isOnline ? (networkLatencyMs ? `${networkLatencyMs}ms Latency` : 'Connected') : 'Offline Ready'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-muted-foreground">
+                      <span className="flex items-center gap-2">
+                        <CheckCircle2 className={cn('size-3.5', preflightReady ? 'text-emerald-500' : 'text-muted-foreground')} />
+                        Session Authorization
+                      </span>
+                      <span className="font-medium text-foreground">{preflightReady ? 'Ready' : 'Verifying...'}</span>
                     </div>
                   </div>
 
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    className="w-full text-base font-semibold py-6 shadow-md"
-                    onClick={handleStartAssessment}
-                  >
-                    <Maximize2 className="mr-2 size-5" />
-                    Start Assessment &amp; Enter Fullscreen
-                  </Button>
+                  {/* Safe Navigation & Start Exam Actions */}
+                  <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                    <Button asChild variant="secondary" size="lg" className="sm:w-1/3">
+                      <Link href="/student/assessments">
+                        <ArrowLeft className="size-4 mr-2" />
+                        Back
+                      </Link>
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      className="sm:w-2/3 text-base font-semibold py-6 shadow-md"
+                      disabled={!canStart}
+                      onClick={handleStartAssessment}
+                    >
+                      <Maximize2 className="mr-2 size-5" />
+                      Start Assessment &amp; Enter Fullscreen
+                    </Button>
+                  </div>
                 </CardBody>
               </Card>
             </div>
@@ -1203,7 +1437,34 @@ export default function AssessmentAttemptPage() {
         // SCENARIO 3: Active Distraction-Free Fullscreen Examination Interface
         return (
           <div className="h-[100dvh] w-full flex flex-col bg-background text-foreground overflow-hidden select-none">
-            {/* Top Examination Bar: Exactly 3 items (Question Indicator, Remaining Timer, Submit Action) */}
+            {/* Examination Abandonment Warning Modal Overlay */}
+            {abandonmentWarning && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in duration-200">
+                <div className="max-w-md w-full rounded-2xl border-2 border-rose-500 bg-card p-6 shadow-2xl text-center space-y-4">
+                  <div className="mx-auto size-16 rounded-full bg-rose-500/15 flex items-center justify-center text-rose-500 animate-pulse">
+                    <AlertTriangle className="size-8" />
+                  </div>
+                  <h2 className="text-xl font-bold text-foreground">Examination Abandonment Warning</h2>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    You have left the assessment screen. Your assessment will be automatically submitted in{' '}
+                    <span className="font-mono font-bold text-rose-500 text-xl px-1">{abandonmentCountdown}</span>{' '}
+                    seconds if you do not return.
+                  </p>
+                  <div className="pt-2">
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      className="w-full bg-rose-600 hover:bg-rose-700 font-semibold"
+                      onClick={handleAbandonmentRestored}
+                    >
+                      Return to Examination Now
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Top Examination Bar: Exactly 3 items (Question Indicator, Remaining Timer, Autosave & Submit Action) */}
             <header className="h-14 border-b border-border bg-card/95 px-4 sm:px-6 flex items-center justify-between shrink-0 z-30">
               {/* Left: Question Indicator */}
               <div className="flex items-center gap-2">
@@ -1249,8 +1510,31 @@ export default function AssessmentAttemptPage() {
                 )}
               </div>
 
-              {/* Right: Submit Assessment Action */}
-              <div className="flex items-center gap-2">
+              {/* Right: Autosave Status Indicator & Submit Assessment Action */}
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-border/60 bg-muted/30">
+                  {saveStatus === 'saved' && (
+                    <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="size-3.5" /> Saved
+                    </span>
+                  )}
+                  {saveStatus === 'saving' && (
+                    <span className="inline-flex items-center gap-1 text-muted-foreground">
+                      <RefreshCw className="size-3.5 animate-spin" /> Saving...
+                    </span>
+                  )}
+                  {saveStatus === 'unsaved' && (
+                    <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                      <Save className="size-3.5" /> Unsaved changes
+                    </span>
+                  )}
+                  {saveStatus === 'error' && (
+                    <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400">
+                      <AlertCircle className="size-3.5" /> Save failed
+                    </span>
+                  )}
+                </div>
+
                 <Button
                   variant="danger"
                   size="sm"

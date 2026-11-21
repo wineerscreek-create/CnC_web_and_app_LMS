@@ -532,6 +532,7 @@ export function MessagingApp({ role: propRole }: MessagingAppProps) {
   const handleStartDirectChat = async (targetUser: DirectSearchUser) => {
     try {
       const res = await api.post<any>('/messaging/conversations/start', {
+        targetUserId: targetUser.id,
         target_user_id: targetUser.id,
       });
       const conv = res?.conversation ?? res?.data?.conversation ?? res;
@@ -552,13 +553,14 @@ export function MessagingApp({ role: propRole }: MessagingAppProps) {
   const handleToggleBlock = async (targetUserId: string, isCurrentlyBlocked: boolean) => {
     try {
       if (isCurrentlyBlocked) {
-        await api.post('/messaging/users/unblock', { blocked_id: targetUserId });
+        await api.post('/messaging/users/unblock', { targetUserId, blocked_id: targetUserId });
         setBlockedUsers((prev) => prev.filter((id) => id !== targetUserId));
       } else {
         if (!confirm('Are you sure you want to block this user from sending you direct messages?')) {
           return;
         }
         await api.post('/messaging/users/block', {
+          targetUserId,
           blocked_id: targetUserId,
           reason: 'User requested block',
         });

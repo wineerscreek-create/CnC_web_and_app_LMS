@@ -22,10 +22,10 @@ import { cn } from '@/lib/cn';
 import { formatDate } from '@/lib/format';
 
 const STATUS_TONE: Record<string, string> = {
-  present: 'bg-primary text-primary-foreground border-primary',
-  absent: 'bg-destructive text-destructive-foreground border-destructive',
-  late: 'bg-accent text-accent-foreground border-accent',
-  leave: 'bg-secondary text-secondary-foreground border-secondary',
+  present: 'bg-emerald-600 text-white border-emerald-600 dark:bg-emerald-700',
+  absent: 'bg-rose-600 text-white border-rose-600 dark:bg-rose-700',
+  late: 'bg-amber-600 text-white border-amber-600 dark:bg-amber-700',
+  leave: 'bg-blue-600 text-white border-blue-600 dark:bg-blue-700',
 };
 
 export default function MarkAttendancePage() {

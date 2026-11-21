@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.core.errors import NotFound, ScopeForbidden, ValidationError
 from app.core.logging import get_logger
 from app.db.postgres import get_pg_connection
-from app.repositories.assignment_quiz_repo import QuizRepository, _safe_uuid
+from app.repositories.assignment_quiz_repo import QuizRepository, _safe_uuid, _parse_json_dict, _parse_json_list
 from app.websocket.assessment_ws import assessment_hub
 
 log = get_logger("app.routers.assessment_realtime")
@@ -104,7 +104,9 @@ async def get_assessment_monitor_data(
             """
             SELECT qa.id, qa.student_user_id, u.name, sp.roll_number,
                    qa.score, qa.possible, qa.percentage, qa.passed,
-                   qa.status, qa.warning_count, qa.completed_at, qa.created_at
+                   qa.status, qa.candidate_status, qa.submission_reason,
+                   qa.is_recovered, qa.warning_count, qa.completed_at, qa.created_at,
+                   qa.remaining_seconds, qa.camera_status, qa.last_heartbeat_at
             FROM quiz_attempts qa
             JOIN users u ON u.id = qa.student_user_id
             LEFT JOIN student_profiles sp ON sp.user_id = qa.student_user_id
@@ -127,34 +129,49 @@ async def get_assessment_monitor_data(
     # Merge students with recorded attempts who may not currently be connected
     for att in db_attempts:
         uid = str(att["student_user_id"])
+        att_status = att["status"] or "submitted"
+        cand_status = att["candidate_status"] or (
+            "SUBMITTED" if att_status == "completed" else "IN_PROGRESS"
+        )
         if uid not in seen_ids:
             seen_ids.add(uid)
             merged.append({
                 "session_id": uid,
+                "attempt_id": str(att["id"]),
                 "name": att["name"],
                 "roll_number": att["roll_number"] or "—",
                 "current_question": 0,
                 "total_questions": 0,
-                "remaining_seconds": 0,
+                "remaining_seconds": att["remaining_seconds"] or 0,
                 "warnings": att["warning_count"] or 0,
                 "camera_on": False,
+                "camera_status": att["camera_status"] or "OFF",
                 "fullscreen": False,
                 "online": False,
-                "status": att["status"] or "submitted",
+                "status": att_status,
+                "candidate_status": cand_status,
+                "submission_reason": att["submission_reason"],
+                "is_recovered": bool(att["is_recovered"]),
                 "score": float(att["score"]) if att["score"] is not None else None,
                 "percentage": float(att["percentage"]) if att["percentage"] is not None else None,
                 "passed": att["passed"],
+                "completed_at": att["completed_at"].isoformat() if att["completed_at"] else None,
                 "last_seen_seconds_ago": 9999,
                 "stale": False,
             })
         else:
             for m in merged:
                 if m.get("session_id") == uid:
+                    m["attempt_id"] = str(att["id"])
                     m["score"] = float(att["score"]) if att["score"] is not None else None
                     m["percentage"] = float(att["percentage"]) if att["percentage"] is not None else None
                     m["passed"] = att["passed"]
-                    if att["status"]:
-                        m["status"] = att["status"]
+                    m["is_recovered"] = bool(att["is_recovered"])
+                    m["submission_reason"] = att["submission_reason"]
+                    m["completed_at"] = att["completed_at"].isoformat() if att["completed_at"] else None
+                    if att_status == "completed":
+                        m["status"] = att_status
+                        m["candidate_status"] = cand_status
                     break
 
     return {
@@ -321,8 +338,9 @@ async def assessment_websocket_endpoint(
 
                 if event == "camera_snapshot":
                     frame = data.get("snapshot") or data.get("frame")
+                    etype = data.get("event_type") or data.get("eventType") or "PERIODIC"
                     if frame:
-                        await assessment_hub.handle_snapshot(quiz_id, user_id, frame)
+                        await assessment_hub.handle_snapshot(quiz_id, user_id, frame, event_type=etype)
 
                 elif event == "heartbeat":
                     remaining = await assessment_hub.handle_heartbeat(quiz_id, user_id)
@@ -345,6 +363,13 @@ async def assessment_websocket_endpoint(
                     qid = data.get("question_id", "")
                     qidx = data.get("current_index", 0)
                     await assessment_hub.handle_answer_saved(quiz_id, user_id, qid, qidx)
+
+                elif event == "abandonment_warning":
+                    grace = int(data.get("grace_seconds", 20))
+                    await assessment_hub.handle_abandonment_warning(quiz_id, user_id, grace)
+
+                elif event == "abandonment_cancel":
+                    await assessment_hub.handle_abandonment_cancel(quiz_id, user_id)
 
                 elif event == "submit":
                     await assessment_hub.handle_submit(quiz_id, user_id, data)

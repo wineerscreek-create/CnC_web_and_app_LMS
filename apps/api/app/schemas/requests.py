@@ -154,6 +154,26 @@ class QuizAttemptRequest(Base):
     durationSeconds: Annotated[int, Field(ge=0, le=14400)] = 0
     deviceId: str | None = None
     warnings: list[dict[str, Any]] = Field(default_factory=list)
+    submissionReason: str | None = None
+
+
+class DraftAnswerRequest(Base):
+    questionId: str | None = None
+    question_id: str | None = None
+    answer: Any = None
+    selectedOptions: list[Any] | None = None
+    numericalAnswer: str | int | float | None = None
+    optionId: str | None = None
+    markedForReview: bool = False
+    marked_for_review: bool = False
+    version: int | None = None
+    timeSpentSeconds: float | None = None
+    clientTimestamp: str | None = None
+
+
+class AssessmentRecoveryRequest(Base):
+    action: Literal["RESTART", "RESUME", "restart", "resume"]
+    reason: Annotated[str, Field(min_length=3, max_length=500)]
 
 
 class TrainerQuizCreateRequest(Base):

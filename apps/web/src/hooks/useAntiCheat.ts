@@ -12,6 +12,8 @@ export interface AntiCheatOptions {
   maxWarnings?: number;
   onAutoSubmit?: (reason: string) => void;
   onWarningRecorded?: (warning: { type: string; count: number; detail?: string }) => void;
+  onAbandonmentDetected?: () => void;
+  onAbandonmentRestored?: () => void;
 }
 
 export function useAntiCheat({
@@ -21,6 +23,8 @@ export function useAntiCheat({
   maxWarnings = 3,
   onAutoSubmit,
   onWarningRecorded,
+  onAbandonmentDetected,
+  onAbandonmentRestored,
 }: AntiCheatOptions) {
   const [warningCount, setWarningCount] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(
@@ -101,28 +105,48 @@ export function useAntiCheat({
     };
   }, [enabled, fullscreenRequired, quizId, reportWarning]);
 
-  // Tab switch & Window Blur
+  // Tab switch, Window Blur, and Abandonment Detection
   useEffect(() => {
     if (!enabled) return;
 
     const onVisibility = () => {
       if (document.hidden) {
-        reportWarning('tab_switch', 'Tab switched or browser minimized');
+        if (onAbandonmentDetected) {
+          onAbandonmentDetected();
+        } else {
+          reportWarning('tab_switch', 'Tab switched or browser minimized');
+        }
+      } else {
+        if (onAbandonmentRestored) {
+          onAbandonmentRestored();
+        }
       }
     };
 
     const onBlur = () => {
-      reportWarning('tab_switch', 'Window lost focus');
+      if (onAbandonmentDetected) {
+        onAbandonmentDetected();
+      } else {
+        reportWarning('tab_switch', 'Window lost focus');
+      }
+    };
+
+    const onFocus = () => {
+      if (onAbandonmentRestored) {
+        onAbandonmentRestored();
+      }
     };
 
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
     };
-  }, [enabled, reportWarning]);
+  }, [enabled, reportWarning, onAbandonmentDetected, onAbandonmentRestored]);
 
   // Context Menu, Copy, Paste, DevTools Shortcuts
   useEffect(() => {

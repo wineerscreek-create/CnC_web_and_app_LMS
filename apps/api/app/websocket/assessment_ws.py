@@ -29,6 +29,8 @@ class AssessmentHub:
         self.student_states: dict[str, dict[str, dict[str, Any]]] = {}
         # quiz_id -> user_id -> last_snapshot_time (rate limiting)
         self.last_snapshot_time: dict[str, dict[str, float]] = {}
+        # quiz_id -> user_id -> last_persisted_time
+        self.last_persisted_time: dict[str, dict[str, float]] = {}
 
     async def register_student(
         self,
@@ -49,6 +51,7 @@ class AssessmentHub:
                 self.latest_snapshots[quiz_id] = {}
                 self.student_states[quiz_id] = {}
                 self.last_snapshot_time[quiz_id] = {}
+                self.last_persisted_time[quiz_id] = {}
 
             self.student_sockets[quiz_id][user_id] = ws
 
@@ -113,6 +116,7 @@ class AssessmentHub:
                 self.latest_snapshots[quiz_id] = {}
                 self.student_states[quiz_id] = {}
                 self.last_snapshot_time[quiz_id] = {}
+                self.last_persisted_time[quiz_id] = {}
             self.trainer_sockets[quiz_id].add(ws)
 
         log.info("trainer_ws_registered", extra={"quiz_id": quiz_id, "user_id": user_id})
@@ -152,7 +156,7 @@ class AssessmentHub:
                 for uid in to_remove:
                     self.student_sockets.get(quiz_id, {}).pop(uid, None)
 
-    async def handle_snapshot(self, quiz_id: str, user_id: str, frame: str) -> bool:
+    async def handle_snapshot(self, quiz_id: str, user_id: str, frame: str, event_type: str = "PERIODIC") -> bool:
         # Rate limiting: max 1 frame per 4 seconds
         now = time.time()
         last_t = self.last_snapshot_time.get(quiz_id, {}).get(user_id, 0.0)
@@ -179,8 +183,62 @@ class AssessmentHub:
             "roll_number": state["roll_number"],
             "frame": frame,
             "timestamp": int(now * 1000),
+            "event_type": event_type,
         }
         self.latest_snapshots[quiz_id][user_id] = snapshot_event
+
+        # Persist representative snapshot to database
+        last_persisted = self.last_persisted_time.get(quiz_id, {}).get(user_id, 0.0)
+        should_persist = (
+            (event_type != "PERIODIC") or
+            (last_persisted == 0.0) or
+            (now - last_persisted >= 20.0)
+        )
+        if should_persist:
+            try:
+                from app.db.postgres import get_pg_connection
+                from app.repositories.assignment_quiz_repo import _safe_uuid
+                q_uuid = _safe_uuid(quiz_id)
+                u_uuid = _safe_uuid(user_id)
+                if q_uuid and u_uuid:
+                    async with get_pg_connection() as conn:
+                        att_row = await conn.fetchrow(
+                            """
+                            SELECT id FROM quiz_attempts
+                            WHERE quiz_id = $1 AND student_user_id = $2
+                            ORDER BY created_at DESC LIMIT 1
+                            """,
+                            q_uuid, u_uuid
+                        )
+                        att_id = att_row["id"] if att_row else None
+                        cnt = await conn.fetchval(
+                            """
+                            SELECT COUNT(*) FROM quiz_camera_snapshots
+                            WHERE quiz_id = $1 AND student_user_id = $2
+                            """,
+                            q_uuid, u_uuid
+                        )
+                        if cnt is None or cnt < 15:
+                            await conn.execute(
+                                """
+                                INSERT INTO quiz_camera_snapshots (
+                                    id, quiz_id, student_user_id, attempt_id, snapshot_timestamp, event_type, image_data, created_at
+                                ) VALUES (
+                                    gen_random_uuid(), $1, $2, $3, NOW(), $4, $5, NOW()
+                                )
+                                """,
+                                q_uuid, u_uuid, att_id, str(event_type)[:64], frame
+                            )
+                            if att_id:
+                                await conn.execute(
+                                    "UPDATE quiz_attempts SET last_camera_frame_at = NOW(), camera_status = 'active' WHERE id = $1",
+                                    att_id
+                                )
+                            if quiz_id not in self.last_persisted_time:
+                                self.last_persisted_time[quiz_id] = {}
+                            self.last_persisted_time[quiz_id][user_id] = now
+            except Exception:
+                pass
 
         await self.broadcast_to_trainers(quiz_id, "camera_snapshot", snapshot_event)
         return True
@@ -253,9 +311,12 @@ class AssessmentHub:
     async def handle_submit(self, quiz_id: str, user_id: str, result: dict[str, Any]) -> None:
         state = self.student_states.get(quiz_id, {}).get(user_id)
         if state:
-            state["status"] = "submitted"
+            state["status"] = result.get("candidate_status") or "submitted"
             state["online"] = False
             state["last_seen"] = time.time()
+            # Immediately release camera snapshot resources upon submission
+            if quiz_id in self.latest_snapshots and user_id in self.latest_snapshots[quiz_id]:
+                del self.latest_snapshots[quiz_id][user_id]
             await self.broadcast_to_trainers(
                 quiz_id,
                 "submit",
@@ -267,13 +328,100 @@ class AssessmentHub:
                 },
             )
 
+    async def handle_abandonment_warning(self, quiz_id: str, user_id: str, grace_seconds: int = 20) -> None:
+        state = self.student_states.get(quiz_id, {}).get(user_id)
+        if state:
+            state["status"] = "abandonment_warning"
+            state["abandonment_warning"] = True
+            state["last_seen"] = time.time()
+            await self.broadcast_to_trainers(
+                quiz_id,
+                "abandonment_warning",
+                {
+                    "session_id": user_id,
+                    "roll_number": state["roll_number"],
+                    "name": state["name"],
+                    "grace_seconds": grace_seconds,
+                    "timestamp": int(time.time() * 1000),
+                },
+            )
+
+    async def handle_abandonment_cancel(self, quiz_id: str, user_id: str) -> None:
+        state = self.student_states.get(quiz_id, {}).get(user_id)
+        if state:
+            state["status"] = "in_progress"
+            state["abandonment_warning"] = False
+            state["last_seen"] = time.time()
+            await self.broadcast_to_trainers(
+                quiz_id,
+                "abandonment_cancel",
+                {
+                    "session_id": user_id,
+                    "roll_number": state["roll_number"],
+                    "name": state["name"],
+                    "timestamp": int(time.time() * 1000),
+                },
+            )
+
+    async def handle_attempt_recovered(
+        self,
+        quiz_id: str,
+        user_id: str,
+        action: str,
+        remaining_seconds: int,
+        current_question_index: int = 0,
+    ) -> None:
+        async with self._lock:
+            state = self.student_states.get(quiz_id, {}).get(user_id)
+            if state:
+                state["status"] = "in_progress"
+                state["online"] = True
+                state["remaining_seconds"] = remaining_seconds
+                state["deadline"] = time.time() + remaining_seconds
+                state["current_question"] = current_question_index
+                state["last_seen"] = time.time()
+
+        payload = {
+            "session_id": user_id,
+            "action": action,
+            "remaining_seconds": remaining_seconds,
+            "current_question_index": current_question_index,
+            "timestamp": int(time.time() * 1000),
+        }
+        await self.broadcast_to_students(quiz_id, "attempt_recovered", payload)
+        await self.broadcast_to_trainers(quiz_id, "attempt_recovered", payload)
+
     def get_monitor_data(self, quiz_id: str) -> list[dict[str, Any]]:
         now = time.time()
         students = []
         for uid, s in self.student_states.get(quiz_id, {}).items():
             last_seen_sec = round(now - s.get("last_seen", now))
-            is_stale = s.get("status") == "in_progress" and last_seen_sec >= 45
             is_online = s.get("online", False) and last_seen_sec < 45
+            is_stale = is_online and last_seen_sec >= 30
+
+            # Authoritative candidate status calculation
+            raw_status = s.get("status", "in_progress")
+            if raw_status in ("submitted", "completed", "auto_submitted", "abandoned"):
+                cand_status = raw_status.upper()
+            elif s.get("abandonment_warning"):
+                cand_status = "ABANDONMENT_WARNING"
+            elif not is_online:
+                cand_status = "TEMPORARILY_DISCONNECTED"
+            else:
+                cand_status = raw_status.upper()
+
+            # Determine camera status
+            last_snap_t = self.last_snapshot_time.get(quiz_id, {}).get(uid, 0.0)
+            snap_age = round(now - last_snap_t) if last_snap_t > 0 else 9999
+            if not s.get("camera_on"):
+                cam_status = "OFF"
+            elif snap_age > 30:
+                cam_status = "STREAM_DISCONNECTED"
+            elif last_snap_t > 0:
+                cam_status = "LIVE"
+            else:
+                cam_status = "WAITING_FIRST_FRAME"
+
             students.append({
                 "session_id": uid,
                 "name": s["name"],
@@ -283,16 +431,26 @@ class AssessmentHub:
                 "remaining_seconds": max(0, int(s.get("deadline", now) - now)),
                 "warnings": s.get("warnings", 0),
                 "camera_on": s.get("camera_on", False),
+                "camera_status": cam_status,
                 "fullscreen": s.get("fullscreen", False),
                 "online": is_online,
-                "status": s.get("status", "in_progress"),
+                "status": cand_status.lower(),
+                "candidate_status": cand_status,
                 "last_seen_seconds_ago": last_seen_sec,
+                "last_snapshot_seconds_ago": snap_age,
                 "stale": is_stale,
             })
         return sorted(students, key=lambda x: x["roll_number"])
 
     def get_latest_snapshots(self, quiz_id: str) -> dict[str, dict[str, Any]]:
-        return self.latest_snapshots.get(quiz_id, {}).copy()
+        active = {}
+        for uid, snap in self.latest_snapshots.get(quiz_id, {}).items():
+            state = self.student_states.get(quiz_id, {}).get(uid, {})
+            # Exclude students who are submitted or abandoned
+            if state.get("status") in ("submitted", "completed", "auto_submitted", "abandoned"):
+                continue
+            active[uid] = snap
+        return active
 
 
 assessment_hub = AssessmentHub()

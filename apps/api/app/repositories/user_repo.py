@@ -132,6 +132,7 @@ class UserRepository:
                    OR LOWER(u.email) = LOWER($1) || '@aryacollege.in'
                    OR (u.personal_email IS NOT NULL AND u.personal_email_verified = TRUE AND LOWER(u.personal_email) = LOWER($1))
                    OR UPPER(sp.roll_number) = UPPER($1)
+                   OR (u.employee_id IS NOT NULL AND UPPER(u.employee_id) = UPPER($1))
                    OR u.id::text = $1)
                   AND u.deleted_at IS NULL
                 LIMIT 1

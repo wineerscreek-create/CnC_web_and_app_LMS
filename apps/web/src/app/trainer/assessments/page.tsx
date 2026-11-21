@@ -14,6 +14,7 @@ import {
   FileSpreadsheet,
   Lock,
   Plus,
+  RotateCcw,
   Shield,
   Sparkles,
   Trash2,
@@ -129,6 +130,13 @@ export default function TrainerAssessmentsPage() {
   const [loadingResults, setLoadingResults] = React.useState(false);
   const [eediData, setEediData] = React.useState<any>(null);
   const [loadingEedi, setLoadingEedi] = React.useState(false);
+
+  // Reassignment & Recovery state
+  const [recoveryOpen, setRecoveryOpen] = React.useState(false);
+  const [selectedAttempt, setSelectedAttempt] = React.useState<any>(null);
+  const [recoveryAction, setRecoveryAction] = React.useState<'RESTART' | 'RESUME'>('RESUME');
+  const [recoveryReason, setRecoveryReason] = React.useState('');
+  const [recovering, setRecovering] = React.useState(false);
 
   const batches = batchesQuery.data ?? [];
   const courses = coursesQuery.data?.courses ?? [];
@@ -321,6 +329,38 @@ export default function TrainerAssessmentsPage() {
       toast.error((err as ApiError).message || 'Failed to load results');
     } finally {
       setLoadingResults(false);
+    }
+  }
+
+  function openRecoveryModal(attempt: any) {
+    setSelectedAttempt(attempt);
+    setRecoveryAction('RESUME');
+    setRecoveryReason('');
+    setRecoveryOpen(true);
+  }
+
+  async function handleConfirmRecovery() {
+    if (!activeQuiz?.id || !selectedAttempt?.attemptId) return;
+    if (!recoveryReason.trim() || recoveryReason.trim().length < 5) {
+      toast.error('Please enter a recovery reason of at least 5 characters');
+      return;
+    }
+
+    setRecovering(true);
+    try {
+      await api.post(`/trainer/assessments/${activeQuiz.id}/attempts/${selectedAttempt.attemptId}/recover`, {
+        action: recoveryAction,
+        reason: recoveryReason.trim(),
+      });
+      toast.success(`Assessment successfully ${recoveryAction === 'RESUME' ? 'resumed' : 'restarted'} for candidate!`);
+      setRecoveryOpen(false);
+      if (activeQuiz) {
+        await openResultsModal(activeQuiz);
+      }
+    } catch (err) {
+      toast.error((err as ApiError).message || 'Failed to recover assessment attempt');
+    } finally {
+      setRecovering(false);
     }
   }
 
@@ -1372,7 +1412,9 @@ export default function TrainerAssessmentsPage() {
                         <th className="p-2.5">Score</th>
                         <th className="p-2.5">Result</th>
                         <th className="p-2.5">Warnings</th>
+                        <th className="p-2.5">Status / Reason</th>
                         <th className="p-2.5">Submitted At</th>
+                        <th className="p-2.5 text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -1391,12 +1433,50 @@ export default function TrainerAssessmentsPage() {
                             </Badge>
                           </td>
                           <td className="p-2.5 text-center">{r.warnings}</td>
+                          <td className="p-2.5">
+                            <div className="flex flex-col gap-0.5">
+                              <span
+                                className={cn(
+                                  'px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider inline-block w-fit',
+                                  r.candidateStatus === 'ABANDONED' || r.submissionReason === 'ABANDONMENT_TIMEOUT'
+                                    ? 'bg-rose-500/15 text-rose-700 dark:text-rose-400 border border-rose-500/30'
+                                    : r.submissionReason === 'TIMER_EXPIRED'
+                                    ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30'
+                                    : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30'
+                                )}
+                              >
+                                {r.candidateStatus || (r.passed ? 'Completed' : 'Submitted')}
+                              </span>
+                              {r.submissionReason && (
+                                <span className="text-[9px] text-muted-foreground font-mono">
+                                  {r.submissionReason.replace(/_/g, ' ')}
+                                </span>
+                              )}
+                              {r.isRecovered && (
+                                <span className="text-[9px] text-purple-600 dark:text-purple-400 font-medium">
+                                  Recovered
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td className="p-2.5 text-muted-foreground">{formatDate(r.completedAt, true)}</td>
+                          <td className="p-2.5 text-right">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => openRecoveryModal(r)}
+                              className="h-7 text-[11px] gap-1"
+                              title="Reassign or recover this student assessment"
+                            >
+                              <RotateCcw className="size-3" />
+                              Recover
+                            </Button>
+                          </td>
                         </tr>
                       ))}
                       {(resultsData?.results || []).length === 0 && (
                         <tr>
-                          <td colSpan={8} className="p-6 text-center text-muted-foreground">
+                          <td colSpan={10} className="p-6 text-center text-muted-foreground">
                             No student submissions recorded yet.
                           </td>
                         </tr>
@@ -1426,9 +1506,17 @@ export default function TrainerAssessmentsPage() {
                       maxMarks: r.maxScore || 100,
                       percentage: r.percentage || 0,
                       passed: Boolean(r.passed),
-                      warnings: r.warnings || 0,
+                      warnings: r.warnings ?? r.warningCount ?? 0,
                       sessionId: r.studentId || r.attemptId,
-                    }))
+                      attemptId: r.attemptId,
+                      assessmentId: activeQuiz?.id,
+                      submissionTimestamp: r.submittedAt || r.completedAt,
+                      status: r.status,
+                      submissionReason: r.submissionReason,
+                      snapshots: r.snapshots || [],
+                    })),
+                    undefined,
+                    { assessmentId: activeQuiz?.id }
                   );
                   toast.success('Excel workbook exported successfully');
                 } catch (err) {
@@ -1442,6 +1530,109 @@ export default function TrainerAssessmentsPage() {
             </Button>
             <Button variant="secondary" size="sm" onClick={() => setResultsOpen(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* -------------------- 4.5 RECOVERY MODAL -------------------- */}
+      <Dialog open={recoveryOpen} onOpenChange={setRecoveryOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="size-5 text-primary" />
+              Recover Assessment Attempt
+            </DialogTitle>
+          </DialogHeader>
+          <DialogBody className="space-y-4 text-xs">
+            {selectedAttempt && (
+              <div className="rounded-xl border border-border bg-muted/40 p-3 space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Student:</span>
+                  <span className="font-semibold text-foreground">{selectedAttempt.name} ({selectedAttempt.rollNumber})</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Original Score:</span>
+                  <span className="font-mono font-semibold text-foreground">{selectedAttempt.score} / {selectedAttempt.maxScore}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Submission Reason:</span>
+                  <span className="font-mono text-foreground">{selectedAttempt.submissionReason || 'MANUAL'}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="font-semibold text-foreground block">Select Recovery Action:</label>
+
+              <div
+                onClick={() => setRecoveryAction('RESUME')}
+                className={cn(
+                  'rounded-xl border p-3 cursor-pointer transition-all space-y-1',
+                  recoveryAction === 'RESUME'
+                    ? 'border-primary bg-primary/10 shadow-xs'
+                    : 'border-border bg-card hover:bg-muted/30'
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-foreground">Option B: Resume Assessment (Recommended)</span>
+                  <Badge tone={recoveryAction === 'RESUME' ? 'teal' : 'neutral'} className="text-[10px]">
+                    Preserve Progress
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Restores previously saved answers, question navigation position, and remaining time. The candidate continues from the point of interruption without losing work.
+                </p>
+              </div>
+
+              <div
+                onClick={() => setRecoveryAction('RESTART')}
+                className={cn(
+                  'rounded-xl border p-3 cursor-pointer transition-all space-y-1',
+                  recoveryAction === 'RESTART'
+                    ? 'border-primary bg-primary/10 shadow-xs'
+                    : 'border-border bg-card hover:bg-muted/30'
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-foreground">Option A: Restart Assessment</span>
+                  <Badge tone={recoveryAction === 'RESTART' ? 'amber' : 'neutral'} className="text-[10px]">
+                    Fresh Attempt
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Creates a fresh assessment attempt from Question 1 and resets the exam timer to the full allotted duration. Preserves previous attempt in audit history.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-1.5 pt-1">
+              <label className="font-semibold text-foreground block">
+                Recovery Reason <span className="text-rose-500">*</span>:
+              </label>
+              <textarea
+                value={recoveryReason}
+                onChange={(e) => setRecoveryReason(e.target.value)}
+                placeholder="e.g. Student encountered power failure / accidental browser tab closure. Trainer authorized recovery."
+                className="w-full h-20 rounded-lg border border-border bg-background p-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <span className="text-[10px] text-muted-foreground">
+                This action and reason will be immutably recorded in the LMS audit log.
+              </span>
+            </div>
+          </DialogBody>
+          <DialogFooter className="flex items-center justify-end gap-2 w-full">
+            <Button variant="secondary" size="sm" onClick={() => setRecoveryOpen(false)} disabled={recovering}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleConfirmRecovery}
+              loading={recovering}
+              disabled={!recoveryReason.trim() || recoveryReason.trim().length < 5}
+            >
+              Confirm Recovery
             </Button>
           </DialogFooter>
         </DialogContent>

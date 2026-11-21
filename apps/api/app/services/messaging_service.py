@@ -281,18 +281,31 @@ class MessagingService:
             if i_uuid:
                 students = await conn.fetch(
                     """
-                    SELECT user_id, batch_id, institution_id
-                    FROM student_profiles
-                    WHERE institution_id = $1 AND batch_id IS NOT NULL
+                    SELECT DISTINCT
+                        COALESCE(sp.user_id, e.participant_user_id) as user_id,
+                        COALESCE(sp.batch_id, e.batch_id) as batch_id,
+                        COALESCE(sp.institution_id, e.institution_id, u.institution_id) as institution_id
+                    FROM users u
+                    LEFT JOIN student_profiles sp ON sp.user_id = u.id
+                    LEFT JOIN enrollments e ON e.participant_user_id = u.id AND (e.enrollment_status IS NULL OR e.enrollment_status = 'ACTIVE')
+                    WHERE u.role = 'STUDENT'
+                      AND (u.institution_id = $1 OR sp.institution_id = $1 OR e.institution_id = $1)
+                      AND (sp.batch_id IS NOT NULL OR e.batch_id IS NOT NULL)
                     """,
                     i_uuid,
                 )
             else:
                 students = await conn.fetch(
                     """
-                    SELECT user_id, batch_id, institution_id
-                    FROM student_profiles
-                    WHERE batch_id IS NOT NULL
+                    SELECT DISTINCT
+                        COALESCE(sp.user_id, e.participant_user_id) as user_id,
+                        COALESCE(sp.batch_id, e.batch_id) as batch_id,
+                        COALESCE(sp.institution_id, e.institution_id, u.institution_id) as institution_id
+                    FROM users u
+                    LEFT JOIN student_profiles sp ON sp.user_id = u.id
+                    LEFT JOIN enrollments e ON e.participant_user_id = u.id AND (e.enrollment_status IS NULL OR e.enrollment_status = 'ACTIVE')
+                    WHERE u.role = 'STUDENT'
+                      AND (sp.batch_id IS NOT NULL OR e.batch_id IS NOT NULL)
                     """
                 )
 
@@ -929,16 +942,17 @@ class MessagingService:
                 conds.append(f"u.id = ${len(params)}")
             else:
                 params.append(f"%{q}%")
-                conds.append(f"(u.email ILIKE ${len(params)} OR u.name ILIKE ${len(params)})")
+                conds.append(f"(u.email ILIKE ${len(params)} OR u.name ILIKE ${len(params)} OR sp.roll_number ILIKE ${len(params)})")
 
             # Exclude blocked users (either direction)
             where_sql = " AND ".join(conds)
             rows = await conn.fetch(
                 f"""
-                SELECT u.id, u.name, u.email, u.role, u.avatar_color,
+                SELECT u.id, u.name, u.email, u.role, u.avatar_color, sp.roll_number,
                        (SELECT EXISTS(SELECT 1 FROM messaging_blocks WHERE blocker_id = $1 AND blocked_id = u.id)) as is_blocked_by_me,
                        (SELECT EXISTS(SELECT 1 FROM messaging_blocks WHERE blocker_id = u.id AND blocked_id = $1)) as has_blocked_me
                 FROM users u
+                LEFT JOIN student_profiles sp ON sp.user_id = u.id
                 WHERE {where_sql}
                 LIMIT 20
                 """,
@@ -953,6 +967,7 @@ class MessagingService:
                         "name": r["name"],
                         "email": r["email"],
                         "role": r["role"],
+                        "rollNumber": r.get("roll_number"),
                         "avatarColor": r["avatar_color"] or "#4f46e5",
                         "isBlockedByMe": r["is_blocked_by_me"],
                         "hasBlockedMe": r["has_blocked_me"],
@@ -1036,7 +1051,7 @@ class MessagingService:
             )
 
             # Target user profile
-            target_id = u2_uuid if low_uuid == u1_uuid else u1_uuid
+            target_id = u2_uuid
             target_user = await conn.fetchrow("SELECT id, name, email, role, avatar_color FROM users WHERE id = $1", target_id)
 
             conv["id"] = str(conv["id"])

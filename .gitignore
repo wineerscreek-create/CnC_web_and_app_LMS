@@ -106,6 +106,11 @@ apps/api/tests/*
 !apps/api/tests/test_institute_messaging_system.py
 !apps/api/tests/test_trainer_profile_and_password_reset.py
 !apps/api/tests/test_quiz_timing_modes.py
+!apps/api/tests/test_first_login_personal_email.py
+!apps/api/tests/test_login_email_otp_toggle.py
+!apps/api/tests/test_assessment_engine_redesign.py
+!apps/api/tests/test_attendance_messaging_production.py
+!apps/api/tests/test_assessment_excel_camera_warnings.py
 apps/api/test_*.py
 apps/api/audit_*.py
 apps/api/verify_*.py

@@ -9,6 +9,7 @@ interface CameraFeedProps {
   required?: boolean;
   captureSnapshots?: boolean;
   onStatusChange?: (active: boolean) => void;
+  onStateChange?: (state: 'READY' | 'PERMISSION_DENIED' | 'UNAVAILABLE' | 'INITIALIZING') => void;
   onSnapshot?: (base64Snapshot: string) => void;
   quizId?: string;
   compact?: boolean;
@@ -19,6 +20,7 @@ export function CameraFeed({
   required = true,
   captureSnapshots = true,
   onStatusChange,
+  onStateChange,
   onSnapshot,
   quizId,
   compact = false,
@@ -31,10 +33,14 @@ export function CameraFeed({
 
   const [active, setActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cameraState, setCameraState] = useState<'READY' | 'PERMISSION_DENIED' | 'UNAVAILABLE' | 'INITIALIZING'>('INITIALIZING');
+  const [retryNonce, setRetryNonce] = useState(0);
 
   // Initialize camera stream with mobile front camera preference
   useEffect(() => {
     let cancelled = false;
+    setCameraState('INITIALIZING');
+    onStateChange?.('INITIALIZING');
 
     async function initCamera() {
       try {
@@ -68,19 +74,35 @@ export function CameraFeed({
 
         setActive(true);
         setError(null);
+        setCameraState('READY');
         onStatusChange?.(true);
+        onStateChange?.('READY');
 
-        if (quizId) {
+        if (quizId && captureSnapshots) {
           api.post(`/student/assessments/${quizId}/camera-status?on=true`).catch(() => {});
         }
       } catch (err: any) {
         if (cancelled) return;
-        const msg = err?.message || 'Camera permission denied or device unavailable.';
+        const errName = err?.name || '';
+        const isPermission =
+          errName === 'NotAllowedError' ||
+          errName === 'PermissionDeniedError' ||
+          String(err?.message || '').toLowerCase().includes('permission');
+        
+        const stateKey = isPermission ? 'PERMISSION_DENIED' : 'UNAVAILABLE';
+        const msg = isPermission
+          ? 'Camera permission denied. Please allow camera access in your browser address bar.'
+          : (err?.message || 'Camera device unavailable or not detected.');
+
         setError(msg);
         setActive(false);
+        setCameraState(stateKey);
         onStatusChange?.(false);
+        onStateChange?.(stateKey);
 
-        if (quizId) {
+        // Only send proctoring violations during active exam (captureSnapshots=true)
+        // Pre-assessment verification must NEVER trigger proctoring penalties or attempts
+        if (quizId && captureSnapshots) {
           api.post(`/student/assessments/${quizId}/camera-status?on=false`).catch(() => {});
           if (required) {
             api
@@ -98,7 +120,9 @@ export function CameraFeed({
       initCamera();
     } else {
       setError('MediaDevices API not supported in this browser.');
+      setCameraState('UNAVAILABLE');
       onStatusChange?.(false);
+      onStateChange?.('UNAVAILABLE');
     }
 
     return () => {
@@ -110,11 +134,11 @@ export function CameraFeed({
         streamRef.current.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
       }
-      if (quizId) {
+      if (quizId && captureSnapshots) {
         api.post(`/student/assessments/${quizId}/camera-status?on=false`).catch(() => {});
       }
     };
-  }, [required, onStatusChange, quizId]);
+  }, [required, onStatusChange, onStateChange, quizId, captureSnapshots, retryNonce]);
 
   // Periodic snapshot capture every 5 seconds
   useEffect(() => {
@@ -246,10 +270,19 @@ export function CameraFeed({
             Proctoring Active (5s Snapshots)
           </span>
         ) : error ? (
-          <span className="flex items-center gap-1 font-medium text-red-600 dark:text-red-400">
-            <AlertCircle className="h-3.5 w-3.5" />
-            {error}
-          </span>
+          <div className="flex flex-col items-center gap-1.5">
+            <span className="flex items-center gap-1 font-medium text-red-600 dark:text-red-400">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              {error}
+            </span>
+            <button
+              type="button"
+              onClick={() => setRetryNonce((n) => n + 1)}
+              className="mt-1 rounded border border-line bg-card px-2.5 py-1 text-[11px] font-semibold text-ink-1 hover:bg-card-hover"
+            >
+              Retry Camera Permission
+            </button>
+          </div>
         ) : (
           <span className="text-ink-3">Initializing camera feed...</span>
         )}

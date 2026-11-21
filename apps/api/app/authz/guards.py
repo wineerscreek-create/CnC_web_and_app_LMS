@@ -192,7 +192,7 @@ async def get_scope_context(request: Request) -> ScopeContext:
         raise Unauthenticated("Account not found")
     if user.get("status") != "active":
         raise Unauthenticated("This account is not active")
-    if settings.EMAIL_VERIFICATION_ENABLED and not user.get("emailVerified", False):
+    if settings.EMAIL_VERIFICATION_ENABLED and settings.LOGIN_EMAIL_OTP_ENABLED and not user.get("emailVerified", False):
         raise Unauthenticated("Please verify your email address to continue")
 
     # Enforce mandatory first-login password change on backend
@@ -788,10 +788,10 @@ async def require_trainer_session_scope(ctx: ScopeContext, session_id: Any) -> d
                     "status": row["status"],
                 }
                 if ctx.role is Role.TRAINER:
-                    if session.get("trainerUserId") and str(session.get("trainerUserId")) != str(ctx.user_id):
-                        await _deny_scope(ctx, f"trainer requested session {session_id} owned by another trainer")
-                    if session.get("batchId") and str(session["batchId"]) not in [str(b) for b in (ctx.batch_ids or ())]:
-                        await _deny_scope(ctx, "trainer requested session outside assigned batches")
+                    is_owner = session.get("trainerUserId") and str(session.get("trainerUserId")) == str(ctx.user_id)
+                    is_batch_assigned = session.get("batchId") and str(session["batchId"]) in [str(b) for b in (ctx.batch_ids or ())]
+                    if not is_owner and not is_batch_assigned:
+                        await _deny_scope(ctx, f"trainer requested session {session_id} outside assigned batches")
                     return session
                 if ctx.is_platform_wide:
                     return session
@@ -817,10 +817,10 @@ async def require_trainer_session_scope(ctx: ScopeContext, session_id: Any) -> d
     if not session:
         raise ScopeForbidden()
     if ctx.role is Role.TRAINER:
-        if str(session.get("trainerUserId")) != str(ctx.user_id):
-            await _deny_scope(ctx, f"trainer requested session {session_id} owned by another trainer")
-        if session.get("batchId") and ctx.batch_ids and str(session["batchId"]) not in [str(b) for b in ctx.batch_ids]:
-            await _deny_scope(ctx, "trainer requested session outside assigned batches")
+        is_owner = str(session.get("trainerUserId")) == str(ctx.user_id)
+        is_batch_assigned = session.get("batchId") and ctx.batch_ids and str(session["batchId"]) in [str(b) for b in ctx.batch_ids]
+        if not is_owner and not is_batch_assigned:
+            await _deny_scope(ctx, f"trainer requested session {session_id} outside assigned batches")
         return session
     if ctx.is_platform_wide:
         return session

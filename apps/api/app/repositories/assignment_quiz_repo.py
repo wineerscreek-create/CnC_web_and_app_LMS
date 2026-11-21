@@ -444,7 +444,11 @@ class QuizRepository:
             else:
                 is_authorized = bool(
                     quiz["batch_id"] == student_batch_id or
-                    (quiz["batch_id"] is None and (quiz["institution_id"] == student_inst_id or quiz["institution_id"] is None))
+                    (quiz["batch_id"] is None and (
+                        quiz["institution_id"] == student_inst_id or 
+                        quiz["institution_id"] is None or
+                        (ctx.college_id and str(quiz["institution_id"]) == str(ctx.college_id))
+                    ))
                 )
 
             if not is_authorized:
@@ -537,9 +541,10 @@ class QuizRepository:
         cls,
         ctx: ScopeContext,
         quiz_id: str,
-        answers: dict[str, str],
+        answers: dict[str, Any] | None = None,
         device_id: str | None = None,
         warnings: list[Any] | None = None,
+        submission_reason: str = "STUDENT_MANUAL_SUBMIT",
     ) -> dict[str, Any]:
         q_uuid = _safe_uuid(quiz_id)
         u_uuid = _safe_uuid(ctx.user_id)
@@ -581,18 +586,52 @@ class QuizRepository:
             else:
                 is_authorized = bool(
                     quiz["batch_id"] == student_batch_id or
-                    (quiz["batch_id"] is None and (quiz["institution_id"] == student_inst_id or quiz["institution_id"] is None))
+                    (quiz["batch_id"] is None and (
+                        quiz["institution_id"] == student_inst_id or 
+                        quiz["institution_id"] is None or
+                        (ctx.college_id and str(quiz["institution_id"]) == str(ctx.college_id))
+                    ))
                 )
 
             if not is_authorized:
                 raise ScopeForbidden("This assessment is not assigned to your batch")
 
             existing = await conn.fetchrow(
-                "SELECT id, score, status FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                """
+                SELECT id, score, possible, percentage, passed, performance_category,
+                       motivational_message, correct_count, incorrect_count, unattempted_count,
+                       status, answers, question_states, completed_at, submission_reason,
+                       warnings, warning_count
+                FROM quiz_attempts
+                WHERE quiz_id = $1 AND student_user_id = $2
+                """,
                 q_uuid, u_uuid
             )
             if existing and existing["status"] == "completed" and not quiz["allow_retake"]:
-                raise Conflict("You have already submitted this assessment")
+                u_row = await conn.fetchrow("SELECT name FROM users WHERE id = $1", u_uuid)
+                return {
+                    "attemptId": str(existing["id"]),
+                    "score": int(existing["score"]),
+                    "maxScore": int(existing["possible"] or quiz["max_score"] or 100),
+                    "percentage": float(existing["percentage"]) if existing["percentage"] is not None else 0.0,
+                    "passed": bool(existing["passed"]),
+                    "performanceCategory": existing["performance_category"] or "GOOD",
+                    "motivationalMessage": existing["motivational_message"] or "Well done!",
+                    "correctCount": int(existing["correct_count"] or 0),
+                    "incorrectCount": int(existing["incorrect_count"] or 0),
+                    "unattemptedCount": int(existing["unattempted_count"] or 0),
+                    "totalMarks": int(quiz["max_score"] or 100),
+                    "obtainedMarks": int(existing["score"]),
+                    "studentName": u_row["name"] if u_row and u_row["name"] else "Student",
+                    "assessmentName": quiz["title"],
+                    "submissionReason": existing.get("submission_reason") or "STUDENT_MANUAL_SUBMIT",
+                    "completedAt": existing["completed_at"].isoformat() if existing["completed_at"] else now_utc.isoformat(),
+                    "idempotent": True,
+                }
+
+            # Merge supplied answers with previously persisted draft answers
+            persisted_answers = _parse_json_dict(existing["answers"]) if existing and existing["answers"] else {}
+            effective_answers = {**persisted_answers, **(answers or {})}
 
             q_list = _parse_json_list(quiz["questions"])
             earned = 0.0
@@ -609,7 +648,7 @@ class QuizRepository:
                 neg = float(q.get("negative", 0))
                 total_marks += m
                 qid = str(q.get("id"))
-                raw_ans = answers.get(qid)
+                raw_ans = effective_answers.get(qid)
                 q_type = q.get("question_type") or q.get("questionType") or "mcq_single"
 
                 # Normalize candidate answer
@@ -687,8 +726,25 @@ class QuizRepository:
             pct_score = max(0.0, min(100.0, round((earned / max(1.0, total_marks)) * 100.0, 2)))
             passed = pct_score >= 60.0
 
-            warnings_json = json.dumps(warnings or [])
-            warning_count = len(warnings or [])
+            existing_warnings: list[dict[str, Any]] = []
+            if existing and existing["warnings"]:
+                existing_warnings = _parse_json_list(existing["warnings"])
+
+            client_warnings: list[dict[str, Any]] = []
+            if warnings:
+                if isinstance(warnings, list):
+                    client_warnings = warnings
+                elif isinstance(warnings, str):
+                    client_warnings = _parse_json_list(warnings)
+
+            # Preserve proctoring warnings recorded during exam attempt
+            all_warnings = list(existing_warnings)
+            for cw in client_warnings:
+                if cw not in all_warnings:
+                    all_warnings.append(cw)
+
+            warnings_json = json.dumps(all_warnings)
+            warning_count = len(all_warnings)
 
             settings_dict = _parse_json_dict(quiz.get("settings"))
             perf_ranges = settings_dict.get("performance_classification") or DEFAULT_PERFORMANCE_RANGES
@@ -698,6 +754,12 @@ class QuizRepository:
 
             u_row = await conn.fetchrow("SELECT name FROM users WHERE id = $1", u_uuid)
             student_name = u_row["name"] if u_row and u_row["name"] else "Student"
+
+            final_cand_status = "SUBMITTED"
+            if submission_reason == "ABANDONMENT_TIMEOUT":
+                final_cand_status = "ABANDONED"
+            elif submission_reason in ("TIMER_EXPIRED", "TRAINER_END_ASSESSMENT"):
+                final_cand_status = "AUTO_SUBMITTED"
 
             if existing:
                 att_id = existing["id"]
@@ -709,13 +771,15 @@ class QuizRepository:
                         warnings = $9::jsonb, warning_count = $10, status = 'completed',
                         percentage = $11, passed = $12, performance_category = $13,
                         motivational_message = $14, correct_count = $15, incorrect_count = $16,
-                        unattempted_count = $17
+                        unattempted_count = $17, submission_reason = $18, candidate_status = $19,
+                        remaining_seconds = 0, last_heartbeat_at = NOW()
                     WHERE id = $1 AND student_user_id = $2
                     """,
                     att_id, u_uuid, score_val, int(quiz["max_score"] or 100),
-                    json.dumps(answers), student_batch_id, student_inst_id, device_id,
+                    json.dumps(effective_answers), student_batch_id, student_inst_id, device_id,
                     warnings_json, warning_count, pct_score, passed,
-                    perf_cat, mot_msg, correct_count, incorrect_count, unattempted_count
+                    perf_cat, mot_msg, correct_count, incorrect_count, unattempted_count,
+                    submission_reason, final_cand_status
                 )
             else:
                 att_id = uuid.uuid4()
@@ -724,18 +788,30 @@ class QuizRepository:
                     INSERT INTO quiz_attempts (
                         id, quiz_id, student_user_id, score, possible, answers, created_at, completed_at,
                         batch_id, institution_id, device_id, warnings, warning_count, status, percentage, passed,
-                        performance_category, motivational_message, correct_count, incorrect_count, unattempted_count
+                        performance_category, motivational_message, correct_count, incorrect_count, unattempted_count,
+                        submission_reason, candidate_status, remaining_seconds, last_heartbeat_at
                     ) VALUES (
                         $1, $2, $3, $4, $5, $6::jsonb, NOW(), NOW(),
                         $7, $8, $9, $10::jsonb, $11, 'completed', $12, $13,
-                        $14, $15, $16, $17, $18
+                        $14, $15, $16, $17, $18, $19, $20, 0, NOW()
                     )
                     """,
                     att_id, q_uuid, u_uuid, score_val, int(quiz["max_score"] or 100),
-                    json.dumps(answers), student_batch_id, student_inst_id, device_id,
+                    json.dumps(effective_answers), student_batch_id, student_inst_id, device_id,
                     warnings_json, warning_count, pct_score, passed,
-                    perf_cat, mot_msg, correct_count, incorrect_count, unattempted_count
+                    perf_cat, mot_msg, correct_count, incorrect_count, unattempted_count,
+                    submission_reason, final_cand_status
                 )
+
+            # Associate any unlinked camera snapshots captured during session to this attempt
+            await conn.execute(
+                """
+                UPDATE quiz_camera_snapshots
+                SET attempt_id = $1
+                WHERE quiz_id = $2 AND student_user_id = $3 AND attempt_id IS NULL
+                """,
+                att_id, q_uuid, u_uuid
+            )
 
             # Store EEDI results (TRAINER-ONLY visibility)
             for (term, idx), scores in eedi_acc.items():
@@ -760,6 +836,19 @@ class QuizRepository:
                     q_uuid, att_id, u_uuid, student_batch_id, student_inst_id,
                     idx, term, e_marks, p_marks, term_pct
                 )
+
+        # Notify real-time hub
+        try:
+            from app.websocket.assessment_ws import assessment_hub
+            await assessment_hub.handle_submit(str(quiz_id), str(ctx.user_id), {
+                "score": score_val,
+                "passed": passed,
+                "percentage": pct_score,
+                "submission_reason": submission_reason,
+                "candidate_status": final_cand_status,
+            })
+        except Exception:
+            pass
 
         # Student response contains user-facing score and performance feedback (NO EEDI SCORES)
         return {
@@ -859,6 +948,62 @@ class QuizRepository:
             "max_warnings": max_warnings,
             "auto_submit": auto_submit,
         }
+
+    @classmethod
+    async def save_camera_snapshot(
+        cls,
+        ctx: ScopeContext,
+        quiz_id: str,
+        image_data: str,
+        event_type: str = "PERIODIC",
+        timestamp: datetime | None = None,
+        attempt_id: str | None = None,
+    ) -> dict[str, Any]:
+        q_uuid = _safe_uuid(quiz_id)
+        u_uuid = _safe_uuid(ctx.user_id)
+        att_uuid = _safe_uuid(attempt_id)
+        if not q_uuid:
+            raise NotFound("Assessment not found")
+
+        async with get_pg_connection() as conn:
+            if not att_uuid:
+                att_row = await conn.fetchrow(
+                    """
+                    SELECT id FROM quiz_attempts
+                    WHERE quiz_id = $1 AND student_user_id = $2
+                    ORDER BY created_at DESC LIMIT 1
+                    """,
+                    q_uuid, u_uuid
+                )
+                if att_row:
+                    att_uuid = att_row["id"]
+
+            snap_id = uuid.uuid4()
+            now_ts = timestamp or _now()
+            await conn.execute(
+                """
+                INSERT INTO quiz_camera_snapshots (
+                    id, quiz_id, student_user_id, attempt_id, snapshot_timestamp, event_type, image_data, created_at
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, NOW()
+                )
+                """,
+                snap_id, q_uuid, u_uuid, att_uuid, now_ts, str(event_type)[:64], image_data
+            )
+            if att_uuid:
+                await conn.execute(
+                    "UPDATE quiz_attempts SET last_camera_frame_at = NOW(), camera_status = 'active' WHERE id = $1",
+                    att_uuid
+                )
+
+            return {
+                "id": str(snap_id),
+                "quizId": str(q_uuid),
+                "studentUserId": str(u_uuid),
+                "attemptId": str(att_uuid) if att_uuid else None,
+                "timestamp": now_ts.isoformat(),
+                "eventType": event_type,
+            }
 
     @classmethod
     async def get_student_attempt_timing(
@@ -1129,11 +1274,17 @@ class QuizRepository:
         question_id: str,
         answer: Any,
         marked_for_review: bool = False,
+        version: int | None = None,
+        time_spent_seconds: float | None = None,
     ) -> dict[str, Any]:
         q_uuid = _safe_uuid(quiz_id)
         u_uuid = _safe_uuid(ctx.user_id)
         if not q_uuid:
             raise NotFound("Assessment not found")
+
+        qid_str = str(question_id or "").strip()
+        if not qid_str:
+            raise ValidationError("Valid question ID is required")
 
         async with get_pg_connection() as conn:
             quiz_row = await conn.fetchrow(
@@ -1157,17 +1308,32 @@ class QuizRepository:
                 timing_mode = "FIXED_TOTAL"
 
             existing = await conn.fetchrow(
-                "SELECT id, answers, status, created_at, question_states FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                """
+                SELECT id, answers, status, created_at, question_states, version
+                FROM quiz_attempts
+                WHERE quiz_id = $1 AND student_user_id = $2
+                """,
                 q_uuid, u_uuid,
             )
             if existing and existing["status"] == "completed":
                 raise BusinessRuleViolation("Assessment has already been submitted")
 
-            server_now = datetime.now(timezone.utc)
             answers_dict: dict[str, Any] = _parse_json_dict(existing["answers"]) if existing and existing["answers"] else {}
             q_states: dict[str, Any] = _parse_json_dict(existing["question_states"]) if existing and existing["question_states"] else {}
 
-            qid_str = str(question_id)
+            existing_q_state = q_states.get(qid_str) or {}
+            existing_ver = existing_q_state.get("version", 0)
+            if version is not None and existing_ver and version < existing_ver:
+                log.info("ignoring_stale_draft_write", extra={"question_id": qid_str, "incoming_ver": version, "existing_ver": existing_ver})
+                return {
+                    "saved": True,
+                    "questionId": qid_str,
+                    "version": existing_ver,
+                    "status": "ignored_stale",
+                }
+
+            new_version = (existing_ver + 1) if version is None else max(version, existing_ver + 1)
+            should_lock = not bool(settings_dict.get("allow_modification", False))
 
             if existing:
                 started_at = as_utc(existing["created_at"])
@@ -1213,43 +1379,73 @@ class QuizRepository:
                         if qid_str in q_states and q_states[qid_str].get("is_locked"):
                             if answers_dict.get(qid_str) != answer:
                                 raise BusinessRuleViolation("Previous questions are locked for this timed assessment")
+                    should_lock = True
 
             answers_dict[qid_str] = answer
+            is_attempted = (
+                answer is not None
+                and answer != ""
+                and answer != []
+                and (not isinstance(answer, dict) or bool(answer))
+            )
             q_states[qid_str] = {
                 "question_id": qid_str,
                 "selected_answer": answer,
-                "is_attempted": answer is not None,
-                "is_locked": True,
+                "is_attempted": is_attempted,
+                "is_locked": should_lock,
+                "version": new_version,
+                "marked_for_review": marked_for_review,
+                "time_spent_seconds": time_spent_seconds,
                 "submitted_at": server_now.isoformat(),
             }
 
             if existing:
+                att_id = existing["id"]
                 await conn.execute(
-                    "UPDATE quiz_attempts SET answers = $1::jsonb, question_states = $2::jsonb WHERE id = $3",
-                    json.dumps(answers_dict), json.dumps(q_states), existing["id"]
+                    """
+                    UPDATE quiz_attempts
+                    SET answers = $1::jsonb,
+                        question_states = $2::jsonb,
+                        candidate_status = 'IN_PROGRESS',
+                        last_heartbeat_at = NOW(),
+                        version = COALESCE(version, 0) + 1
+                    WHERE id = $3
+                    """,
+                    json.dumps(answers_dict), json.dumps(q_states), att_id
                 )
             else:
                 b_row = await conn.fetchrow(
                     "SELECT batch_id, institution_id FROM student_profiles WHERE user_id = $1",
                     u_uuid
                 )
+                att_id = uuid.uuid4()
                 await conn.execute(
                     """
                     INSERT INTO quiz_attempts (
                         id, quiz_id, student_user_id, score, possible, answers, created_at,
-                        batch_id, institution_id, warnings, warning_count, status, question_states
+                        batch_id, institution_id, warnings, warning_count, status, question_states,
+                        candidate_status, last_heartbeat_at, version
                     ) VALUES (
-                        gen_random_uuid(), $1, $2, 0, 100, $3::jsonb, NOW(),
-                        $4, $5, '[]'::jsonb, 0, 'in_progress', $6::jsonb
+                        $1, $2, $3, 0, 100, $4::jsonb, NOW(),
+                        $5, $6, '[]'::jsonb, 0, 'in_progress', $7::jsonb,
+                        'IN_PROGRESS', NOW(), 1
                     )
                     """,
-                    q_uuid, u_uuid, json.dumps(answers_dict),
+                    att_id, q_uuid, u_uuid, json.dumps(answers_dict),
                     b_row["batch_id"] if b_row else None,
                     b_row["institution_id"] if b_row else None,
                     json.dumps(q_states)
                 )
 
-        return {"saved": True, "questionId": question_id}
+        return {
+            "saved": True,
+            "questionId": qid_str,
+            "version": new_version,
+            "attemptId": str(att_id),
+            "status": "persisted",
+            "isAttempted": is_attempted,
+            "markedForReview": marked_for_review,
+        }
 
     @classmethod
     async def get_question_reveal(
@@ -1846,7 +2042,8 @@ class QuizRepository:
                 SELECT qa.id, qa.student_user_id, u.name as student_name, u.email as student_email,
                        sp.roll_number, b.id as batch_id, b.name as batch_name,
                        qa.score, qa.possible, qa.percentage, qa.passed, qa.completed_at,
-                       qa.warning_count, qa.device_id
+                       qa.warning_count, qa.warnings, qa.device_id, qa.status, qa.candidate_status,
+                       qa.submission_reason, qa.is_recovered, qa.created_at
                 FROM quiz_attempts qa
                 JOIN users u ON u.id = qa.student_user_id
                 LEFT JOIN student_profiles sp ON sp.user_id = qa.student_user_id
@@ -1863,12 +2060,46 @@ class QuizRepository:
                 q_uuid, t_uuid, b_uuid
             )
 
+            # Retrieve persisted camera snapshots for this quiz
+            snap_rows = await conn.fetch(
+                """
+                SELECT id, student_user_id, attempt_id, snapshot_timestamp, event_type, image_data
+                FROM quiz_camera_snapshots
+                WHERE quiz_id = $1
+                ORDER BY snapshot_timestamp ASC
+                """,
+                q_uuid
+            )
+            snaps_by_student: dict[str, list[dict[str, Any]]] = {}
+            for s in snap_rows:
+                s_uid = str(s["student_user_id"])
+                if s_uid not in snaps_by_student:
+                    snaps_by_student[s_uid] = []
+                snaps_by_student[s_uid].append({
+                    "id": str(s["id"]),
+                    "attemptId": str(s["attempt_id"]) if s["attempt_id"] else None,
+                    "timestamp": s["snapshot_timestamp"].isoformat() if s["snapshot_timestamp"] else None,
+                    "eventType": s["event_type"],
+                    "imageData": s["image_data"],
+                })
+
         results = []
         for i, a in enumerate(attempts, start=1):
+            stu_id = str(a["student_user_id"])
+            att_id = str(a["id"])
+            stu_snaps = [
+                s for s in snaps_by_student.get(stu_id, [])
+                if s.get("attemptId") is None or s.get("attemptId") == att_id
+            ]
+            warning_cnt = int(a["warning_count"] or 0)
+            warning_items = _parse_json_list(a["warnings"]) if a["warnings"] else []
+            if warning_cnt == 0 and len(warning_items) > 0:
+                warning_cnt = len(warning_items)
+
             results.append({
                 "rank": i,
-                "attemptId": str(a["id"]),
-                "studentId": str(a["student_user_id"]),
+                "attemptId": att_id,
+                "studentId": stu_id,
                 "name": a["student_name"],
                 "email": a["student_email"],
                 "rollNumber": a["roll_number"] or "—",
@@ -1878,8 +2109,17 @@ class QuizRepository:
                 "maxScore": int(a["possible"] or 100),
                 "percentage": float(a["percentage"]) if a["percentage"] is not None else 0.0,
                 "passed": a["passed"],
-                "warnings": int(a["warning_count"] or 0),
+                "warnings": warning_cnt,
+                "warningCount": warning_cnt,
+                "warningList": warning_items,
                 "completedAt": a["completed_at"].isoformat() if a["completed_at"] else None,
+                "submittedAt": a["completed_at"].isoformat() if a["completed_at"] else None,
+                "createdAt": a["created_at"].isoformat() if a["created_at"] else None,
+                "status": a["status"] or "submitted",
+                "candidateStatus": a["candidate_status"] or ("SUBMITTED" if a["status"] == "completed" else "IN_PROGRESS"),
+                "submissionReason": a["submission_reason"],
+                "isRecovered": bool(a["is_recovered"]),
+                "snapshots": stu_snaps,
             })
 
         return {
@@ -1981,6 +2221,326 @@ class QuizRepository:
             "title": quiz["title"],
             "eediSummary": summary,
             "studentBreakdown": list(by_student.values()),
+        }
+
+    @classmethod
+    async def recover_assessment_attempt(
+        cls,
+        ctx: ScopeContext,
+        quiz_id: str,
+        attempt_id: str,
+        action: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        t_uuid = _safe_uuid(ctx.user_id)
+        q_uuid = _safe_uuid(quiz_id)
+        att_uuid = _safe_uuid(attempt_id)
+        if not q_uuid or not att_uuid:
+            raise NotFound("Assessment or attempt not found")
+
+        act = action.strip().upper()
+        if act not in ("RESTART", "RESUME"):
+            raise ValidationError("Recovery action must be RESTART or RESUME")
+
+        async with get_pg_connection() as conn:
+            quiz = await conn.fetchrow(
+                "SELECT id, title, duration_minutes, creator_trainer_id FROM quizzes WHERE id = $1",
+                q_uuid
+            )
+            if not quiz:
+                raise NotFound("Assessment not found")
+
+            if ctx.role not in (Role.ADMIN, Role.SUPER_ADMIN) and str(quiz["creator_trainer_id"]) != str(ctx.user_id):
+                is_assigned = await conn.fetchval(
+                    """
+                    SELECT 1 FROM quiz_batch_assignments qba
+                    JOIN batch_trainers bt ON bt.batch_id = qba.batch_id
+                    WHERE qba.quiz_id = $1 AND bt.trainer_user_id = $2 AND (bt.status = 'ACTIVE' OR bt.status IS NULL)
+                    """,
+                    q_uuid, t_uuid
+                )
+                if not is_assigned:
+                    raise ScopeForbidden("You are not authorized to recover attempts for this assessment")
+
+            att = await conn.fetchrow(
+                """
+                SELECT id, student_user_id, status, candidate_status, score, percentage,
+                       passed, answers, question_states, created_at, completed_at,
+                       submission_reason, warnings, warning_count, recovery_history
+                FROM quiz_attempts
+                WHERE id = $1 AND quiz_id = $2
+                """,
+                att_uuid, q_uuid
+            )
+            if not att:
+                raise NotFound("Attempt record not found")
+
+            snapshot = {
+                "attempt_id": str(att["id"]),
+                "student_user_id": str(att["student_user_id"]),
+                "previous_status": att["status"],
+                "previous_candidate_status": att["candidate_status"],
+                "score": att["score"],
+                "percentage": float(att["percentage"]) if att["percentage"] is not None else 0.0,
+                "passed": att["passed"],
+                "answers": _parse_json_dict(att["answers"]),
+                "question_states": _parse_json_dict(att["question_states"]),
+                "submission_reason": att["submission_reason"],
+                "completed_at": att["completed_at"].isoformat() if att["completed_at"] else None,
+            }
+
+            history = _parse_json_list(att["recovery_history"]) if att["recovery_history"] else []
+            history_entry = {
+                "trainer_id": str(ctx.user_id),
+                "action": act,
+                "reason": reason,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "previous_status": att["status"],
+                "previous_submission_reason": att["submission_reason"],
+            }
+            history.append(history_entry)
+
+            duration_mins = int(quiz["duration_minutes"] or 30)
+            prev_answers: dict[str, Any] = {}
+
+            if act == "RESTART":
+                # Option A: Restart Assessment (Fresh attempt, reset answers, timer according to duration)
+                await conn.execute(
+                    """
+                    UPDATE quiz_attempts
+                    SET answers = '{}'::jsonb,
+                        question_states = '{}'::jsonb,
+                        score = 0,
+                        percentage = 0.0,
+                        passed = FALSE,
+                        status = 'in_progress',
+                        candidate_status = 'IN_PROGRESS',
+                        current_question_index = 0,
+                        completed_at = NULL,
+                        submission_reason = NULL,
+                        abandonment_warning_at = NULL,
+                        abandonment_timeout_at = NULL,
+                        remaining_seconds = $2,
+                        created_at = NOW(),
+                        last_heartbeat_at = NOW(),
+                        is_recovered = TRUE,
+                        recovery_history = $3::jsonb
+                    WHERE id = $1
+                    """,
+                    att_uuid, duration_mins * 60, json.dumps(history)
+                )
+                res_remaining = duration_mins * 60
+                res_q_idx = 0
+            else:
+                # Option B: Resume Assessment (Restore last persisted answers, remaining time, do not restart Q1)
+                prev_answers = _parse_json_dict(att["answers"])
+                if att["created_at"] and att["completed_at"]:
+                    spent = (as_utc(att["completed_at"]) - as_utc(att["created_at"])).total_seconds()
+                    res_remaining = max(60, int((duration_mins * 60) - spent))
+                else:
+                    res_remaining = duration_mins * 60
+
+                res_q_idx = max(0, len(prev_answers) - 1) if prev_answers else 0
+
+                await conn.execute(
+                    """
+                    UPDATE quiz_attempts
+                    SET status = 'in_progress',
+                        candidate_status = 'IN_PROGRESS',
+                        completed_at = NULL,
+                        submission_reason = NULL,
+                        abandonment_warning_at = NULL,
+                        abandonment_timeout_at = NULL,
+                        remaining_seconds = $2,
+                        last_heartbeat_at = NOW(),
+                        is_recovered = TRUE,
+                        recovery_history = $3::jsonb
+                    WHERE id = $1
+                    """,
+                    att_uuid, res_remaining, json.dumps(history)
+                )
+
+            # Insert immutable audit record into quiz_recovery_logs
+            await conn.execute(
+                """
+                INSERT INTO quiz_recovery_logs (
+                    id, trainer_user_id, student_user_id, quiz_id, attempt_id,
+                    recovery_action, recovery_reason, previous_attempt_snapshot, created_at
+                ) VALUES (
+                    gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7::jsonb, NOW()
+                )
+                """,
+                t_uuid, att["student_user_id"], q_uuid, att_uuid,
+                act, reason, json.dumps(snapshot)
+            )
+
+        # Broadcast update to supervisor hub
+        try:
+            from app.websocket.assessment_ws import assessment_hub
+            await assessment_hub.handle_attempt_recovered(
+                quiz_id=str(quiz_id),
+                user_id=str(att["student_user_id"]),
+                action=act,
+                remaining_seconds=res_remaining,
+                current_question_index=res_q_idx,
+            )
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "action": act,
+            "attemptId": str(att_uuid),
+            "studentId": str(att["student_user_id"]),
+            "candidateStatus": "IN_PROGRESS",
+            "restoredAnswers": prev_answers,
+            "remainingSeconds": res_remaining,
+            "currentQuestionIndex": res_q_idx,
+            "recoveredAt": datetime.now(timezone.utc).isoformat(),
+        }
+
+    @classmethod
+    async def record_abandonment_warning(cls, ctx: ScopeContext, quiz_id: str) -> dict[str, Any]:
+        q_uuid = _safe_uuid(quiz_id)
+        u_uuid = _safe_uuid(ctx.user_id)
+        if not q_uuid:
+            raise NotFound("Assessment not found")
+
+        server_now = datetime.now(timezone.utc)
+        timeout_at = server_now + timedelta(seconds=20)
+
+        async with get_pg_connection() as conn:
+            att = await conn.fetchrow(
+                "SELECT id, status FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                q_uuid, u_uuid
+            )
+            if not att or att["status"] == "completed":
+                return {"active": False}
+
+            await conn.execute(
+                """
+                UPDATE quiz_attempts
+                SET abandonment_warning_at = $1,
+                    abandonment_timeout_at = $2,
+                    candidate_status = 'ABANDONMENT_WARNING',
+                    last_heartbeat_at = NOW()
+                WHERE id = $3
+                """,
+                server_now, timeout_at, att["id"]
+            )
+
+        try:
+            from app.websocket.assessment_ws import assessment_hub
+            await assessment_hub.handle_abandonment_warning(str(quiz_id), str(ctx.user_id), 20)
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "abandonmentWarning": True,
+            "gracePeriodSeconds": 20,
+            "timeoutAt": timeout_at.isoformat(),
+        }
+
+    @classmethod
+    async def cancel_abandonment_warning(cls, ctx: ScopeContext, quiz_id: str) -> dict[str, Any]:
+        q_uuid = _safe_uuid(quiz_id)
+        u_uuid = _safe_uuid(ctx.user_id)
+        if not q_uuid:
+            raise NotFound("Assessment not found")
+
+        async with get_pg_connection() as conn:
+            att = await conn.fetchrow(
+                "SELECT id, status FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                q_uuid, u_uuid
+            )
+            if not att or att["status"] == "completed":
+                return {"restored": False}
+
+            await conn.execute(
+                """
+                UPDATE quiz_attempts
+                SET abandonment_warning_at = NULL,
+                    abandonment_timeout_at = NULL,
+                    candidate_status = 'IN_PROGRESS',
+                    last_heartbeat_at = NOW()
+                WHERE id = $1
+                """,
+                att["id"]
+            )
+
+        try:
+            from app.websocket.assessment_ws import assessment_hub
+            await assessment_hub.handle_abandonment_cancel(str(quiz_id), str(ctx.user_id))
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "restored": True,
+            "candidateStatus": "IN_PROGRESS",
+        }
+
+    @classmethod
+    async def handle_abandonment_timeout(cls, ctx: ScopeContext, quiz_id: str) -> dict[str, Any]:
+        return await cls.submit_quiz_attempt(
+            ctx=ctx,
+            quiz_id=quiz_id,
+            answers=None,
+            submission_reason="ABANDONMENT_TIMEOUT",
+        )
+
+    @classmethod
+    async def record_student_heartbeat(cls, ctx: ScopeContext, quiz_id: str) -> dict[str, Any]:
+        q_uuid = _safe_uuid(quiz_id)
+        u_uuid = _safe_uuid(ctx.user_id)
+        if not q_uuid:
+            raise NotFound("Assessment not found")
+
+        server_now = datetime.now(timezone.utc)
+        async with get_pg_connection() as conn:
+            quiz = await conn.fetchrow("SELECT duration_minutes, timing_mode, settings FROM quizzes WHERE id = $1", q_uuid)
+            att = await conn.fetchrow(
+                """
+                SELECT id, status, created_at, abandonment_timeout_at, remaining_seconds, candidate_status
+                FROM quiz_attempts
+                WHERE quiz_id = $1 AND student_user_id = $2
+                """,
+                q_uuid, u_uuid
+            )
+            if not att:
+                return {"active": False, "remainingSeconds": (quiz["duration_minutes"] if quiz else 30) * 60}
+
+            if att["status"] == "completed":
+                return {"active": False, "status": "completed", "remainingSeconds": 0}
+
+            if att["abandonment_timeout_at"] and server_now > as_utc(att["abandonment_timeout_at"]):
+                await conn.close()
+                return await cls.handle_abandonment_timeout(ctx, quiz_id)
+
+            duration_mins = int((quiz["duration_minutes"] if quiz else 30) or 30)
+            elapsed = (server_now - as_utc(att["created_at"])).total_seconds()
+            rem = max(0, int((duration_mins * 60) - elapsed))
+
+            if rem <= 0:
+                await conn.close()
+                return await cls.submit_quiz_attempt(ctx=ctx, quiz_id=quiz_id, answers=None, submission_reason="TIMER_EXPIRED")
+
+            await conn.execute(
+                """
+                UPDATE quiz_attempts
+                SET last_heartbeat_at = NOW(),
+                    remaining_seconds = $2
+                WHERE id = $1
+                """,
+                att["id"], rem
+            )
+
+        return {
+            "active": True,
+            "remainingSeconds": rem,
+            "candidateStatus": att["candidate_status"] or "IN_PROGRESS",
+            "serverTime": server_now.isoformat(),
         }
 
 
