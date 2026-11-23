@@ -62,6 +62,7 @@ from app.schemas.requests import (
     ProfileUpdate,
     ProgressUpdate,
     QuizAttemptRequest,
+    QuizFeedbackCreate,
     PlacementGoalRequest as GoalReq,
     SettingsUpdate,
     StartPracticeRequest,
@@ -3416,6 +3417,15 @@ async def assessment_detail(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dic
     if settings.USE_POSTGRES:
         quiz_data = await QuizRepository.get_quiz(quiz_id, uuid.UUID(str(ctx.user_id)))
         timing_info = await QuizRepository.get_student_attempt_timing(quiz_id, uuid.UUID(str(ctx.user_id)))
+        is_completed = bool(
+            timing_info.get("status") == "completed"
+            or (quiz_data.get("attempt") and quiz_data["attempt"].get("completedAt"))
+        )
+        can_resume = bool(
+            timing_info.get("canResume", False)
+            or quiz_data.get("canResume", False)
+            or (timing_info.get("hasStarted") and not is_completed)
+        )
         return {
             "success": True,
             "data": {
@@ -3427,9 +3437,12 @@ async def assessment_detail(quiz_id: str, ctx: ScopeContext = StudentCtx) -> dic
                 "timingState": timing_info.get("timingState"),
                 "answers": timing_info.get("answers", {}),
                 "hasStarted": timing_info.get("hasStarted", False),
+                "canResume": can_resume,
                 "status": timing_info.get("status", "not_started"),
-                "alreadyAttempted": timing_info.get("status") == "completed",
+                "candidateStatus": timing_info.get("candidateStatus", "NOT_STARTED"),
+                "alreadyAttempted": is_completed,
                 "myAttempt": quiz_data.get("attempt"),
+                "attempt": quiz_data.get("attempt"),
             },
         }
     quiz = await QuizRepo(ctx).get(quiz_id)
@@ -3530,18 +3543,22 @@ async def submit_assessment(
 ) -> dict[str, Any]:
     if settings.USE_POSTGRES:
         answers_map: dict[str, Any] = {}
-        for a in payload.answers:
-            qid = str(a.get("questionId") or a.get("question_id") or "")
-            if not qid:
-                continue
-            if a.get("selectedOptions") is not None:
-                answers_map[qid] = a.get("selectedOptions")
-            elif a.get("numericalAnswer") is not None:
-                answers_map[qid] = a.get("numericalAnswer")
-            elif a.get("optionId") is not None:
-                answers_map[qid] = a.get("optionId")
-            elif a.get("answer") is not None:
-                answers_map[qid] = a.get("answer")
+        if isinstance(payload.answers, dict):
+            answers_map = {str(k): v for k, v in payload.answers.items()}
+        elif isinstance(payload.answers, list):
+            for a in payload.answers:
+                if isinstance(a, dict):
+                    qid = str(a.get("questionId") or a.get("question_id") or "")
+                    if not qid:
+                        continue
+                    if a.get("selectedOptions") is not None:
+                        answers_map[qid] = a.get("selectedOptions")
+                    elif a.get("numericalAnswer") is not None:
+                        answers_map[qid] = a.get("numericalAnswer")
+                    elif a.get("optionId") is not None:
+                        answers_map[qid] = a.get("optionId")
+                    elif a.get("answer") is not None:
+                        answers_map[qid] = a.get("answer")
 
         reason = payload.submissionReason or "STUDENT_MANUAL_SUBMIT"
         res = await QuizRepository.submit_quiz_attempt(
@@ -3744,6 +3761,41 @@ async def update_fullscreen_status(
     from app.websocket.assessment_ws import assessment_hub
     await assessment_hub.handle_status_change(quiz_id, str(ctx.user_id), camera_on=None, fullscreen=on)
     return {"success": True, "fullscreen": on}
+
+
+@router.post("/assessments/{quiz_id}/feedback", status_code=status.HTTP_201_CREATED)
+async def submit_student_assessment_feedback(
+    quiz_id: str,
+    payload: QuizFeedbackCreate,
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Submits consolidated end-of-assessment student feedback for a completed attempt."""
+    res = await QuizRepository.submit_quiz_feedback(
+        ctx=ctx,
+        quiz_id=quiz_id,
+        attempt_id=payload.attempt_id,
+        overall_rating=payload.overall_rating,
+        difficulty=payload.difficulty,
+        question_quality_rating=payload.question_quality_rating,
+        time_management=payload.time_management,
+        written_feedback=payload.written_feedback,
+    )
+    return {"success": True, "data": res}
+
+
+@router.get("/assessments/{quiz_id}/feedback")
+async def get_student_assessment_feedback(
+    quiz_id: str,
+    attempt_id: str | None = Query(None),
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Retrieves student's existing feedback for a given assessment attempt."""
+    res = await QuizRepository.get_student_quiz_feedback(
+        ctx=ctx,
+        quiz_id=quiz_id,
+        attempt_id=attempt_id,
+    )
+    return {"success": True, "data": res}
     quiz = await QuizRepo(ctx).get(quiz_id)
     if quiz.get("closesAt") and as_utc(quiz["closesAt"]) < _now():
         raise BusinessRuleViolation("This assessment has closed")
@@ -6229,5 +6281,85 @@ async def student_get_single_historical_report(snapshot_id: str, ctx: ScopeConte
         return {"success": True, "data": data}
 
 
+# --------------------------------------------------------------------------- Permanent Student Assessment Reports & Dynamic Dashboard
+@router.get("/assessment-reports")
+async def student_list_assessment_reports(
+    search: str | None = Query(None),
+    courseId: str | None = Query(None),
+    quizId: str | None = Query(None),
+    startDate: str | None = Query(None),
+    endDate: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    pageSize: int = Query(20, ge=1, le=100),
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Retrieves paginated, filterable permanent assessment reports for the authenticated student."""
+    from app.repositories.assessment_report_repo import AssessmentReportRepository
+
+    data = await AssessmentReportRepository.get_student_reports(
+        student_user_id=ctx.user_id,
+        search=search,
+        course_id=courseId,
+        quiz_id=quizId,
+        start_date=startDate,
+        end_date=endDate,
+        page=page,
+        page_size=pageSize,
+    )
+    return {"success": True, **data}
 
 
+@router.get("/assessment-reports/{report_id}")
+async def student_get_assessment_report(
+    report_id: str,
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Retrieves a single permanent assessment report, verifying student ownership."""
+    from app.repositories.assessment_report_repo import AssessmentReportRepository
+
+    report = await AssessmentReportRepository.get_report_by_id(
+        report_id=report_id,
+        student_user_id=ctx.user_id,
+    )
+    return {"success": True, "data": report}
+
+
+@router.get("/progress/assessment-summary")
+async def student_get_progress_assessment_summary(
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Returns aggregated performance summary across all student assessment attempts."""
+    from app.repositories.assessment_report_repo import AssessmentReportRepository
+
+    summary = await AssessmentReportRepository.get_student_progress_summary(
+        student_user_id=ctx.user_id,
+    )
+    return {"success": True, "data": summary}
+
+
+@router.get("/dashboard/next-action")
+async def student_get_dynamic_next_action(
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Evaluates student context to determine dynamic CTA based on the 9-tier priority rules."""
+    from app.services.student_dashboard_service import StudentDashboardService
+
+    action = await StudentDashboardService.resolve_next_action(
+        student_user_id=ctx.user_id,
+        college_id=ctx.college_id,
+    )
+    return {"success": True, "data": action}
+
+
+@router.get("/dashboard/summary")
+async def student_get_dashboard_summary(
+    ctx: ScopeContext = StudentCtx,
+) -> dict[str, Any]:
+    """Delivers recent assessment results, upcoming events, and performance snapshot."""
+    from app.services.student_dashboard_service import StudentDashboardService
+
+    summary = await StudentDashboardService.get_dashboard_summary(
+        student_user_id=ctx.user_id,
+        college_id=ctx.college_id,
+    )
+    return {"success": True, "data": summary}

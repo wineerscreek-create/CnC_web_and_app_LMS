@@ -30,6 +30,8 @@ export function useAntiCheat({
   const [isFullscreen, setIsFullscreen] = useState(
     typeof document !== 'undefined' ? !!document.fullscreenElement : false
   );
+  const [fullscreenCountdown, setFullscreenCountdown] = useState<number | null>(null);
+  const fullscreenTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [lastWarning, setLastWarning] = useState<{
     type: string;
     detail?: string;
@@ -57,7 +59,7 @@ export function useAntiCheat({
 
         if (data.auto_submit || count >= maxWarnings) {
           toast.error('Maximum warnings exceeded. Auto-submitting assessment now.');
-          onAutoSubmit?.('auto_warning_limit');
+          onAutoSubmit?.('WARNING_LIMIT_REACHED');
         }
       } catch (err) {
         console.warn('Failed to report anti-cheat warning', err);
@@ -95,15 +97,45 @@ export function useAntiCheat({
         .catch(() => {});
 
       if (!isFs) {
-        reportWarning('fullscreen_exit', 'Exited fullscreen examination mode');
+        // Monotonic 10-second countdown for fullscreen restoration
+        if (!fullscreenTimerRef.current) {
+          setFullscreenCountdown(10);
+          fullscreenTimerRef.current = setInterval(() => {
+            setFullscreenCountdown((prev) => {
+              if (prev === null || prev <= 1) {
+                if (fullscreenTimerRef.current) {
+                  clearInterval(fullscreenTimerRef.current);
+                  fullscreenTimerRef.current = null;
+                }
+                toast.error('Fullscreen mode was not restored within 10 seconds. Auto-submitting assessment.');
+                onAutoSubmit?.('FULLSCREEN_EXIT_TIMEOUT');
+                return 0;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        }
+      } else {
+        // Returned to fullscreen within 10 seconds: cancel countdown and record warning
+        if (fullscreenTimerRef.current) {
+          clearInterval(fullscreenTimerRef.current);
+          fullscreenTimerRef.current = null;
+          setFullscreenCountdown(null);
+          toast.info('Returned to fullscreen. Examination session continues.');
+          reportWarning('fullscreen_exit', 'Exited fullscreen examination mode');
+        }
       }
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      if (fullscreenTimerRef.current) {
+        clearInterval(fullscreenTimerRef.current);
+        fullscreenTimerRef.current = null;
+      }
     };
-  }, [enabled, fullscreenRequired, quizId, reportWarning]);
+  }, [enabled, fullscreenRequired, quizId, reportWarning, onAutoSubmit]);
 
   // Tab switch, Window Blur, and Abandonment Detection
   useEffect(() => {
@@ -260,5 +292,6 @@ export function useAntiCheat({
     requestFullscreen,
     exitFullscreen,
     isFullscreen,
+    fullscreenCountdown,
   };
 }

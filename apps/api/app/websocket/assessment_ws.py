@@ -187,12 +187,12 @@ class AssessmentHub:
         }
         self.latest_snapshots[quiz_id][user_id] = snapshot_event
 
-        # Persist representative snapshot to database
+        # Persist representative snapshot to database with reliable 10s capture schedule
         last_persisted = self.last_persisted_time.get(quiz_id, {}).get(user_id, 0.0)
         should_persist = (
             (event_type != "PERIODIC") or
             (last_persisted == 0.0) or
-            (now - last_persisted >= 20.0)
+            (now - last_persisted >= 9.2)
         )
         if should_persist:
             try:
@@ -211,14 +211,18 @@ class AssessmentHub:
                             q_uuid, u_uuid
                         )
                         att_id = att_row["id"] if att_row else None
-                        cnt = await conn.fetchval(
+
+                        # Prevent duplicate snapshots within 3 seconds for the same attempt
+                        recent_dup = await conn.fetchval(
                             """
-                            SELECT COUNT(*) FROM quiz_camera_snapshots
+                            SELECT 1 FROM quiz_camera_snapshots
                             WHERE quiz_id = $1 AND student_user_id = $2
+                              AND snapshot_timestamp >= NOW() - INTERVAL '3 seconds'
+                            LIMIT 1
                             """,
                             q_uuid, u_uuid
                         )
-                        if cnt is None or cnt < 15:
+                        if not recent_dup:
                             await conn.execute(
                                 """
                                 INSERT INTO quiz_camera_snapshots (
@@ -396,8 +400,8 @@ class AssessmentHub:
         students = []
         for uid, s in self.student_states.get(quiz_id, {}).items():
             last_seen_sec = round(now - s.get("last_seen", now))
-            is_online = s.get("online", False) and last_seen_sec < 45
-            is_stale = is_online and last_seen_sec >= 30
+            is_online = bool(s.get("online", False)) and last_seen_sec <= 25
+            is_stale = is_online and last_seen_sec >= 20
 
             # Authoritative candidate status calculation
             raw_status = s.get("status", "in_progress")
@@ -406,9 +410,9 @@ class AssessmentHub:
             elif s.get("abandonment_warning"):
                 cand_status = "ABANDONMENT_WARNING"
             elif not is_online:
-                cand_status = "TEMPORARILY_DISCONNECTED"
+                cand_status = "DISCONNECTED"
             else:
-                cand_status = raw_status.upper()
+                cand_status = "IN_PROGRESS"
 
             # Determine camera status
             last_snap_t = self.last_snapshot_time.get(quiz_id, {}).get(uid, 0.0)

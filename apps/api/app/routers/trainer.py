@@ -2503,8 +2503,9 @@ async def export_trainer_assessment_excel(
     from PIL import Image as PILImage, ImageFile
     ImageFile.LOAD_TRUNCATED_IMAGES = True
     from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.drawing.image import Image as OpenpyxlImage
+    from openpyxl.utils import get_column_letter
 
     data = await QuizRepository.get_trainer_quiz_results(ctx, quiz_id, batch_id=batchId)
     quiz_title = data.get("title") or "Assessment"
@@ -2514,10 +2515,20 @@ async def export_trainer_assessment_excel(
     header_fill = PatternFill(start_color="FFE2E8F0", end_color="FFE2E8F0", fill_type="solid")
     header_font = Font(name="Calibri", size=11, bold=True)
     regular_font = Font(name="Calibri", size=10)
+    bold_font = Font(name="Calibri", size=10, bold=True)
     center_align = Alignment(horizontal="center", vertical="center")
     left_align = Alignment(horizontal="left", vertical="center")
 
-    # Sheet 1: Results
+    thin_border = Border(
+        left=Side(style='thin', color='E2E8F0'),
+        right=Side(style='thin', color='E2E8F0'),
+        top=Side(style='thin', color='E2E8F0'),
+        bottom=Side(style='thin', color='E2E8F0'),
+    )
+
+    # -------------------------------------------------------------
+    # SHEET 1: RESULTS (Preserves all existing student result info)
+    # -------------------------------------------------------------
     ws_results = wb.active
     ws_results.title = "Results"
     ws_results.views.sheetView[0].state = "frozen"
@@ -2526,7 +2537,8 @@ async def export_trainer_assessment_excel(
     res_headers = [
         "Rank", "Roll Number", "Student Name", "Batch",
         "Marks", "Max Marks", "Percentage", "Result", "Warnings",
-        "Submission Timestamp", "Attempt Status", "Submission Reason"
+        "Submission Timestamp", "Attempt Status", "Submission Reason",
+        "Assessment ID", "Attempt ID", "Warning Count", "Event Type"
     ]
     ws_results.append(res_headers)
     for col_idx in range(1, len(res_headers) + 1):
@@ -2534,9 +2546,15 @@ async def export_trainer_assessment_excel(
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = center_align
-    ws_results.row_dimensions[1].height = 24
+        cell.border = thin_border
+    ws_results.row_dimensions[1].height = 26
 
     for r in results:
+        w_list = r.get("warningList") or []
+        w_types = list(dict.fromkeys(w.get("eventType") or w.get("warning_type") or "Warning" for w in w_list if isinstance(w, dict)))
+        event_type_str = ", ".join(w_types) if w_types else "None"
+        warning_cnt = r.get("warningCount", r.get("warnings", 0))
+
         ws_results.append([
             r.get("rank"),
             r.get("rollNumber") or "—",
@@ -2546,10 +2564,14 @@ async def export_trainer_assessment_excel(
             r.get("maxScore", 100),
             f"{r.get('percentage', 0)}%",
             "Pass" if r.get("passed") else "Fail",
-            r.get("warnings", 0),
+            warning_cnt,
             r.get("completedAt") or r.get("submittedAt") or "—",
             r.get("status") or "—",
             r.get("submissionReason") or "—",
+            quiz_id,
+            r.get("attemptId") or "—",
+            warning_cnt,
+            event_type_str,
         ])
 
     for row_num in range(2, ws_results.max_row + 1):
@@ -2557,21 +2579,27 @@ async def export_trainer_assessment_excel(
         for col_num in range(1, len(res_headers) + 1):
             cell = ws_results.cell(row=row_num, column=col_num)
             cell.font = regular_font
-            if col_num in (1, 5, 6, 7, 8, 9):
+            cell.border = thin_border
+            if col_num in (1, 5, 6, 7, 8, 9, 15):
                 cell.alignment = center_align
+            else:
+                cell.alignment = left_align
 
-    res_col_widths = [8, 16, 24, 16, 10, 12, 12, 10, 12, 24, 16, 22]
+    res_col_widths = [8, 16, 24, 16, 10, 12, 12, 10, 12, 24, 16, 22, 36, 36, 14, 24]
     for idx, width in enumerate(res_col_widths, start=1):
-        ws_results.column_dimensions[ws_results.cell(row=1, column=idx).column_letter].width = width
+        ws_results.column_dimensions[get_column_letter(idx)].width = width
 
-    # Sheet 2: Camera Snapshots
+    # -------------------------------------------------------------
+    # SHEET 2: CAMERA SNAPSHOTS (Exact requested schema: 10 snapshots per attempt)
+    # -------------------------------------------------------------
     ws_camera = wb.create_sheet(title="Camera Snapshots")
     ws_camera.views.sheetView[0].state = "frozen"
     ws_camera.views.sheetView[0].ySplit = 1
 
     cam_headers = [
-        "Student Name", "Roll Number", "Assessment ID", "Attempt ID",
-        "Snapshot Timestamp", "Warning/Event Type", "Camera Snapshot"
+        "Student Name", "Roll Number",
+        "Snapshot 1", "Snapshot 2", "Snapshot 3", "Snapshot 4", "Snapshot 5",
+        "Snapshot 6", "Snapshot 7", "Snapshot 8", "Snapshot 9", "Snapshot 10"
     ]
     ws_camera.append(cam_headers)
     for col_idx in range(1, len(cam_headers) + 1):
@@ -2579,68 +2607,113 @@ async def export_trainer_assessment_excel(
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = center_align
-    ws_camera.row_dimensions[1].height = 24
+        cell.border = thin_border
+    ws_camera.row_dimensions[1].height = 26
 
-    cam_col_widths = [24, 16, 36, 36, 22, 20, 24]
-    for idx, width in enumerate(cam_col_widths, start=1):
-        ws_camera.column_dimensions[ws_camera.cell(row=1, column=idx).column_letter].width = width
+    ws_camera.column_dimensions["A"].width = 24
+    ws_camera.column_dimensions["B"].width = 16
+    for idx in range(3, 13):
+        ws_camera.column_dimensions[get_column_letter(idx)].width = 22
+
+    def _select_rep_snapshots(snaps: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
+        """Selects up to `limit` representative snapshots chronologically distributed across the exam duration."""
+        if not snaps:
+            return []
+        if len(snaps) <= limit:
+            return list(snaps)
+        n = len(snaps)
+        indices: list[int] = []
+        for i in range(limit):
+            idx = int(round(i * (n - 1) / (limit - 1)))
+            indices.append(idx)
+        for k in range(1, len(indices)):
+            if indices[k] <= indices[k - 1]:
+                indices[k] = indices[k - 1] + 1
+        indices = [min(idx, n - 1) for idx in indices]
+        for k in range(len(indices) - 2, -1, -1):
+            if indices[k] >= indices[k + 1]:
+                indices[k] = max(0, indices[k + 1] - 1)
+        return [snaps[idx] for idx in indices]
+
+    def _fmt_ts(raw_ts: Any) -> str:
+        if not raw_ts:
+            return "—"
+        s = str(raw_ts).strip()
+        if "T" in s:
+            s = s.replace("T", " ").split(".")[0]
+        return s[:19]
 
     current_cam_row = 2
     for r in results:
         student_name = r.get("name") or "—"
         roll_num = r.get("rollNumber") or "—"
-        att_id = r.get("attemptId") or "—"
-        snapshots = r.get("snapshots") or []
+        all_snapshots = r.get("snapshots") or []
+        rep_snapshots = _select_rep_snapshots(all_snapshots, limit=10)
 
-        if snapshots:
-            for s in snapshots:
-                s_ts = s.get("timestamp") or "—"
-                s_type = s.get("eventType") or s.get("event_type") or "PERIODIC"
-                img_data = s.get("imageData") or s.get("image_data") or ""
+        # Append row with student info and 10 placeholders
+        row_values = [student_name, roll_num] + [""] * 10
+        ws_camera.append(row_values)
+        ws_camera.row_dimensions[current_cam_row].height = 115
 
-                ws_camera.append([student_name, roll_num, quiz_id, att_id, s_ts, s_type, ""])
-                ws_camera.row_dimensions[current_cam_row].height = 68
+        # Format student name & roll number cells
+        name_cell = ws_camera.cell(row=current_cam_row, column=1)
+        name_cell.font = bold_font
+        name_cell.alignment = left_align
+        name_cell.border = thin_border
 
-                for c_idx in range(1, 7):
-                    c = ws_camera.cell(row=current_cam_row, column=c_idx)
-                    c.font = regular_font
-                    c.alignment = left_align
+        roll_cell = ws_camera.cell(row=current_cam_row, column=2)
+        roll_cell.font = regular_font
+        roll_cell.alignment = center_align
+        roll_cell.border = thin_border
+
+        # Populate Snapshot 1 through 10
+        for slot_idx in range(10):
+            col_idx = 3 + slot_idx
+            col_letter = get_column_letter(col_idx)
+            cell = ws_camera.cell(row=current_cam_row, column=col_idx)
+            cell.border = thin_border
+
+            if slot_idx < len(rep_snapshots):
+                snap = rep_snapshots[slot_idx]
+                ts_str = _fmt_ts(snap.get("timestamp"))
+                img_data = snap.get("imageData") or snap.get("image_data") or ""
+
+                cell.value = f"\n\n\n\n\n{ts_str}"
+                cell.font = Font(name="Calibri", size=8, color="475569")
+                cell.alignment = Alignment(horizontal="center", vertical="bottom", wrap_text=True)
 
                 if img_data:
                     try:
                         clean_b64 = img_data.split(",")[-1].strip()
                         img_bytes = base64.b64decode(clean_b64)
                         pil_img = PILImage.open(io.BytesIO(img_bytes))
-                        pil_img.thumbnail((120, 90))
+                        orig_w, orig_h = pil_img.size
+                        scale = min(110.0 / orig_w, 75.0 / orig_h)
+                        disp_w = max(1, int(orig_w * scale))
+                        disp_h = max(1, int(orig_h * scale))
+
+                        pil_img.thumbnail((disp_w, disp_h))
                         thumb_io = io.BytesIO()
                         pil_img.save(thumb_io, format="JPEG", quality=85)
                         thumb_io.seek(0)
 
                         openpyxl_img = OpenpyxlImage(thumb_io)
-                        openpyxl_img.width = 100
-                        openpyxl_img.height = 75
-                        ws_camera.add_image(openpyxl_img, f"G{current_cam_row}")
+                        openpyxl_img.width = disp_w
+                        openpyxl_img.height = disp_h
+                        ws_camera.add_image(openpyxl_img, f"{col_letter}{current_cam_row}")
                     except Exception as err:
                         import logging
                         logging.getLogger("app").warning("excel_image_embed_error", extra={"error": str(err)})
-                        print(f"DEBUG_IMAGE_ERROR: {err}")
-                        err_cell = ws_camera.cell(row=current_cam_row, column=7)
-                        err_cell.value = "Image render error"
-                        err_cell.font = regular_font
-                        err_cell.alignment = center_align
+                        cell.value = f"Image error\n{ts_str}"
+                        cell.font = Font(name="Calibri", size=8, color="EF4444")
+            else:
+                # Slot is unavailable (fewer than 10 snapshots)
+                cell.value = "Unavailable"
+                cell.font = Font(name="Calibri", size=9, italic=True, color="94A3B8")
+                cell.alignment = center_align
+                cell.fill = PatternFill(start_color="FFF8FAFC", end_color="FFF8FAFC", fill_type="solid")
 
-                current_cam_row += 1
-        else:
-            ws_camera.append([student_name, roll_num, quiz_id, att_id, "—", "—", "No camera snapshot available."])
-            ws_camera.row_dimensions[current_cam_row].height = 24
-            for c_idx in range(1, 7):
-                c = ws_camera.cell(row=current_cam_row, column=c_idx)
-                c.font = regular_font
-                c.alignment = left_align
-            no_snap_cell = ws_camera.cell(row=current_cam_row, column=7)
-            no_snap_cell.font = Font(name="Calibri", size=10, italic=True, color="64748B")
-            no_snap_cell.alignment = center_align
-            current_cam_row += 1
+        current_cam_row += 1
 
     output = io.BytesIO()
     wb.save(output)
@@ -2654,6 +2727,212 @@ async def export_trainer_assessment_excel(
             "Content-Disposition": f"attachment; filename=\"{safe_title}_results_with_camera_snapshots.xlsx\""
         },
     )
+
+
+@router.get("/assessments/{quiz_id}/attempts/{attempt_id}/export-excel")
+async def export_individual_assessment_report_excel(
+    quiz_id: str,
+    attempt_id: str,
+    ctx: ScopeContext = TrainerCtx,
+) -> Response:
+    """Requirement Module 3.1: Generates and streams an individual student's 4-sheet assessment report workbook (.xlsx)."""
+    from fastapi.responses import Response
+    from app.repositories.assessment_report_repo import AssessmentReportRepository, _sanitize_filename
+    from app.repositories.assignment_quiz_repo import _safe_uuid
+    from app.db.postgres import get_pg_connection
+    from app.core.errors import NotFound, ScopeForbidden
+    from app.authz.roles import Role
+
+    q_uuid = _safe_uuid(quiz_id)
+    att_uuid = _safe_uuid(attempt_id)
+    if not q_uuid or not att_uuid:
+        raise NotFound("Assessment or attempt not found.")
+
+    async with get_pg_connection() as conn:
+        quiz = await conn.fetchrow(
+            "SELECT id, title, creator_trainer_id, institution_id, batch_id FROM quizzes WHERE id = $1",
+            q_uuid,
+        )
+        if not quiz:
+            raise NotFound("Assessment not found.")
+
+        if ctx.role == Role.TRAINER:
+            t_uuid = _safe_uuid(ctx.user_id)
+            trainer_assigned = await conn.fetchval(
+                """
+                SELECT 1 FROM quizzes q
+                WHERE q.id = $1 AND (
+                    q.creator_trainer_id = $2 OR q.institution_id = $3 OR q.batch_id IS NOT NULL
+                )
+                LIMIT 1
+                """,
+                q_uuid,
+                t_uuid,
+                _safe_uuid(ctx.college_id),
+            )
+            if not trainer_assigned:
+                raise ScopeForbidden("You are not authorized to export reports for this assessment.")
+
+    report_dict = await AssessmentReportRepository.generate_and_persist_report(att_uuid)
+    full_report = await AssessmentReportRepository.get_report_by_id(report_dict["id"])
+
+    if str(full_report.get("quizId")) != str(q_uuid):
+        raise NotFound("Attempt does not belong to this assessment.")
+
+    excel_bytes = AssessmentReportRepository.generate_individual_excel_report(full_report)
+
+    roll = full_report.get("rollNumber") or ""
+    s_name = full_report.get("studentName") or "Student"
+    prefix = _sanitize_filename(roll) if roll.strip() else _sanitize_filename(s_name)
+    sanitized_quiz = _sanitize_filename(full_report.get("assessmentTitle") or "Assessment")
+    filename = f"{prefix}_{sanitized_quiz}_Report.xlsx"
+
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
+
+
+@router.get("/assessments/{quiz_id}/export-bulk-reports")
+async def export_bulk_assessment_reports(
+    quiz_id: str,
+    batchId: str | None = Query(None),
+    ctx: ScopeContext = TrainerCtx,
+) -> Response:
+    """Requirement Module 3.2: Generates and streams a ZIP archive containing individual student assessment reports."""
+    from fastapi.responses import Response
+    from app.repositories.assessment_report_repo import AssessmentReportRepository
+
+    zip_bytes, archive_name = await AssessmentReportRepository.build_bulk_zip_reports(
+        quiz_id=quiz_id,
+        ctx=ctx,
+        batch_id=batchId,
+    )
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{archive_name}"'
+        },
+    )
+
+
+@router.get("/assessments/{quiz_id}/feedback")
+async def get_trainer_assessment_feedback(
+    quiz_id: str,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    """Retrieves aggregated feedback summary and student feedback records for an assessment."""
+    res = await QuizRepository.get_trainer_quiz_feedback(
+        ctx=ctx,
+        quiz_id=quiz_id,
+        page=page,
+        limit=limit,
+    )
+    return {"success": True, "data": res}
+
+
+@router.get("/assessments/{quiz_id}/offline-readiness")
+async def get_trainer_assessment_offline_readiness(
+    quiz_id: str,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    """Retrieves offline examination readiness, package download status, and cloud synchronization counts."""
+    from uuid import UUID
+    from app.db.postgres import get_pg_connection
+
+    quiz_uuid = UUID(str(quiz_id))
+    async with get_pg_connection() as conn:
+        quiz = await conn.fetchrow(
+            "SELECT id, title, duration_minutes, batch_id, institution_id FROM quizzes WHERE id = $1",
+            quiz_uuid,
+        )
+        if not quiz:
+            raise NotFound("Assessment not found.")
+
+        packages = await conn.fetch(
+            """
+            SELECT p.id, p.user_id, p.downloaded_at, p.expires_at, p.status,
+                   u.name as student_name, u.email as student_email,
+                   COALESCE(sp.roll_number, '') as roll_number
+            FROM offline_packages p
+            JOIN users u ON u.id = p.user_id
+            LEFT JOIN student_profiles sp ON sp.user_id = u.id
+            WHERE p.resource_id = $1 AND p.package_type = 'ASSESSMENT_PACK'
+            ORDER BY p.downloaded_at DESC NULLS LAST
+            """,
+            quiz_uuid,
+        )
+
+        synced_attempts = await conn.fetch(
+            """
+            SELECT a.id as attempt_id, a.student_user_id, a.score, a.possible,
+                   a.time_taken_seconds, a.local_submitted_at, a.completed_at,
+                   a.submission_source, a.offline_integrity_hash,
+                   u.name as student_name, COALESCE(sp.roll_number, '') as roll_number
+            FROM quiz_attempts a
+            JOIN users u ON u.id = a.student_user_id
+            LEFT JOIN student_profiles sp ON sp.user_id = u.id
+            WHERE a.quiz_id = $1 AND a.submission_source = 'OFFLINE_SYNC'
+            ORDER BY a.completed_at DESC NULLS LAST
+            """,
+            quiz_uuid,
+        )
+
+        proctor_logs_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM offline_proctoring_logs WHERE quiz_id = $1",
+            quiz_uuid,
+        ) or 0
+
+        downloaded_count = len(packages)
+        synced_count = len(synced_attempts)
+        pending_count = max(0, downloaded_count - synced_count)
+
+        return {
+            "success": True,
+            "data": {
+                "quizId": str(quiz["id"]),
+                "title": quiz["title"],
+                "durationMinutes": quiz["duration_minutes"],
+                "downloadedPackagesCount": downloaded_count,
+                "synchronizedAttemptsCount": synced_count,
+                "pendingSyncCount": pending_count,
+                "offlineProctoringEventsCount": proctor_logs_count,
+                "downloadedPackages": [
+                    {
+                        "packageId": str(p["id"]),
+                        "studentId": str(p["user_id"]),
+                        "studentName": p["student_name"] or "Student",
+                        "rollNumber": p["roll_number"] or "—",
+                        "downloadedAt": p["downloaded_at"].isoformat() if p["downloaded_at"] else None,
+                        "expiresAt": p["expires_at"].isoformat() if p["expires_at"] else None,
+                        "status": p["status"],
+                    }
+                    for p in packages
+                ],
+                "synchronizedAttempts": [
+                    {
+                        "attemptId": str(a["attempt_id"]),
+                        "studentId": str(a["student_user_id"]),
+                        "studentName": a["student_name"] or "Student",
+                        "rollNumber": a["roll_number"] or "—",
+                        "score": a["score"],
+                        "possible": a["possible"],
+                        "durationSeconds": a["time_taken_seconds"],
+                        "localSubmittedAt": a["local_submitted_at"].isoformat() if a["local_submitted_at"] else None,
+                        "syncedAt": a["completed_at"].isoformat() if a["completed_at"] else None,
+                        "integrityHash": a["offline_integrity_hash"],
+                    }
+                    for a in synced_attempts
+                ],
+            },
+        }
 
 
 @router.post("/assessments/{quiz_id}/attempts/{attempt_id}/recover")

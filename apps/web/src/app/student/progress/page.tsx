@@ -25,6 +25,7 @@ import {
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import * as React from 'react';
 import { toast } from 'sonner';
 
@@ -33,6 +34,8 @@ import { PageHeader } from '@/components/shared/page-header';
 import { SkillBreakdown } from '@/components/shared/progress-bits';
 import { StatCard } from '@/components/shared/stat-card';
 import { AsyncSection } from '@/components/shared/state';
+import { AssessmentReportModal } from '@/components/student/AssessmentReportModal';
+import { StudentAssessmentProgressSection } from '@/components/student/StudentAssessmentProgressSection';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardSubtitle, CardTitle } from '@/components/ui/card';
@@ -63,6 +66,17 @@ const REPORT_TYPES = [
   { id: 'student_payments', label: 'Financial & Enrollment Statement', desc: 'Course tuition, fee frequency, cleared installments & access validity' },
 ];
 
+function ReportQueryParamSync({ onReportId }: { onReportId: (id: string) => void }) {
+  const searchParams = useSearchParams();
+  const reportId = searchParams.get('reportId');
+  React.useEffect(() => {
+    if (reportId) {
+      onReportId(reportId);
+    }
+  }, [reportId, onReportId]);
+  return null;
+}
+
 export default function ProgressPage() {
   const query = useApi<any>('/student/progress');
   const historicalReportsQuery = useApi<any[]>('/student/historical-reports');
@@ -77,6 +91,30 @@ export default function ProgressPage() {
   const [courseActiveTab, setCourseActiveTab] = React.useState<
     'overview' | 'attendance' | 'assessments' | 'games' | 'quizzes' | 'eedi' | 'activity' | 'finance'
   >('overview');
+
+  // Assessment Report Detail Modal State
+  const [selectedReportId, setSelectedReportId] = React.useState<string | null>(null);
+  const [reportModalOpen, setReportModalOpen] = React.useState(false);
+
+  const handleViewReport = React.useCallback((id: string) => {
+    setSelectedReportId(id);
+    setReportModalOpen(true);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('reportId', id);
+      window.history.replaceState(null, '', url.toString());
+    }
+  }, []);
+
+  const handleCloseReport = React.useCallback(() => {
+    setReportModalOpen(false);
+    setSelectedReportId(null);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('reportId');
+      window.history.replaceState(null, '', url.pathname + (url.search ? url.search : ''));
+    }
+  }, []);
 
   async function handleDownloadReport() {
     setDownloading(true);
@@ -410,6 +448,17 @@ export default function ProgressPage() {
                 <p className="mt-2 text-xs text-heading/80 font-medium">Readiness Index / 100</p>
               </Card>
             </div>
+
+            {/* SYNCHRONIZATION WITH QUERY PARAM FOR DIRECT REPORT DEEP-LINKING */}
+            <React.Suspense fallback={null}>
+              <ReportQueryParamSync onReportId={handleViewReport} />
+            </React.Suspense>
+
+            {/* DEDICATED STUDENT ASSESSMENT PERFORMANCE & OFFICIAL REPORT HISTORY */}
+            <StudentAssessmentProgressSection
+              onViewReport={handleViewReport}
+              selectedReportId={selectedReportId}
+            />
 
             {/* MULTI-COURSE ENROLLMENTS SECTION */}
             <div className="space-y-4">
@@ -1185,6 +1234,13 @@ export default function ProgressPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+
+            {/* IMMUTABLE INDIVIDUAL ASSESSMENT REPORT MODAL */}
+            <AssessmentReportModal
+              reportId={selectedReportId}
+              isOpen={reportModalOpen}
+              onClose={handleCloseReport}
+            />
           </div>
         );
       }}

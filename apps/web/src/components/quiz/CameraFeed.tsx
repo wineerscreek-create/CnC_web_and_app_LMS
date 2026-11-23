@@ -174,8 +174,9 @@ export function CameraFeed({
     };
 
     // Capture initial frame after short settling delay
-    const initialTimer = setTimeout(capture, 1200);
-    snapshotTimerRef.current = setInterval(capture, 5000);
+    const initialTimer = setTimeout(capture, 1500);
+    // Reliable 10-second capture interval during active examination
+    snapshotTimerRef.current = setInterval(capture, 10000);
 
     return () => {
       clearTimeout(initialTimer);

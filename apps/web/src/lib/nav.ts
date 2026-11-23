@@ -231,6 +231,16 @@ export const NOTIFICATION_ICONS: Record<string, LucideIcon> = {
   low_assessment_score: TrendingUp,
   account: Users,
   import_complete: Upload,
+  assessment_assigned: ClipboardList,
+  assessment_starting: Activity,
+  assessment_deadline: AlertTriangle,
+  assessment_result: BarChart3,
+  class_scheduled: CalendarDays,
+  class_starting: Video,
+  class_live: Video,
+  class_cancelled: AlertTriangle,
+  assignment_assigned: FileText,
+  academic_announcement: Bell,
   default: Bell,
 };
 

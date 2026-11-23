@@ -107,10 +107,13 @@ class SyncEngine {
     quizId: string;
     answers: Record<string, string>;
     durationSeconds: number;
-    eventSequence: any[];
+    eventSequence?: any[];
     userId: string;
     institutionId: string | null;
     batchId: string | null;
+    snapshots?: Array<{ imageData: string; eventType: string; timestamp?: string }>;
+    proctoringLogs?: Array<{ eventType: string; eventData?: any; timestamp?: string }>;
+    integrityHash?: string;
   }): Promise<void> {
     const record: OfflineAttemptRecord = {
       id: attempt.attemptId,
@@ -122,7 +125,7 @@ class SyncEngine {
       kind: 'quiz',
       answers: attempt.answers,
       durationSeconds: attempt.durationSeconds,
-      eventSequence: attempt.eventSequence,
+      eventSequence: attempt.eventSequence || [],
       localCreatedAt: new Date().toISOString(),
       syncStatus: 'PENDING',
     };
@@ -132,6 +135,65 @@ class SyncEngine {
     // Clean up temporary in-progress draft for this quiz
     const draftId = `${attempt.userId}_${attempt.quizId}`;
     await offlineDB.assessmentDrafts.delete(draftId);
+
+    // Retrieve offline snapshots from IndexedDB if not explicitly passed
+    let snapshots = attempt.snapshots || [];
+    if (snapshots.length === 0) {
+      try {
+        const storedSnapshots = await offlineDB.offlineSnapshots
+          .where('attemptId')
+          .equals(attempt.attemptId)
+          .toArray();
+        snapshots = storedSnapshots.map((s) => ({
+          imageData: s.imageData,
+          eventType: s.eventType,
+          timestamp: s.timestamp,
+        }));
+      } catch (err) {
+        console.warn('[SyncEngine] Failed to retrieve offline snapshots:', err);
+      }
+    }
+
+    // Retrieve offline proctoring events if not explicitly passed
+    let proctoringLogs = attempt.proctoringLogs || [];
+    if (proctoringLogs.length === 0) {
+      try {
+        const storedLogs = await offlineDB.offlineProctoringEvents
+          .where('attemptId')
+          .equals(attempt.attemptId)
+          .toArray();
+        proctoringLogs = storedLogs.map((l) => ({
+          eventType: l.eventType,
+          eventData: l.eventData,
+          timestamp: l.timestamp,
+        }));
+      } catch (err) {
+        console.warn('[SyncEngine] Failed to retrieve offline proctoring logs:', err);
+      }
+    }
+
+    // Retrieve package signature if available
+    let packageSignature: string | undefined;
+    try {
+      const qPkg = await offlineDB.downloadedQuestionSets.get(draftId);
+      if (qPkg?.packageSignature) {
+        packageSignature = qPkg.packageSignature;
+      }
+    } catch {}
+
+    // Compute tamper-evident integrity hash
+    let integrityHash = attempt.integrityHash || '';
+    if (!integrityHash && typeof crypto !== 'undefined' && crypto.subtle) {
+      try {
+        const sortedKeys = Object.keys(attempt.answers).sort();
+        const normalized = `${attempt.attemptId}:${attempt.quizId}:${attempt.userId}:${sortedKeys.map((k) => `${k}=${attempt.answers[k]}`).join('&')}`;
+        const msgBuffer = new TextEncoder().encode(normalized);
+        const hashBuf = await crypto.subtle.digest('SHA-256', msgBuffer);
+        integrityHash = Array.from(new Uint8Array(hashBuf))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
+      } catch {}
+    }
 
     // Enqueue outbox operation for server-side evaluation and storage
     await this.enqueueOperation({
@@ -150,8 +212,12 @@ class SyncEngine {
           optionId: oid,
         })),
         durationSeconds: attempt.durationSeconds,
-        eventSequence: attempt.eventSequence,
+        eventSequence: attempt.eventSequence || [],
         localSubmittedAt: record.localCreatedAt,
+        snapshots,
+        proctoringLogs,
+        packageSignature,
+        integrityHash,
       },
       createdAtLocal: record.localCreatedAt,
     });
@@ -341,6 +407,12 @@ class SyncEngine {
               attempt.serverSyncResult = res.data;
               await offlineDB.offlineAttempts.put(attempt);
             }
+            try {
+              await offlineDB.offlineSnapshots
+                .where('attemptId')
+                .equals(op.attemptId)
+                .modify({ synced: true });
+            } catch {}
           }
 
           // Safe removal from outbox once confirmed synced and processed

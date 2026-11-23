@@ -152,6 +152,7 @@ export default function AssessmentsPage() {
               <div className="grid gap-5 lg:grid-cols-2">
                 {rows.map((quiz) => {
                   const open = quiz.state === 'available' || quiz.state === 'open';
+                  const canResume = Boolean(quiz.canResume || quiz.state === 'in_progress');
                   return (
                     <Card
                       key={quiz.id}
@@ -162,7 +163,7 @@ export default function AssessmentsPage() {
                           <span className="flex size-10 items-center justify-center rounded-2xl bg-muted text-primary border border-border">
                             <ClipboardList className="size-5" aria-hidden />
                           </span>
-                          <StatusBadge status={quiz.state} />
+                          <StatusBadge status={canResume ? 'in_progress' : quiz.state} />
                         </div>
                         <h2 className="mt-3.5 text-base font-bold font-heading text-heading">{quiz.title}</h2>
                         <p className="mt-1 text-xs text-muted-foreground">
@@ -174,7 +175,7 @@ export default function AssessmentsPage() {
                         </p>
 
                         <div className="mt-auto pt-4">
-                          {quiz.myScore != null ? (
+                          {quiz.myScore != null && !canResume ? (
                             <div className="flex items-center justify-between rounded-xl bg-muted/40 border border-border px-4 py-3">
                               <span className="text-xs font-semibold text-muted-foreground">Your Score</span>
                               <span className="tnum text-base font-bold font-mono text-heading">
@@ -184,6 +185,13 @@ export default function AssessmentsPage() {
                                 </span>
                               </span>
                             </div>
+                          ) : canResume ? (
+                            <Button asChild variant="primary" size="sm" className="w-full flex items-center justify-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold shadow-md">
+                              <Link href={`/student/assessments/${quiz.id}`}>
+                                <PlayCircle className="size-4" aria-hidden />
+                                Resume Assessment
+                              </Link>
+                            </Button>
                           ) : (
                             <Button asChild variant="primary" size="sm" className="w-full flex items-center justify-center gap-1.5">
                               <Link href={`/student/assessments/${quiz.id}`}>

@@ -150,7 +150,7 @@ class GameAttemptRequest(Base):
 
 
 class QuizAttemptRequest(Base):
-    answers: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
+    answers: list[dict[str, Any]] | dict[str, Any] = Field(default_factory=list)
     durationSeconds: Annotated[int, Field(ge=0, le=14400)] = 0
     deviceId: str | None = None
     warnings: list[dict[str, Any]] = Field(default_factory=list)
@@ -174,6 +174,15 @@ class DraftAnswerRequest(Base):
 class AssessmentRecoveryRequest(Base):
     action: Literal["RESTART", "RESUME", "restart", "resume"]
     reason: Annotated[str, Field(min_length=3, max_length=500)]
+
+
+class QuizFeedbackCreate(Base):
+    attempt_id: str
+    overall_rating: Annotated[int, Field(ge=1, le=5)]
+    difficulty: Literal["Easy", "Moderate", "Difficult"]
+    question_quality_rating: Annotated[int, Field(ge=1, le=5)]
+    time_management: Literal["Sufficient", "Insufficient"]
+    written_feedback: Annotated[str | None, Field(default=None, max_length=2000)]
 
 
 class TrainerQuizCreateRequest(Base):

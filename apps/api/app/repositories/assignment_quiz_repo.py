@@ -346,7 +346,8 @@ class QuizRepository:
                 """
                 SELECT q.id, q.title, q.kind, q.duration_minutes, q.max_score,
                        q.opens_at, q.closes_at, q.questions, q.settings, q.quiz_code,
-                       qa.score as my_score, qa.completed_at, qa.passed, qa.percentage
+                       qa.id as attempt_id, qa.score as my_score, qa.completed_at, qa.passed,
+                       qa.percentage, qa.status as attempt_status, qa.candidate_status, qa.is_recovered
                 FROM quizzes q
                 LEFT JOIN quiz_attempts qa ON qa.quiz_id = q.id AND qa.student_user_id = $1
                 WHERE q.status = 'active'
@@ -372,13 +373,19 @@ class QuizRepository:
         for r in rows:
             opens = r["opens_at"]
             closes = r["closes_at"]
-            state = "available"
-            if r["my_score"] is not None or r["completed_at"]:
+            is_done = bool(r["completed_at"] or r["attempt_status"] == "completed" or (r["candidate_status"] in ("COMPLETED", "SUBMITTED", "AUTO_SUBMITTED", "ABANDONED") and not r["is_recovered"]))
+            can_resume = bool(r["attempt_id"] and not is_done and (r["attempt_status"] == "in_progress" or r["candidate_status"] in ("IN_PROGRESS", "DISCONNECTED") or r["is_recovered"]))
+
+            if is_done:
                 state = "completed"
+            elif can_resume:
+                state = "in_progress"
             elif opens and opens > now:
                 state = "upcoming"
             elif closes and closes < now:
                 state = "closed"
+            else:
+                state = "available"
 
             questions = _parse_json_list(r["questions"])
             items.append({
@@ -390,6 +397,9 @@ class QuizRepository:
                 "opensAt": opens.isoformat() if opens else None,
                 "closesAt": closes.isoformat() if closes else None,
                 "state": state,
+                "canResume": can_resume,
+                "attemptId": str(r["attempt_id"]) if r["attempt_id"] else None,
+                "candidateStatus": r["candidate_status"],
                 "myScore": int(r["my_score"]) if r["my_score"] is not None else None,
                 "maxScore": int(r["max_score"] or 100),
                 "passed": r["passed"],
@@ -456,9 +466,10 @@ class QuizRepository:
 
             attempt = await conn.fetchrow(
                 """
-                SELECT qa.score, qa.possible, qa.completed_at, qa.passed, qa.percentage,
+                SELECT qa.id, qa.score, qa.possible, qa.completed_at, qa.passed, qa.percentage,
                        qa.performance_category, qa.motivational_message, qa.correct_count,
-                       qa.incorrect_count, qa.unattempted_count, u.name as student_name
+                       qa.incorrect_count, qa.unattempted_count, qa.status, qa.candidate_status,
+                       qa.is_recovered, u.name as student_name
                 FROM quiz_attempts qa
                 LEFT JOIN users u ON u.id = qa.student_user_id
                 WHERE qa.quiz_id = $1 AND qa.student_user_id = $2
@@ -505,6 +516,26 @@ class QuizRepository:
                     "question_type": q.get("question_type") or q.get("questionType") or ("mcq_multiple" if len(q.get("correct", [])) > 1 else "mcq_single"),
                 })
 
+        is_done = bool(attempt and (attempt["completed_at"] or attempt["status"] == "completed" or (attempt["candidate_status"] in ("COMPLETED", "SUBMITTED", "AUTO_SUBMITTED", "ABANDONED") and not attempt["is_recovered"])))
+        can_resume = bool(attempt and not is_done and (attempt["status"] == "in_progress" or attempt["candidate_status"] in ("IN_PROGRESS", "DISCONNECTED") or attempt["is_recovered"]))
+
+        attempt_payload = None
+        if attempt and (is_done or attempt["completed_at"]):
+            attempt_payload = {
+                "attemptId": str(attempt["id"]),
+                "score": attempt["score"],
+                "maxScore": attempt["possible"],
+                "completedAt": attempt["completed_at"].isoformat() if attempt["completed_at"] else None,
+                "passed": attempt["passed"],
+                "percentage": float(attempt["percentage"]) if attempt["percentage"] is not None else None,
+                "performanceCategory": attempt["performance_category"],
+                "motivationalMessage": attempt["motivational_message"],
+                "correctCount": attempt["correct_count"],
+                "incorrectCount": attempt["incorrect_count"],
+                "unattemptedCount": attempt["unattempted_count"],
+                "studentName": attempt["student_name"],
+            }
+
         return {
             "id": str(quiz["id"]),
             "title": quiz["title"],
@@ -521,19 +552,9 @@ class QuizRepository:
             "quizCode": quiz["quiz_code"],
             "settings": settings_dict,
             "questions": questions,
-            "attempt": {
-                "score": attempt["score"],
-                "maxScore": attempt["possible"],
-                "completedAt": attempt["completed_at"].isoformat() if attempt["completed_at"] else None,
-                "passed": attempt["passed"],
-                "percentage": float(attempt["percentage"]) if attempt["percentage"] is not None else None,
-                "performanceCategory": attempt["performance_category"],
-                "motivationalMessage": attempt["motivational_message"],
-                "correctCount": attempt["correct_count"],
-                "incorrectCount": attempt["incorrect_count"],
-                "unattemptedCount": attempt["unattempted_count"],
-                "studentName": attempt["student_name"],
-            } if attempt else None,
+            "canResume": can_resume,
+            "hasStarted": bool(attempt),
+            "attempt": attempt_payload,
         }
 
     @classmethod
@@ -604,11 +625,14 @@ class QuizRepository:
                        warnings, warning_count
                 FROM quiz_attempts
                 WHERE quiz_id = $1 AND student_user_id = $2
+                ORDER BY created_at DESC LIMIT 1
                 """,
                 q_uuid, u_uuid
             )
             if existing and existing["status"] == "completed" and not quiz["allow_retake"]:
                 u_row = await conn.fetchrow("SELECT name FROM users WHERE id = $1", u_uuid)
+                existing_answers = _parse_json_dict(existing["answers"]) if existing["answers"] else {}
+                persisted_attempted = len([k for k, v in existing_answers.items() if v not in (None, '', [], {})])
                 return {
                     "attemptId": str(existing["id"]),
                     "score": int(existing["score"]),
@@ -625,13 +649,18 @@ class QuizRepository:
                     "studentName": u_row["name"] if u_row and u_row["name"] else "Student",
                     "assessmentName": quiz["title"],
                     "submissionReason": existing.get("submission_reason") or "STUDENT_MANUAL_SUBMIT",
+                    "candidateStatus": existing.get("candidate_status") or "COMPLETED",
+                    "attemptedCount": persisted_attempted,
+                    "serverConfirmedAnswerCount": persisted_attempted,
                     "completedAt": existing["completed_at"].isoformat() if existing["completed_at"] else now_utc.isoformat(),
                     "idempotent": True,
                 }
 
-            # Merge supplied answers with previously persisted draft answers
-            persisted_answers = _parse_json_dict(existing["answers"]) if existing and existing["answers"] else {}
-            effective_answers = {**persisted_answers, **(answers or {})}
+            # Merge supplied answers with previously persisted draft answers atomically
+            persisted_answers = {str(k): v for k, v in (_parse_json_dict(existing["answers"]) if existing and existing["answers"] else {}).items()}
+            incoming_answers = {str(k): v for k, v in (answers or {}).items()}
+            effective_answers = {**persisted_answers, **incoming_answers}
+            attempted_count = len([k for k, v in effective_answers.items() if v not in (None, '', [], {})])
 
             q_list = _parse_json_list(quiz["questions"])
             earned = 0.0
@@ -755,13 +784,13 @@ class QuizRepository:
             u_row = await conn.fetchrow("SELECT name FROM users WHERE id = $1", u_uuid)
             student_name = u_row["name"] if u_row and u_row["name"] else "Student"
 
-            final_cand_status = "SUBMITTED"
-            if submission_reason == "ABANDONMENT_TIMEOUT":
-                final_cand_status = "ABANDONED"
-            elif submission_reason in ("TIMER_EXPIRED", "TRAINER_END_ASSESSMENT"):
+            final_cand_status = "COMPLETED"
+            if submission_reason in ("WARNING_LIMIT_REACHED", "FULLSCREEN_EXIT_TIMEOUT", "TIMER_EXPIRED", "TRAINER_END_ASSESSMENT", "AUTO_SUBMITTED"):
                 final_cand_status = "AUTO_SUBMITTED"
+            elif submission_reason in ("ABANDONMENT_TIMEOUT", "ABANDONED"):
+                final_cand_status = "ABANDONED"
 
-            if existing:
+            if existing and existing["status"] != "completed":
                 att_id = existing["id"]
                 await conn.execute(
                     """
@@ -812,6 +841,14 @@ class QuizRepository:
                 """,
                 att_id, q_uuid, u_uuid
             )
+
+            # Persist immutable permanent assessment report snapshot
+            try:
+                from app.repositories.assessment_report_repo import AssessmentReportRepository
+                await AssessmentReportRepository.generate_and_persist_report(att_id, conn=conn)
+            except Exception as e:
+                import logging
+                logging.getLogger("app").error("assessment_report_generation_failed", extra={"error": str(e), "attempt_id": str(att_id)})
 
             # Store EEDI results (TRAINER-ONLY visibility)
             for (term, idx), scores in eedi_acc.items():
@@ -866,6 +903,10 @@ class QuizRepository:
             "obtainedMarks": score_val,
             "studentName": student_name,
             "assessmentName": quiz["title"],
+            "submissionReason": submission_reason,
+            "candidateStatus": final_cand_status,
+            "attemptedCount": attempted_count,
+            "serverConfirmedAnswerCount": attempted_count,
         }
 
     @classmethod
@@ -1052,7 +1093,7 @@ class QuizRepository:
             overall_duration_seconds = overall_duration_minutes * 60
 
             attempt = await conn.fetchrow(
-                "SELECT id, created_at, completed_at, score, answers, status, question_states FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                "SELECT id, created_at, completed_at, score, answers, status, question_states, candidate_status, remaining_seconds, is_recovered FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
                 q_uuid, student_user_id,
             )
 
@@ -1063,6 +1104,8 @@ class QuizRepository:
                 return {
                     "hasStarted": False,
                     "status": "not_started",
+                    "candidateStatus": "NOT_STARTED",
+                    "canResume": False,
                     "answers": {},
                     "timingState": {
                         "timing_mode": timing_mode,
@@ -1092,7 +1135,9 @@ class QuizRepository:
 
             att_id = attempt["id"]
             started_at = as_utc(attempt["created_at"])
-            status = attempt["status"] or ("completed" if attempt["completed_at"] else "in_progress")
+            is_completed_db = bool(attempt["status"] == "completed" or attempt["completed_at"])
+            status = attempt["status"] or ("completed" if is_completed_db else "in_progress")
+            cand_status = attempt.get("candidate_status") or ("COMPLETED" if is_completed_db else "IN_PROGRESS")
             answers = _parse_json_dict(attempt["answers"]) if attempt["answers"] else {}
             q_states = _parse_json_dict(attempt["question_states"]) if attempt["question_states"] else {}
 
@@ -1101,20 +1146,26 @@ class QuizRepository:
 
             if timing_mode == "FIXED_TOTAL":
                 overall_remaining_seconds = max(0.0, overall_duration_seconds - elapsed_seconds)
-                if overall_remaining_seconds <= 0:
+                if overall_remaining_seconds <= 0 and not is_completed_db and not attempt.get("is_recovered"):
                     is_expired = True
 
                 if status != "completed" and is_expired:
                     status = "completed"
+                    cand_status = "AUTO_SUBMITTED"
                     await conn.execute(
-                        "UPDATE quiz_attempts SET status = 'completed', completed_at = $1 WHERE id = $2",
+                        "UPDATE quiz_attempts SET status = 'completed', candidate_status = 'AUTO_SUBMITTED', submission_reason = 'TIMER_EXPIRED', completed_at = $1 WHERE id = $2",
                         now_utc, att_id,
                     )
+
+                can_resume = (status == "in_progress" and not is_expired and not is_completed_db)
 
                 return {
                     "hasStarted": True,
                     "attemptId": str(att_id),
                     "status": status,
+                    "candidateStatus": cand_status,
+                    "canResume": can_resume,
+                    "isCompleted": bool(status == "completed" or is_completed_db),
                     "answers": answers,
                     "timingState": {
                         "timing_mode": "FIXED_TOTAL",
@@ -1179,10 +1230,15 @@ class QuizRepository:
                         now_utc, att_id,
                     )
 
+                can_resume = (status == "in_progress" and not is_expired and not is_completed_db)
+
                 return {
                     "hasStarted": True,
                     "attemptId": str(att_id),
                     "status": status,
+                    "candidateStatus": cand_status,
+                    "canResume": can_resume,
+                    "isCompleted": bool(status == "completed" or is_completed_db),
                     "answers": answers,
                     "timingState": {
                         "timing_mode": "PER_QUESTION",
@@ -1223,7 +1279,7 @@ class QuizRepository:
 
         async with get_pg_connection() as conn:
             quiz = await conn.fetchrow(
-                "SELECT id, questions, settings, duration_minutes, max_score, status, timing_mode, opens_at, closes_at FROM quizzes WHERE id = $1 AND status = 'active'",
+                "SELECT id, questions, settings, duration_minutes, max_score, allow_retake, status, timing_mode, opens_at, closes_at FROM quizzes WHERE id = $1 AND status = 'active'",
                 q_uuid,
             )
             if not quiz:
@@ -1235,14 +1291,42 @@ class QuizRepository:
             if quiz["closes_at"] and now_utc > as_utc(quiz["closes_at"]):
                 raise BusinessRuleViolation("Assessment schedule has ended. Status: Expired")
 
-            # Check if attempt already exists
+            # Check if attempt already exists (get latest)
             existing = await conn.fetchrow(
-                "SELECT id, created_at, completed_at, score, answers, status FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                "SELECT id, created_at, completed_at, score, answers, status, candidate_status, is_recovered FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2 ORDER BY created_at DESC LIMIT 1",
                 q_uuid, student_user_id,
             )
 
             now_utc = datetime.now(timezone.utc)
-            if not existing:
+            if existing:
+                is_completed = bool(existing["status"] == "completed" or existing["completed_at"])
+                if is_completed:
+                    if not bool(quiz.get("allow_retake")) and not existing.get("is_recovered"):
+                        raise ScopeForbidden("Assessment attempt is already completed. Contact trainer for recovery.")
+                    # Allow retake: initialize a new attempt row
+                    b_row = await conn.fetchrow(
+                        "SELECT batch_id, institution_id FROM student_profiles WHERE user_id = $1",
+                        student_user_id,
+                    )
+                    att_id = uuid.uuid4()
+                    await conn.execute(
+                        """
+                        INSERT INTO quiz_attempts (
+                            id, quiz_id, student_user_id, score, possible, answers, created_at,
+                            batch_id, institution_id, warnings, warning_count, status, question_states,
+                            candidate_status, last_heartbeat_at, version
+                        ) VALUES (
+                            $1, $2, $3, 0, $4, '{}'::jsonb, $5,
+                            $6, $7, '[]'::jsonb, 0, 'in_progress', '{}'::jsonb,
+                            'IN_PROGRESS', NOW(), 1
+                        )
+                        """,
+                        att_id, q_uuid, student_user_id,
+                        int(quiz["max_score"] or 100), now_utc,
+                        b_row["batch_id"] if b_row else None,
+                        b_row["institution_id"] if b_row else None,
+                    )
+            else:
                 b_row = await conn.fetchrow(
                     "SELECT batch_id, institution_id FROM student_profiles WHERE user_id = $1",
                     student_user_id,
@@ -1252,10 +1336,12 @@ class QuizRepository:
                     """
                     INSERT INTO quiz_attempts (
                         id, quiz_id, student_user_id, score, possible, answers, created_at,
-                        batch_id, institution_id, warnings, warning_count, status, question_states
+                        batch_id, institution_id, warnings, warning_count, status, question_states,
+                        candidate_status, last_heartbeat_at, version
                     ) VALUES (
                         $1, $2, $3, 0, $4, '{}'::jsonb, $5,
-                        $6, $7, '[]'::jsonb, 0, 'in_progress', '{}'::jsonb
+                        $6, $7, '[]'::jsonb, 0, 'in_progress', '{}'::jsonb,
+                        'IN_PROGRESS', NOW(), 1
                     )
                     """,
                     att_id, q_uuid, student_user_id,
@@ -1325,15 +1411,18 @@ class QuizRepository:
             existing_ver = existing_q_state.get("version", 0)
             if version is not None and existing_ver and version < existing_ver:
                 log.info("ignoring_stale_draft_write", extra={"question_id": qid_str, "incoming_ver": version, "existing_ver": existing_ver})
+                persisted_attempted = len([k for k, v in answers_dict.items() if v not in (None, '', [], {})])
                 return {
                     "saved": True,
                     "questionId": qid_str,
                     "version": existing_ver,
                     "status": "ignored_stale",
+                    "attemptedCount": persisted_attempted,
+                    "serverConfirmedAnswerCount": persisted_attempted,
                 }
 
             new_version = (existing_ver + 1) if version is None else max(version, existing_ver + 1)
-            should_lock = not bool(settings_dict.get("allow_modification", False))
+            should_lock = False
 
             if existing:
                 started_at = as_utc(existing["created_at"])
@@ -1341,9 +1430,11 @@ class QuizRepository:
 
                 if timing_mode == "FIXED_TOTAL":
                     total_dur = int(quiz_row["duration_minutes"] or 30) * 60
-                    if elapsed_seconds > total_dur + 5:
+                    if elapsed_seconds > total_dur + 30:
                         raise BusinessRuleViolation("Assessment total time limit has expired")
-                    if qid_str in q_states and q_states[qid_str].get("is_locked"):
+                    lock_on_ans = bool(settings_dict.get("lock_on_answer", False))
+                    should_lock = lock_on_ans
+                    if lock_on_ans and qid_str in q_states and q_states[qid_str].get("is_locked"):
                         if answers_dict.get(qid_str) != answer:
                             raise BusinessRuleViolation("Previous question is locked and cannot be modified")
                 else:
@@ -1371,7 +1462,7 @@ class QuizRepository:
                         ans_dur = max(1, target_limit - ans_rev_dur) if ans_rev_dur > 0 else target_limit
 
                         question_start = q_cum[target_idx]
-                        answering_deadline = question_start + ans_dur if ans_rev_dur > 0 else (question_start + ans_dur + 3.0)
+                        answering_deadline = question_start + ans_dur if ans_rev_dur > 0 else (question_start + ans_dur + 5.0)
 
                         if elapsed_seconds > answering_deadline:
                             raise BusinessRuleViolation("Answering period for this question has expired and answers are locked")
@@ -1437,6 +1528,7 @@ class QuizRepository:
                     json.dumps(q_states)
                 )
 
+        attempted_count = len([k for k, v in answers_dict.items() if v not in (None, '', [], {})])
         return {
             "saved": True,
             "questionId": qid_str,
@@ -1445,6 +1537,8 @@ class QuizRepository:
             "status": "persisted",
             "isAttempted": is_attempted,
             "markedForReview": marked_for_review,
+            "attemptedCount": attempted_count,
+            "serverConfirmedAnswerCount": attempted_count,
         }
 
     @classmethod
@@ -2335,9 +2429,10 @@ class QuizRepository:
                 # Option B: Resume Assessment (Restore last persisted answers, remaining time, do not restart Q1)
                 prev_answers = _parse_json_dict(att["answers"])
                 if att["created_at"] and att["completed_at"]:
-                    spent = (as_utc(att["completed_at"]) - as_utc(att["created_at"])).total_seconds()
+                    spent = max(0.0, (as_utc(att["completed_at"]) - as_utc(att["created_at"])).total_seconds())
                     res_remaining = max(60, int((duration_mins * 60) - spent))
                 else:
+                    spent = 0.0
                     res_remaining = duration_mins * 60
 
                 res_q_idx = max(0, len(prev_answers) - 1) if prev_answers else 0
@@ -2352,12 +2447,13 @@ class QuizRepository:
                         abandonment_warning_at = NULL,
                         abandonment_timeout_at = NULL,
                         remaining_seconds = $2,
+                        created_at = NOW() - make_interval(secs => $3),
                         last_heartbeat_at = NOW(),
                         is_recovered = TRUE,
-                        recovery_history = $3::jsonb
+                        recovery_history = $4::jsonb
                     WHERE id = $1
                     """,
-                    att_uuid, res_remaining, json.dumps(history)
+                    att_uuid, res_remaining, float(spent), json.dumps(history)
                 )
 
             # Insert immutable audit record into quiz_recovery_logs
@@ -2393,6 +2489,7 @@ class QuizRepository:
             "attemptId": str(att_uuid),
             "studentId": str(att["student_user_id"]),
             "candidateStatus": "IN_PROGRESS",
+            "canResume": True,
             "restoredAnswers": prev_answers,
             "remainingSeconds": res_remaining,
             "currentQuestionIndex": res_q_idx,
@@ -2542,6 +2639,300 @@ class QuizRepository:
             "candidateStatus": att["candidate_status"] or "IN_PROGRESS",
             "serverTime": server_now.isoformat(),
         }
+
+    @classmethod
+    async def submit_quiz_feedback(
+        cls,
+        ctx: ScopeContext,
+        quiz_id: str,
+        attempt_id: str,
+        overall_rating: int,
+        difficulty: str,
+        question_quality_rating: int,
+        time_management: str,
+        written_feedback: str | None = None,
+    ) -> dict[str, Any]:
+        """Submits consolidated post-quiz feedback from a student for a valid completed attempt."""
+        u_uuid = _safe_uuid(ctx.user_id)
+        q_uuid = _safe_uuid(quiz_id)
+        att_uuid = _safe_uuid(attempt_id)
+        if not u_uuid:
+            raise ScopeForbidden("Authentication required to submit feedback")
+        if not q_uuid:
+            raise NotFound("Quiz not found")
+        if not att_uuid:
+            raise ValidationError("Valid attempt ID is required")
+
+        # Validate rating and enum bounds
+        if overall_rating < 1 or overall_rating > 5:
+            raise ValidationError("Overall rating must be between 1 and 5")
+        if difficulty not in ("Easy", "Moderate", "Difficult"):
+            raise ValidationError("Difficulty must be 'Easy', 'Moderate', or 'Difficult'")
+        if question_quality_rating < 1 or question_quality_rating > 5:
+            raise ValidationError("Question quality rating must be between 1 and 5")
+        if time_management not in ("Sufficient", "Insufficient"):
+            raise ValidationError("Time management must be 'Sufficient' or 'Insufficient'")
+        if written_feedback and len(written_feedback) > 2000:
+            raise ValidationError("Written feedback must not exceed 2000 characters")
+
+        async with get_pg_connection() as conn:
+            # 1. Verify attempt exists, belongs to this student and quiz, and is completed/submitted
+            att = await conn.fetchrow(
+                """
+                SELECT id, quiz_id, student_user_id, status, candidate_status, completed_at, institution_id
+                FROM quiz_attempts
+                WHERE id = $1 AND quiz_id = $2
+                """,
+                att_uuid, q_uuid
+            )
+            if not att:
+                raise NotFound("Assessment attempt not found for this quiz")
+            if str(att["student_user_id"]) != str(u_uuid):
+                raise ScopeForbidden("You are not authorized to submit feedback for another student's attempt")
+
+            # Check completion status
+            status = (att["status"] or "").lower()
+            candidate_status = (att["candidate_status"] or "").upper()
+            is_completed = (
+                status in ("completed", "submitted", "abandonment_timeout", "expired", "auto_submitted")
+                or candidate_status in ("SUBMITTED", "EXPIRED", "ABANDONMENT_TIMEOUT", "AUTO_SUBMITTED")
+                or att["completed_at"] is not None
+            )
+            if not is_completed:
+                raise BusinessRuleViolation("Feedback can only be submitted after completing the assessment")
+
+            # 2. Check for duplicate submission
+            existing = await conn.fetchrow(
+                "SELECT id, created_at FROM quiz_feedback WHERE attempt_id = $1",
+                att_uuid
+            )
+            if existing:
+                raise Conflict("Feedback has already been submitted for this assessment attempt")
+
+            # 3. Resolve tenant/institution ID
+            quiz_row = await conn.fetchrow("SELECT institution_id FROM quizzes WHERE id = $1", q_uuid)
+            inst_id = att["institution_id"] or (quiz_row["institution_id"] if quiz_row else None) or _safe_uuid(ctx.college_id)
+            if not inst_id:
+                inst_id = u_uuid
+
+            fb_id = uuid.uuid4()
+            clean_written = written_feedback.strip() if written_feedback else None
+
+            await conn.execute(
+                """
+                INSERT INTO quiz_feedback (
+                    id, tenant_id, institution_id, quiz_id, attempt_id, student_user_id,
+                    overall_rating, difficulty, question_quality_rating, time_management,
+                    written_feedback, created_at, updated_at
+                ) VALUES (
+                    $1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW()
+                )
+                """,
+                fb_id, inst_id, q_uuid, att_uuid, u_uuid,
+                overall_rating, difficulty, question_quality_rating, time_management, clean_written
+            )
+
+        return {
+            "id": str(fb_id),
+            "quizId": str(q_uuid),
+            "attemptId": str(att_uuid),
+            "studentUserId": str(u_uuid),
+            "overallRating": overall_rating,
+            "difficulty": difficulty,
+            "questionQualityRating": question_quality_rating,
+            "timeManagement": time_management,
+            "writtenFeedback": clean_written,
+            "submittedAt": _now().isoformat(),
+        }
+
+    @classmethod
+    async def get_student_quiz_feedback(
+        cls,
+        ctx: ScopeContext,
+        quiz_id: str,
+        attempt_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Retrieves existing feedback submitted by the logged-in student for a given quiz/attempt."""
+        u_uuid = _safe_uuid(ctx.user_id)
+        q_uuid = _safe_uuid(quiz_id)
+        att_uuid = _safe_uuid(attempt_id) if attempt_id else None
+        if not u_uuid or not q_uuid:
+            return None
+
+        async with get_pg_connection() as conn:
+            if att_uuid:
+                row = await conn.fetchrow(
+                    """
+                    SELECT id, quiz_id, attempt_id, student_user_id, overall_rating, difficulty,
+                           question_quality_rating, time_management, written_feedback, created_at
+                    FROM quiz_feedback
+                    WHERE quiz_id = $1 AND attempt_id = $2 AND student_user_id = $3
+                    """,
+                    q_uuid, att_uuid, u_uuid
+                )
+            else:
+                row = await conn.fetchrow(
+                    """
+                    SELECT id, quiz_id, attempt_id, student_user_id, overall_rating, difficulty,
+                           question_quality_rating, time_management, written_feedback, created_at
+                    FROM quiz_feedback
+                    WHERE quiz_id = $1 AND student_user_id = $2
+                    ORDER BY created_at DESC LIMIT 1
+                    """,
+                    q_uuid, u_uuid
+                )
+
+            if not row:
+                return None
+
+            return {
+                "id": str(row["id"]),
+                "quizId": str(row["quiz_id"]),
+                "attemptId": str(row["attempt_id"]),
+                "studentUserId": str(row["student_user_id"]),
+                "overallRating": int(row["overall_rating"]),
+                "difficulty": row["difficulty"],
+                "questionQualityRating": int(row["question_quality_rating"]),
+                "timeManagement": row["time_management"],
+                "writtenFeedback": row["written_feedback"] or "",
+                "submittedAt": row["created_at"].isoformat() if row["created_at"] else None,
+            }
+
+    @classmethod
+    async def get_trainer_quiz_feedback(
+        cls,
+        ctx: ScopeContext,
+        quiz_id: str,
+        page: int = 1,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """STRICTLY FOR AUTHORIZED TRAINERS. Returns aggregated summary and paginated student feedbacks."""
+        t_uuid = _safe_uuid(ctx.user_id)
+        q_uuid = _safe_uuid(quiz_id)
+        if not q_uuid:
+            raise NotFound("Quiz not found")
+        if not t_uuid:
+            raise ScopeForbidden("Trainer authentication required")
+
+        page = max(1, page)
+        limit = min(100, max(1, limit))
+        offset = (page - 1) * limit
+
+        async with get_pg_connection() as conn:
+            # Verify quiz exists and trainer authorization (batch trainer, quiz creator, or admin)
+            quiz = await conn.fetchrow(
+                """
+                SELECT q.id, q.title, q.quiz_code, q.creator_trainer_id, q.institution_id
+                FROM quizzes q
+                WHERE q.id = $1
+                  AND (
+                    $2 = q.creator_trainer_id
+                    OR $2 IN (SELECT id FROM users WHERE role IN ('ADMIN', 'SUPER_ADMIN'))
+                    OR EXISTS (
+                      SELECT 1 FROM quiz_batch_assignments qba
+                      JOIN batch_trainers bt ON bt.batch_id = qba.batch_id
+                      WHERE qba.quiz_id = q.id AND bt.trainer_user_id = $2 AND (bt.status = 'ACTIVE' OR bt.status IS NULL)
+                    )
+                    OR EXISTS (
+                      SELECT 1 FROM batch_trainers bt
+                      WHERE bt.batch_id = q.batch_id AND bt.trainer_user_id = $2 AND (bt.status = 'ACTIVE' OR bt.status IS NULL)
+                    )
+                  )
+                """,
+                q_uuid, t_uuid
+            )
+            if not quiz:
+                raise ScopeForbidden("You are not authorized to view feedback for this assessment or quiz does not exist")
+
+            # 1. Aggregated Summary
+            summary_row = await conn.fetchrow(
+                """
+                SELECT
+                    COUNT(*) as total_count,
+                    COALESCE(ROUND(AVG(overall_rating)::numeric, 1), 0.0) as avg_overall,
+                    COALESCE(ROUND(AVG(question_quality_rating)::numeric, 1), 0.0) as avg_quality,
+                    COUNT(*) FILTER (WHERE difficulty = 'Easy') as count_easy,
+                    COUNT(*) FILTER (WHERE difficulty = 'Moderate') as count_moderate,
+                    COUNT(*) FILTER (WHERE difficulty = 'Difficult') as count_difficult,
+                    COUNT(*) FILTER (WHERE time_management = 'Sufficient') as count_sufficient,
+                    COUNT(*) FILTER (WHERE time_management = 'Insufficient') as count_insufficient
+                FROM quiz_feedback
+                WHERE quiz_id = $1
+                """,
+                q_uuid
+            )
+
+            total_submissions = int(summary_row["total_count"] or 0)
+            avg_overall = float(summary_row["avg_overall"] or 0.0)
+            avg_quality = float(summary_row["avg_quality"] or 0.0)
+            easy_count = int(summary_row["count_easy"] or 0)
+            mod_count = int(summary_row["count_moderate"] or 0)
+            diff_count = int(summary_row["count_difficult"] or 0)
+            suff_count = int(summary_row["count_sufficient"] or 0)
+            insuff_count = int(summary_row["count_insufficient"] or 0)
+
+            # 2. Paginated rows
+            rows = await conn.fetch(
+                """
+                SELECT qf.id, qf.attempt_id, qf.student_user_id, qf.overall_rating, qf.difficulty,
+                       qf.question_quality_rating, qf.time_management, qf.written_feedback, qf.created_at,
+                       u.name as student_name, u.email as student_email,
+                       sp.roll_number
+                FROM quiz_feedback qf
+                JOIN users u ON u.id = qf.student_user_id
+                LEFT JOIN student_profiles sp ON sp.user_id = qf.student_user_id
+                WHERE qf.quiz_id = $1
+                ORDER BY qf.created_at DESC
+                LIMIT $2 OFFSET $3
+                """,
+                q_uuid, limit, offset
+            )
+
+            items = []
+            for r in rows:
+                items.append({
+                    "id": str(r["id"]),
+                    "attemptId": str(r["attempt_id"]),
+                    "studentUserId": str(r["student_user_id"]),
+                    "studentName": r["student_name"] or "Student",
+                    "studentEmail": r["student_email"] or "—",
+                    "rollNumber": r["roll_number"] or "—",
+                    "overallRating": int(r["overall_rating"]),
+                    "difficulty": r["difficulty"],
+                    "questionQualityRating": int(r["question_quality_rating"]),
+                    "timeManagement": r["time_management"],
+                    "writtenFeedback": r["written_feedback"] or "",
+                    "submittedAt": r["created_at"].isoformat() if r["created_at"] else None,
+                })
+
+            total_pages = (total_submissions + limit - 1) // limit if total_submissions > 0 else 1
+
+            return {
+                "quizId": str(quiz["id"]),
+                "quizTitle": quiz["title"],
+                "quizCode": quiz["quiz_code"],
+                "summary": {
+                    "totalSubmissions": total_submissions,
+                    "averageOverallRating": avg_overall,
+                    "averageQuestionQualityRating": avg_quality,
+                    "difficultyDistribution": {
+                        "Easy": easy_count,
+                        "Moderate": mod_count,
+                        "Difficult": diff_count,
+                    },
+                    "timeDistribution": {
+                        "Sufficient": suff_count,
+                        "Insufficient": insuff_count,
+                    },
+                },
+                "items": items,
+                "pagination": {
+                    "page": page,
+                    "limit": limit,
+                    "total": total_submissions,
+                    "totalPages": total_pages,
+                },
+            }
 
 
 class AssignmentRepository:

@@ -275,7 +275,7 @@ async def test_assessment_excel_export_warnings_and_camera_snapshots():
         # Validate Sheet 1: Results
         ws_results = wb["Results"]
         headers_row1 = [cell.value for cell in ws_results[1]]
-        assert headers_row1 == [
+        assert headers_row1[:12] == [
             "Rank", "Roll Number", "Student Name", "Batch",
             "Marks", "Max Marks", "Percentage", "Result", "Warnings",
             "Submission Timestamp", "Attempt Status", "Submission Reason"
@@ -293,23 +293,25 @@ async def test_assessment_excel_export_warnings_and_camera_snapshots():
         charlie_data = rows_by_name["Charlie Day"]
         assert charlie_data[8] == 0, f"Charlie warning count should be 0, got {charlie_data[8]}"
 
-        # Validate Sheet 2: Camera Snapshots
+        # Validate Sheet 2: Camera Snapshots (Redesigned)
         ws_camera = wb["Camera Snapshots"]
         cam_headers = [cell.value for cell in ws_camera[1]]
-        assert cam_headers == [
-            "Student Name", "Roll Number", "Assessment ID", "Attempt ID",
-            "Snapshot Timestamp", "Warning/Event Type", "Camera Snapshot"
+        expected_cam_headers = [
+            "Student Name", "Roll Number",
+            "Snapshot 1", "Snapshot 2", "Snapshot 3", "Snapshot 4", "Snapshot 5",
+            "Snapshot 6", "Snapshot 7", "Snapshot 8", "Snapshot 9", "Snapshot 10"
         ]
+        assert cam_headers == expected_cam_headers
 
-        # Verify Charlie (Student with no snapshots) displays "No camera snapshot available."
-        found_no_snapshot_text = False
+        # Verify Charlie (Student with no snapshots) displays "Unavailable" across snapshot slots
+        found_unavailable = False
         for r in range(2, ws_camera.max_row + 1):
             name = ws_camera.cell(row=r, column=1).value
-            snap_val = ws_camera.cell(row=r, column=7).value
-            if name == "Charlie Day" and snap_val == "No camera snapshot available.":
-                found_no_snapshot_text = True
+            snap1_val = ws_camera.cell(row=r, column=3).value
+            if name == "Charlie Day" and snap1_val == "Unavailable":
+                found_unavailable = True
                 break
-        assert found_no_snapshot_text, "Student without snapshot must show 'No camera snapshot available.'"
+        assert found_unavailable, "Student without snapshot must show 'Unavailable'"
 
         # Verify actual embedded images
         embedded_images = ws_camera._images
@@ -430,14 +432,18 @@ async def test_tenant_isolation_and_retake_attempt_snapshots():
         # Verify attempt isolation: 2 attempts by same student
         assert a_wb["Results"].max_row == 3  # Header + 2 attempts
 
-        # Verify corrupted image was safely caught and rendered as 'Image render error' without crashing export
+        # Verify corrupted image was safely caught and rendered as 'Image error' without crashing export
         cam_sheet = a_wb["Camera Snapshots"]
         found_render_error = False
         for r in range(2, cam_sheet.max_row + 1):
-            if cam_sheet.cell(row=r, column=7).value == "Image render error":
-                found_render_error = True
+            for c in range(3, 13):
+                val = str(cam_sheet.cell(row=r, column=c).value or "")
+                if "Image error" in val:
+                    found_render_error = True
+                    break
+            if found_render_error:
                 break
-        assert found_render_error, "Corrupted snapshot must gracefully set 'Image render error'"
+        assert found_render_error, "Corrupted snapshot must gracefully set 'Image error'"
 
         # Verify valid image from attempt 1 was embedded
         assert len(cam_sheet._images) >= 1

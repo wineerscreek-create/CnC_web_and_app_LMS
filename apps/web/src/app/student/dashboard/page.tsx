@@ -38,30 +38,62 @@ import { cn } from '@/lib/cn';
 
 export default function StudentDashboardPage() {
   const query = useApi<any>('/student/dashboard');
+  const nextActionQuery = useApi<any>('/student/dashboard/next-action');
+  const summaryQuery = useApi<any>('/student/dashboard/summary');
+
+  const nextAction = nextActionQuery.data;
+  const summary = summaryQuery.data;
 
   return (
     <AsyncSection query={query} skeleton="kpis">
-      {(data) => (
-        <div className="space-y-6 sm:space-y-8 animate-enter">
-          {/* 1. Customizable Hero Banner (P0) */}
-          <HeroBanner
-            userName={data.student?.firstName ?? data.student?.name ?? 'Participant'}
-            userRole="Participant"
-            roleSubtitle={`${data.streak?.days ?? 0}-Day Streak · ${data.student?.rollNumber || 'Active Cohort'}`}
-            statLabel="Readiness"
-            statValue={data.readiness?.score ? `${data.readiness.score}%` : '—'}
-            statSubtext={data.readiness?.score ? 'Employability Index' : 'Pending evaluations'}
-            primaryAction={{
+      {(data) => {
+        const primaryAction = nextAction
+          ? {
+              label: nextAction.actionLabel || 'Practise Now',
+              href: nextAction.actionUrl || '/student/practice',
+              urgency: nextAction.urgency,
+              icon: nextAction.kind?.includes('ASSESSMENT') ? (
+                <Target className="size-4" />
+              ) : nextAction.kind?.includes('CLASS') ? (
+                <Video className="size-4" />
+              ) : (
+                <Mic className="size-4" />
+              ),
+            }
+          : {
               label: 'Practise Now',
               href: '/student/practice',
               icon: <Mic className="size-4" />,
-            }}
-            secondaryAction={{
-              label: 'My Courses',
-              href: '/student/learning',
-              icon: <BookOpen className="size-4" />,
-            }}
-          />
+            };
+
+        const dynamicNotice =
+          nextAction && nextAction.priority < 9
+            ? {
+                title: nextAction.title,
+                subtitle: nextAction.subtitle,
+                urgency: nextAction.urgency,
+                remainingSeconds: nextAction.remainingSeconds,
+              }
+            : undefined;
+
+        return (
+          <div className="space-y-6 sm:space-y-8 animate-enter">
+            {/* 1. Customizable Hero Banner (P0) with Dynamic Priority CTA */}
+            <HeroBanner
+              userName={data.student?.firstName ?? data.student?.name ?? 'Participant'}
+              userRole="Participant"
+              roleSubtitle={`${data.streak?.days ?? 0}-Day Streak · ${data.student?.rollNumber || 'Active Cohort'}`}
+              statLabel="Readiness"
+              statValue={data.readiness?.score ? `${data.readiness.score}%` : '—'}
+              statSubtext={data.readiness?.score ? 'Employability Index' : 'Pending evaluations'}
+              primaryAction={primaryAction}
+              secondaryAction={{
+                label: 'My Courses',
+                href: '/student/learning',
+                icon: <BookOpen className="size-4" />,
+              }}
+              dynamicNotice={dynamicNotice}
+            />
 
           {/* 2. Key Performance Indicators Row (Strict 4 Colors & Staggered Reveal) */}
           <StaggerContainer className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -380,8 +412,218 @@ export default function StudentDashboardPage() {
               </TiltCard>
             </div>
           </div>
+
+          {/* 4. Assessment Performance Snapshot & Recent Official Reports */}
+          <div className="space-y-4 pt-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-bold font-heading text-heading">
+                  Assessment Performance &amp; Transcripts
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  Your verified assessment results, permanent evaluation transcripts, and upcoming milestones.
+                </p>
+              </div>
+              <Button asChild variant="secondary" size="sm">
+                <Link href="/student/progress" className="flex items-center gap-1.5 text-xs font-semibold">
+                  <span>View All Reports</span>
+                  <ArrowRight className="size-3.5" />
+                </Link>
+              </Button>
+            </div>
+
+            {/* Performance Snapshot Cards */}
+            {summary?.performanceSnapshot && (
+              <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+                <Card className="p-4 border-border bg-card shadow-card">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Average Score
+                  </span>
+                  <div className="mt-2 flex items-baseline justify-between">
+                    <span className="text-2xl font-bold font-mono text-heading">
+                      {summary.performanceSnapshot.averageScore !== null &&
+                      summary.performanceSnapshot.averageScore !== undefined
+                        ? `${num(summary.performanceSnapshot.averageScore, 1)}%`
+                        : '—'}
+                    </span>
+                    <Target className="size-4 text-accent" />
+                  </div>
+                  <p className="mt-1.5 text-xs text-muted-foreground">Overall assessment performance</p>
+                </Card>
+
+                <Card className="p-4 border-border bg-card shadow-card">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Completed Assessments
+                  </span>
+                  <div className="mt-2 flex items-baseline justify-between">
+                    <span className="text-2xl font-bold font-mono text-heading">
+                      {summary.performanceSnapshot.completedAssessments ?? 0}
+                    </span>
+                    <Clock className="size-4 text-muted-foreground" />
+                  </div>
+                  <p className="mt-1.5 text-xs text-muted-foreground">Evaluated attempts</p>
+                </Card>
+
+                <Card className="p-4 border-border bg-card shadow-card">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                    Passed Assessments
+                  </span>
+                  <div className="mt-2 flex items-baseline justify-between">
+                    <span className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                      {summary.performanceSnapshot.passedCount ?? 0}
+                    </span>
+                    <CheckCircle2 className="size-4 text-emerald-500" />
+                  </div>
+                  <p className="mt-1.5 text-xs text-muted-foreground">Passed requirements</p>
+                </Card>
+
+                <Card className="p-4 border-border bg-card shadow-card">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Pass Rate
+                  </span>
+                  <div className="mt-2 flex items-baseline justify-between">
+                    <span className="text-2xl font-bold font-mono text-accent">
+                      {summary.performanceSnapshot.passRate !== null &&
+                      summary.performanceSnapshot.passRate !== undefined
+                        ? `${num(summary.performanceSnapshot.passRate, 1)}%`
+                        : '—'}
+                    </span>
+                    <Trophy className="size-4 text-accent" />
+                  </div>
+                  <p className="mt-1.5 text-xs text-muted-foreground">Success ratio</p>
+                </Card>
+              </div>
+            )}
+
+            {/* Split Grid: Recent Assessment Results & Upcoming Events */}
+            <div className="grid gap-6 lg:grid-cols-2">
+              {/* Recent Assessment Results */}
+              <Card className="border-border bg-card shadow-card">
+                <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base font-bold font-heading text-heading">
+                      Recent Assessment Results
+                    </CardTitle>
+                    <CardSubtitle className="text-xs text-muted-foreground">
+                      Latest evaluated assessments with official reports
+                    </CardSubtitle>
+                  </div>
+                  <Badge tone="mustard" className="font-mono text-xs">
+                    {(summary?.recentReports ?? []).length} Recent
+                  </Badge>
+                </CardHeader>
+                <CardBody className="p-4 space-y-2.5">
+                  {Array.isArray(summary?.recentReports) && summary.recentReports.length > 0 ? (
+                    summary.recentReports.map((rep: any) => {
+                      const isPassed = rep.resultStatus === 'PASSED';
+                      return (
+                        <div
+                          key={rep.id}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-border/80 bg-muted/20 p-3 hover:bg-muted/30 transition-colors"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-bold text-heading truncate">
+                              {rep.assessmentTitle}
+                            </p>
+                            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                              <span>{formatDate(rep.completedAt)}</span>
+                              <span>·</span>
+                              <span className="font-mono font-semibold text-foreground">
+                                {num(rep.score, 1)} / {num(rep.maxMarks, 1)} pts
+                              </span>
+                              <span>·</span>
+                              <span className="font-mono font-bold text-accent">
+                                {num(rep.percentage, 1)}%
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2.5 shrink-0">
+                            <Badge
+                              tone={isPassed ? 'mustard' : 'neutral'}
+                              className="text-[10px] font-bold uppercase"
+                            >
+                              {rep.resultStatus}
+                            </Badge>
+                            <Button asChild variant="secondary" size="sm" className="h-7 text-xs px-2.5">
+                              <Link href={`/student/progress?reportId=${rep.id}`}>
+                                View Report
+                              </Link>
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="py-8 text-center text-xs text-muted-foreground">
+                      No assessment results recorded yet. Completed assessments will appear here with permanent reports.
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+
+              {/* Upcoming Events & Deadlines */}
+              <Card className="border-border bg-card shadow-card">
+                <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base font-bold font-heading text-heading">
+                      Upcoming Events &amp; Deadlines
+                    </CardTitle>
+                    <CardSubtitle className="text-xs text-muted-foreground">
+                      Scheduled assessments and live classes (Next 7 days)
+                    </CardSubtitle>
+                  </div>
+                  <Badge tone="charcoal" className="font-mono text-xs">
+                    {(summary?.upcomingEvents ?? []).length} Scheduled
+                  </Badge>
+                </CardHeader>
+                <CardBody className="p-4 space-y-2.5">
+                  {Array.isArray(summary?.upcomingEvents) && summary.upcomingEvents.length > 0 ? (
+                    summary.upcomingEvents.map((evt: any) => {
+                      const isAssessment = evt.type === 'ASSESSMENT';
+                      return (
+                        <div
+                          key={evt.id}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-border/80 bg-muted/20 p-3 hover:bg-muted/30 transition-colors"
+                        >
+                          <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                            <div className="mt-0.5 rounded-lg bg-primary/10 p-1.5 text-primary shrink-0">
+                              {isAssessment ? <Target className="size-3.5" /> : <Video className="size-3.5" />}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-bold text-heading truncate">
+                                {evt.title}
+                              </p>
+                              <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                                <span>{formatDate(evt.scheduledAt)}</span>
+                                {evt.trainerName && (
+                                  <>
+                                    <span>·</span>
+                                    <span>{evt.trainerName}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <Button asChild variant="primary" size="sm" className="h-7 text-xs px-2.5 shrink-0">
+                            <Link href={evt.actionUrl || (isAssessment ? '/student/assessments' : '/student/live-classes')}>
+                              {isAssessment ? 'Open Assessment' : 'Join Class'}
+                            </Link>
+                          </Button>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="py-8 text-center text-xs text-muted-foreground">
+                      No events or assessments scheduled within the next 7 days. Check back soon!
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+            </div>
+          </div>
         </div>
-      )}
-    </AsyncSection>
-  );
+      );
+    }}
+  </AsyncSection>
+);
 }

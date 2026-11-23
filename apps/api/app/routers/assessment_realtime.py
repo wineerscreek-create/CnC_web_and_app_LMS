@@ -119,60 +119,57 @@ async def get_assessment_monitor_data(
     live_students = {s["session_id"]: s for s in assessment_hub.get_monitor_data(str(q_uuid))}
 
     merged: list[dict[str, Any]] = []
-    seen_ids = set()
+    now_ts = time.time()
 
-    # Process live students first
-    for uid, live in live_students.items():
-        seen_ids.add(uid)
-        merged.append(live)
-
-    # Merge students with recorded attempts who may not currently be connected
+    # ONLY candidates who have an actual attempt in quiz_attempts appear in live monitoring
     for att in db_attempts:
         uid = str(att["student_user_id"])
-        att_status = att["status"] or "submitted"
-        cand_status = att["candidate_status"] or (
-            "SUBMITTED" if att_status == "completed" else "IN_PROGRESS"
-        )
-        if uid not in seen_ids:
-            seen_ids.add(uid)
-            merged.append({
-                "session_id": uid,
-                "attempt_id": str(att["id"]),
-                "name": att["name"],
-                "roll_number": att["roll_number"] or "—",
-                "current_question": 0,
-                "total_questions": 0,
-                "remaining_seconds": att["remaining_seconds"] or 0,
-                "warnings": att["warning_count"] or 0,
-                "camera_on": False,
-                "camera_status": att["camera_status"] or "OFF",
-                "fullscreen": False,
-                "online": False,
-                "status": att_status,
-                "candidate_status": cand_status,
-                "submission_reason": att["submission_reason"],
-                "is_recovered": bool(att["is_recovered"]),
-                "score": float(att["score"]) if att["score"] is not None else None,
-                "percentage": float(att["percentage"]) if att["percentage"] is not None else None,
-                "passed": att["passed"],
-                "completed_at": att["completed_at"].isoformat() if att["completed_at"] else None,
-                "last_seen_seconds_ago": 9999,
-                "stale": False,
-            })
+        live = live_students.get(uid)
+
+        # Determine online and freshness status
+        is_online = False
+        last_seen_sec = 9999
+        if live:
+            is_online = bool(live.get("online"))
+            last_seen_sec = int(live.get("last_seen_seconds_ago", 9999))
+            if last_seen_sec > 25:
+                is_online = False
+
+        att_status = att["status"] or "in_progress"
+        if att_status == "completed":
+            cand_status = att["candidate_status"] or "COMPLETED"
+        elif not is_online:
+            cand_status = "DISCONNECTED"
         else:
-            for m in merged:
-                if m.get("session_id") == uid:
-                    m["attempt_id"] = str(att["id"])
-                    m["score"] = float(att["score"]) if att["score"] is not None else None
-                    m["percentage"] = float(att["percentage"]) if att["percentage"] is not None else None
-                    m["passed"] = att["passed"]
-                    m["is_recovered"] = bool(att["is_recovered"])
-                    m["submission_reason"] = att["submission_reason"]
-                    m["completed_at"] = att["completed_at"].isoformat() if att["completed_at"] else None
-                    if att_status == "completed":
-                        m["status"] = att_status
-                        m["candidate_status"] = cand_status
-                    break
+            cand_status = att["candidate_status"] or "IN_PROGRESS"
+
+        camera_active = bool(live.get("camera_on")) if live else False
+        camera_stat = (live.get("camera_status") if live else None) or (att["camera_status"] if "camera_status" in att and att["camera_status"] else None) or ("ON" if camera_active else "OFF")
+
+        merged.append({
+            "session_id": uid,
+            "attempt_id": str(att["id"]),
+            "name": att["name"],
+            "roll_number": att["roll_number"] or "—",
+            "current_question": live.get("current_question", 0) if live else 0,
+            "total_questions": live.get("total_questions", 0) if live else 0,
+            "remaining_seconds": live.get("remaining_seconds", att["remaining_seconds"] or 0) if (live and live.get("remaining_seconds") is not None) else (att["remaining_seconds"] or 0),
+            "warnings": att["warning_count"] or 0,
+            "camera_on": camera_active,
+            "camera_status": camera_stat,
+            "fullscreen": bool(live.get("fullscreen")) if live else False,
+            "online": is_online,
+            "status": att_status,
+            "candidate_status": cand_status,
+            "submission_reason": att["submission_reason"],
+            "is_recovered": bool(att["is_recovered"]),
+            "score": float(att["score"]) if att["score"] is not None else None,
+            "percentage": float(att["percentage"]) if att["percentage"] is not None else None,
+            "passed": att["passed"],
+            "completed_at": att["completed_at"].isoformat() if att["completed_at"] else None,
+            "last_seen_seconds_ago": last_seen_sec,
+            "stale": bool(not is_online and att_status == "in_progress"),
+        })
 
     return {
         "success": True,

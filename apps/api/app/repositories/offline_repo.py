@@ -8,6 +8,7 @@ Handles:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -17,6 +18,12 @@ from typing import Any
 from app.authz.context import ScopeContext
 from app.core.errors import BusinessRuleViolation, NotFound, ScopeForbidden, ValidationError
 from app.db.postgres import get_pg_connection
+from app.services.offline_crypto import (
+    sign_offline_package,
+    generate_sync_receipt,
+    verify_package_signature,
+    compute_attempt_integrity_hash,
+)
 
 
 def _now() -> datetime:
@@ -51,6 +58,7 @@ class OfflineRepository:
         package_type: str,
         resource_id_str: str,
         duration_days: int = 7,
+        device_fingerprint: str | None = None,
     ) -> dict[str, Any]:
         u_uuid = _safe_uuid(ctx.user_id)
         r_uuid = _safe_uuid(resource_id_str)
@@ -127,15 +135,22 @@ class OfflineRepository:
             else:
                 raise ValidationError(f"Unsupported package type '{package_type}'.")
 
+            pkg_id = uuid.uuid4()
+            duration_mins = int(quiz["duration_minutes"]) if (package_type == "ASSESSMENT_PACK" and quiz and quiz.get("duration_minutes")) else 60
+            pkg_signature = sign_offline_package(str(pkg_id), str(r_uuid), str(u_uuid), expires_at.isoformat(), duration_mins)
+            device_fp_hash = hashlib.sha256(device_fingerprint.encode("utf-8")).hexdigest() if device_fingerprint else None
+
             row = await conn.fetchrow(
                 """
                 INSERT INTO offline_packages (
-                    user_id, institution_id, batch_id, package_type, resource_id,
-                    server_revision, manifest, authorized_at, expires_at, status
+                    id, user_id, institution_id, batch_id, package_type, resource_id,
+                    server_revision, manifest, authorized_at, expires_at, status,
+                    package_signature, max_duration_minutes, device_fingerprint_hash, downloaded_at
                 ) VALUES (
-                    $1, $2, $3, $4, $5, 1, $6::jsonb, $7, $8, 'ACTIVE'
-                ) RETURNING id, server_revision, authorized_at, expires_at, status
+                    $1, $2, $3, $4, $5, $6, 1, $7::jsonb, $8, $9, 'ACTIVE', $10, $11, $12, NOW()
+                ) RETURNING id, server_revision, authorized_at, expires_at, status, package_signature
                 """,
+                pkg_id,
                 u_uuid,
                 inst_uuid,
                 None,
@@ -144,6 +159,9 @@ class OfflineRepository:
                 json.dumps(manifest),
                 now,
                 expires_at,
+                pkg_signature,
+                duration_mins,
+                device_fp_hash,
             )
 
         return {
@@ -155,6 +173,8 @@ class OfflineRepository:
             "authorizedAt": row["authorized_at"].isoformat(),
             "expiresAt": row["expires_at"].isoformat(),
             "status": row["status"],
+            "packageSignature": row.get("package_signature"),
+            "durationMinutes": duration_mins,
         }
 
     @classmethod
@@ -168,7 +188,7 @@ class OfflineRepository:
             pkg = await conn.fetchrow(
                 """
                 SELECT id, user_id, package_type, resource_id, server_revision,
-                       manifest, authorized_at, expires_at, status
+                       manifest, authorized_at, expires_at, status, package_signature, max_duration_minutes
                 FROM offline_packages
                 WHERE id = $1 AND user_id = $2
                 """,
@@ -207,7 +227,11 @@ class OfflineRepository:
 
             elif pkg_type == "ASSESSMENT_PACK":
                 quiz = await conn.fetchrow(
-                    "SELECT id, title, kind, duration_minutes, max_score, questions FROM quizzes WHERE id = $1",
+                    """
+                    SELECT id, title, kind, duration_minutes, max_score, questions,
+                           settings, instructions, opens_at, closes_at, timing_mode
+                    FROM quizzes WHERE id = $1
+                    """,
                     resource_id,
                 )
                 if not quiz:
@@ -237,7 +261,16 @@ class OfflineRepository:
                     "kind": quiz.get("kind", "quiz"),
                     "durationMinutes": quiz["duration_minutes"],
                     "maxScore": quiz["max_score"],
+                    "timingMode": quiz.get("timing_mode", "FIXED_TOTAL"),
+                    "instructions": quiz.get("instructions") or "Read each question carefully and select the best answer.",
+                    "settings": _parse_json(quiz.get("settings")),
                     "questions": sanitized_questions,
+                    "authorization": {
+                        "studentId": str(u_uuid),
+                        "authorizedAt": pkg["authorized_at"].isoformat(),
+                        "expiresAt": pkg["expires_at"].isoformat(),
+                        "packageSignature": pkg.get("package_signature"),
+                    },
                 }
 
             elif pkg_type == "GAME_PACK":
@@ -256,6 +289,7 @@ class OfflineRepository:
             "serverRevision": pkg["server_revision"],
             "authorizedAt": pkg["authorized_at"].isoformat(),
             "expiresAt": pkg["expires_at"].isoformat(),
+            "packageSignature": pkg.get("package_signature"),
             "bundle": bundle_data,
         }
 
@@ -385,15 +419,30 @@ class OfflineRepository:
                             official_score = round(earned / possible * 100, 1) if possible > 0 else 0.0
                             duration_secs = int(payload.get("durationSeconds") or 0)
                             attempt_id = _safe_uuid(op.get("attemptId")) or uuid.uuid4()
+                            integrity_hash = payload.get("integrityHash") or payload.get("clientHash")
+                            local_sub_str = payload.get("localSubmittedAt")
+                            local_submitted_at = None
+                            if local_sub_str:
+                                try:
+                                    local_submitted_at = datetime.fromisoformat(local_sub_str.replace("Z", "+00:00"))
+                                except Exception:
+                                    pass
 
                             # Persist attempt record matching quiz_attempts schema
                             await conn.execute(
                                 """
                                 INSERT INTO quiz_attempts (
-                                    id, quiz_id, student_user_id, score, possible, answers, created_at, completed_at
+                                    id, quiz_id, student_user_id, score, possible, answers,
+                                    status, candidate_status, submission_source, offline_integrity_hash,
+                                    time_taken_seconds, local_submitted_at, created_at, completed_at
                                 ) VALUES (
-                                    $1, $2, $3, $4, $5, $6::jsonb, NOW(), NOW()
-                                ) ON CONFLICT (id) DO NOTHING
+                                    $1, $2, $3, $4, $5, $6::jsonb,
+                                    'completed', 'COMPLETED', 'OFFLINE_SYNC', $7,
+                                    $8, $9, NOW() - ($10 * INTERVAL '1 second'), NOW()
+                                ) ON CONFLICT (id) DO UPDATE SET
+                                    score = EXCLUDED.score,
+                                    answers = EXCLUDED.answers,
+                                    completed_at = EXCLUDED.completed_at
                                 """,
                                 attempt_id,
                                 quiz_id,
@@ -401,6 +450,69 @@ class OfflineRepository:
                                 int(official_score),
                                 int(quiz["max_score"] or 100),
                                 json.dumps(answers_list),
+                                integrity_hash,
+                                int(duration_secs),
+                                local_submitted_at,
+                                float(duration_secs),
+                            )
+
+                            # Ingest offline camera snapshots if present in payload
+                            raw_snapshots = payload.get("snapshots") or []
+                            for snap in raw_snapshots:
+                                snap_data = snap.get("imageData") or snap.get("frame") or snap.get("image") or ""
+                                evt_type = snap.get("eventType") or "PERIODIC"
+                                if snap_data:
+                                    await conn.execute(
+                                        """
+                                        INSERT INTO quiz_camera_snapshots (
+                                            quiz_id, student_user_id, attempt_id, event_type, image_data, snapshot_timestamp, created_at
+                                        ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+                                        """,
+                                        quiz_id,
+                                        u_uuid,
+                                        attempt_id,
+                                        evt_type,
+                                        snap_data,
+                                    )
+
+                            # Ingest offline proctoring events if present in payload
+                            raw_events = payload.get("proctoringEvents") or payload.get("proctoringLogs") or payload.get("eventSequence") or []
+                            for ev in raw_events:
+                                ev_type = ev.get("eventType") or ev.get("type") or "UNKNOWN_VIOLATION"
+                                ev_ts_str = ev.get("timestamp") or ev.get("clientTimestamp")
+                                ev_ts = None
+                                if ev_ts_str:
+                                    try:
+                                        ev_ts = datetime.fromisoformat(ev_ts_str.replace("Z", "+00:00"))
+                                    except Exception:
+                                        pass
+                                ev_elapsed = int(ev.get("elapsedSeconds") or ev.get("elapsed") or 0)
+                                await conn.execute(
+                                    """
+                                    INSERT INTO offline_proctoring_logs (
+                                        attempt_id, quiz_id, user_id, event_type, client_timestamp, elapsed_seconds, metadata, created_at
+                                    ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
+                                    """,
+                                    attempt_id,
+                                    quiz_id,
+                                    u_uuid,
+                                    ev_type,
+                                    ev_ts or _now(),
+                                    ev_elapsed,
+                                    json.dumps(ev.get("metadata") or {}),
+                                )
+
+                            # Generate permanent assessment report snapshot
+                            try:
+                                from app.repositories.assessment_report_repo import AssessmentReportRepository
+                                await AssessmentReportRepository.generate_and_persist_report(attempt_id, conn=conn)
+                            except Exception as e:
+                                import logging
+                                logging.getLogger("app").error("offline_assessment_report_failed", extra={"error": str(e), "attempt_id": str(attempt_id)})
+
+                            processed_at_iso = _now().isoformat()
+                            receipt = generate_sync_receipt(
+                                str(attempt_id), str(quiz_id), str(u_uuid), official_score, processed_at_iso
                             )
 
                             op_result = {
@@ -408,7 +520,8 @@ class OfflineRepository:
                                 "quizId": str(quiz_id),
                                 "officialScore": official_score,
                                 "passed": official_score >= 50.0,
-                                "evaluatedAt": _now().isoformat(),
+                                "evaluatedAt": processed_at_iso,
+                                "receipt": receipt,
                             }
 
                         # Operation 2: COMPLETE_LESSON

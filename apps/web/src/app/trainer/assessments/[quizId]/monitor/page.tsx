@@ -2,11 +2,13 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   ArrowLeft,
   Camera,
   Download,
   FileSpreadsheet,
+  MessageSquare,
   RefreshCw,
   RotateCcw,
   StopCircle,
@@ -15,6 +17,9 @@ import {
   Clock,
   ShieldAlert,
   Check,
+  HardDrive,
+  WifiOff,
+  ShieldCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -91,6 +96,11 @@ export default function TrainerAssessmentMonitorPage() {
   const [recoveryReason, setRecoveryReason] = useState('');
   const [recovering, setRecovering] = useState(false);
 
+  // Decentralized Offline Examination Cohort state
+  const [activeTab, setActiveTab] = useState<'ONLINE_MONITOR' | 'OFFLINE_COHORT'>('ONLINE_MONITOR');
+  const [offlineReadiness, setOfflineReadiness] = useState<any>(null);
+  const [loadingOffline, setLoadingOffline] = useState(false);
+
   const socketRef = useRef<WebSocket | null>(null);
   const snapshotsRef = useRef(snapshots);
   snapshotsRef.current = snapshots;
@@ -126,11 +136,27 @@ export default function TrainerAssessmentMonitorPage() {
     }
   }, [params.quizId]);
 
+  const fetchOfflineReadiness = useCallback(async () => {
+    if (!params.quizId) return;
+    setLoadingOffline(true);
+    try {
+      const res = await api.get(`/trainer/assessments/${params.quizId}/offline-readiness`);
+      if (res.data) {
+        setOfflineReadiness(res.data?.data || res.data);
+      }
+    } catch (err) {
+      console.warn('Failed to load offline readiness:', err);
+    } finally {
+      setLoadingOffline(false);
+    }
+  }, [params.quizId]);
+
   useEffect(() => {
     fetchMonitorData();
+    fetchOfflineReadiness();
     const interval = setInterval(fetchMonitorData, 30000); // 30s safety poll
     return () => clearInterval(interval);
-  }, [fetchMonitorData]);
+  }, [fetchMonitorData, fetchOfflineReadiness]);
 
   // Push activity feed event
   const pushActivity = useCallback((text: string) => {
@@ -451,6 +477,12 @@ export default function TrainerAssessmentMonitorPage() {
             <FileSpreadsheet className="mr-1.5 size-3.5 text-emerald-600" />
             Export Excel with Photos
           </Button>
+          <Button asChild variant="secondary" size="sm">
+            <Link href={`/trainer/assessments/${params.quizId}/feedback`}>
+              <MessageSquare className="mr-1.5 size-3.5 text-primary" />
+              View Feedback
+            </Link>
+          </Button>
           <Button
             variant="danger"
             size="sm"
@@ -462,8 +494,189 @@ export default function TrainerAssessmentMonitorPage() {
         </div>
       </div>
 
-      {/* Metrics Header */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      {/* View Switcher: Live Online Monitor vs Offline Cohort Readiness */}
+      <div className="flex border-b border-line gap-6">
+        <button
+          type="button"
+          onClick={() => setActiveTab('ONLINE_MONITOR')}
+          className={cn(
+            'pb-3 text-sm font-semibold transition-colors border-b-2 flex items-center gap-2',
+            activeTab === 'ONLINE_MONITOR'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-ink-3 hover:text-ink-1'
+          )}
+        >
+          <Users className="size-4" />
+          Live Online Proctoring (WebSocket)
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('OFFLINE_COHORT');
+            void fetchOfflineReadiness();
+          }}
+          className={cn(
+            'pb-3 text-sm font-semibold transition-colors border-b-2 flex items-center gap-2',
+            activeTab === 'OFFLINE_COHORT'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-ink-3 hover:text-ink-1'
+          )}
+        >
+          <HardDrive className="size-4" />
+          Offline Cohort &amp; Sync Readiness
+          {offlineReadiness?.attemptMetrics?.totalSynchronized != null && (
+            <Badge tone="success" className="text-[10px] ml-1">
+              {offlineReadiness.attemptMetrics.totalSynchronized} Synced
+            </Badge>
+          )}
+        </button>
+      </div>
+
+      {activeTab === 'OFFLINE_COHORT' ? (
+        <div className="space-y-6">
+          {/* Offline Cohort Metrics */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <Card>
+              <CardBody className="p-4">
+                <span className="text-xs text-ink-3">Authorized Packages</span>
+                <p className="tnum mt-1 text-2xl font-bold text-ink-1">
+                  {offlineReadiness?.downloadedPackagesCount ?? offlineReadiness?.downloadMetrics?.uniqueStudentsDownloaded ?? 0}
+                </p>
+                <span className="text-[10px] text-ink-3">Students downloaded package</span>
+              </CardBody>
+            </Card>
+            <Card>
+              <CardBody className="p-4">
+                <span className="text-xs text-ink-3">Synchronized Attempts</span>
+                <p className="tnum mt-1 text-2xl font-bold text-emerald-600">
+                  {offlineReadiness?.synchronizedAttemptsCount ?? offlineReadiness?.attemptMetrics?.totalSynchronized ?? 0}
+                </p>
+                <span className="text-[10px] text-emerald-600/80">Evaluated on server</span>
+              </CardBody>
+            </Card>
+            <Card>
+              <CardBody className="p-4">
+                <span className="text-xs text-ink-3">Pending Synchronization</span>
+                <p className="tnum mt-1 text-2xl font-bold text-amber-600">
+                  {offlineReadiness?.pendingSyncCount ?? offlineReadiness?.attemptMetrics?.pendingSyncEstimated ?? 0}
+                </p>
+                <span className="text-[10px] text-amber-600/80">Awaiting student reconnect</span>
+              </CardBody>
+            </Card>
+            <Card>
+              <CardBody className="p-4">
+                <span className="text-xs text-ink-3">Offline Proctoring Events</span>
+                <p className="tnum mt-1 text-2xl font-bold text-indigo-600">
+                  {offlineReadiness?.offlineProctoringEventsCount ?? offlineReadiness?.proctoringSummary?.totalOfflineSnapshots ?? 0}
+                </p>
+                <span className="text-[10px] text-indigo-600/80">
+                  Recorded and ingested
+                </span>
+              </CardBody>
+            </Card>
+          </div>
+
+          {/* Architecture Status Banner */}
+          <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 flex items-start gap-3.5">
+            <div className="size-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
+              <ShieldCheck className="size-5" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-semibold text-ink-1">
+                Decentralized Offline-First Examination Cohort
+              </h4>
+              <p className="text-xs text-ink-3 leading-relaxed">
+                Students execute this assessment completely offline on their own devices without any LAN or local server requirement.
+                No artificial heartbeats are generated while candidates are disconnected. All answers and proctoring logs are sealed locally with SHA-256 integrity checksums and automatically evaluated authoritatively upon network synchronization.
+              </p>
+            </div>
+          </div>
+
+          {/* Synchronized Cohort Roster */}
+          <Card className="overflow-hidden">
+            <CardHeader className="border-b border-line px-4 py-3 flex items-center justify-between">
+              <CardTitle className="text-sm font-semibold">
+                Synchronized Attempts &amp; Verification Log
+              </CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={fetchOfflineReadiness}
+                disabled={loadingOffline}
+                className="text-xs h-7"
+              >
+                <RefreshCw className={cn('size-3 mr-1', loadingOffline && 'animate-spin')} />
+                Refresh Roster
+              </Button>
+            </CardHeader>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-app text-ink-3 font-medium border-b border-line">
+                  <tr>
+                    <th className="p-3">Roll</th>
+                    <th className="p-3">Candidate</th>
+                    <th className="p-3">Duration</th>
+                    <th className="p-3">Score</th>
+                    <th className="p-3">Result</th>
+                    <th className="p-3">Source</th>
+                    <th className="p-3">Integrity Hash</th>
+                    <th className="p-3">Synchronized At</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {(() => {
+                    const syncedList = offlineReadiness?.synchronizedAttempts || offlineReadiness?.recentSynchronizedAttempts || [];
+                    if (syncedList.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={8} className="p-6 text-center text-ink-3">
+                            No synchronized offline attempts recorded yet.
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return syncedList.map((att: any) => (
+                      <tr key={att.attemptId} className="hover:bg-card-hover transition-colors">
+                        <td className="p-3 font-mono font-medium text-ink-1">
+                          {att.rollNumber || '—'}
+                        </td>
+                        <td className="p-3 font-medium text-ink-1">
+                          {att.studentName || 'Student'}
+                        </td>
+                        <td className="p-3 font-mono text-ink-2">
+                          {att.durationSeconds || att.timeTakenSeconds ? fmtTime(att.durationSeconds || att.timeTakenSeconds) : '—'}
+                        </td>
+                        <td className="p-3 font-mono font-bold text-ink-1">
+                          {att.score}
+                        </td>
+                        <td className="p-3">
+                          <Badge tone={att.score >= 50 ? 'success' : 'danger'}>
+                            {att.score >= 50 ? 'PASSED' : 'FAILED'}
+                          </Badge>
+                        </td>
+                        <td className="p-3">
+                          <Badge tone="purple" className="font-mono text-[10px]">
+                            {att.submissionSource || 'OFFLINE_SYNC'}
+                          </Badge>
+                        </td>
+                        <td className="p-3 font-mono text-[10px] text-ink-3 max-w-[140px] truncate" title={att.integrityHash}>
+                          {att.integrityHash ? `${att.integrityHash.slice(0, 12)}…` : '—'}
+                        </td>
+                        <td className="p-3 text-ink-3">
+                          {att.syncedAt || att.submittedAt ? new Date(att.syncedAt || att.submittedAt).toLocaleTimeString() : '—'}
+                        </td>
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+      ) : (
+        <>
+          {/* Metrics Header */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Card>
           <CardBody className="p-4">
             <span className="text-xs text-ink-3">Total Candidates</span>
@@ -604,12 +817,16 @@ export default function TrainerAssessmentMonitorPage() {
                             <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-rose-100 text-rose-800">
                               Abandoned
                             </span>
-                          ) : candStatus === 'TEMPORARILY_DISCONNECTED' ? (
-                            <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-amber-100 text-amber-800">
+                          ) : candStatus === 'DISCONNECTED' || candStatus === 'TEMPORARILY_DISCONNECTED' ? (
+                            <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-300 dark:border-amber-700">
                               Disconnected
                             </span>
-                          ) : candStatus === 'SUBMITTED' || candStatus === 'COMPLETED' || candStatus === 'AUTO_SUBMITTED' || s.status === 'submitted' || s.status === 'completed' ? (
-                            <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-emerald-100 text-emerald-800">
+                          ) : candStatus === 'AUTO_SUBMITTED' ? (
+                            <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-400 border border-purple-300 dark:border-purple-700">
+                              Auto-Submitted
+                            </span>
+                          ) : candStatus === 'SUBMITTED' || candStatus === 'COMPLETED' || s.status === 'submitted' || s.status === 'completed' ? (
+                            <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400">
                               Completed
                             </span>
                           ) : (
@@ -731,6 +948,8 @@ export default function TrainerAssessmentMonitorPage() {
           </Card>
         </div>
       </div>
+    </>
+  )}
 
       {/* Confirm End Quiz Modal */}
       <ConfirmDialog

@@ -1,0 +1,73 @@
+'use client';
+
+import * as React from 'react';
+import {
+  Activity,
+  AlertTriangle,
+  Award,
+  BarChart3,
+  BookOpen,
+  Briefcase,
+  Building2,
+  CalendarCheck,
+  CalendarDays,
+  ClipboardCheck,
+  ClipboardList,
+  CreditCard,
+  FileSpreadsheet,
+  FileText,
+  Gamepad2,
+  GraduationCap,
+  HardDrive,
+  HelpCircle,
+  LayoutGrid,
+  Lock,
+  MessageSquare,
+  Server,
+  Settings,
+  ShieldCheck,
+  Target,
+  TrendingUp,
+  Upload,
+  UserCheck,
+  Users,
+  Video,
+  type LucideIcon,
+} from 'lucide-react';
+
+const ICON_MAP: Record<string, LucideIcon> = {
+  LayoutGrid,
+  BookOpen,
+  MessageSquare,
+  Gamepad2,
+  Target,
+  Video,
+  ClipboardList,
+  BarChart3,
+  Award,
+  CreditCard,
+  HardDrive,
+  FileText,
+  UserCheck,
+  Users,
+  CalendarDays,
+  CalendarCheck,
+  ClipboardCheck,
+  TrendingUp,
+  FileSpreadsheet,
+  AlertTriangle,
+  Building2,
+  GraduationCap,
+  Upload,
+  Briefcase,
+  ShieldCheck,
+  Server,
+  Settings,
+  Activity,
+  Lock,
+};
+
+export function GuideIcon({ name, className }: { name: string; className?: string }) {
+  const IconComponent = ICON_MAP[name] ?? HelpCircle;
+  return <IconComponent className={className} aria-hidden />;
+}

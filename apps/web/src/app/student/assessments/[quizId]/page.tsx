@@ -41,7 +41,9 @@ import { useAppSelector } from '@/store';
 import { offlineDB, isAuthorizationValid } from '@/lib/offline/db';
 import { syncEngine } from '@/lib/offline/syncEngine';
 import { CameraFeed } from '@/components/quiz/CameraFeed';
+import { QuizFeedbackForm } from '@/components/quiz/QuizFeedbackForm';
 import { useAntiCheat } from '@/hooks/useAntiCheat';
+import { useExamTabLock } from '@/hooks/useExamTabLock';
 import { getAssessmentWsUrl } from '@/lib/quiz/ws';
 
 interface QuestionOption {
@@ -142,10 +144,11 @@ export default function AssessmentAttemptPage() {
   const [abandonmentCountdown, setAbandonmentCountdown] = React.useState<number>(20);
   const abandonmentTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
-  // Debounced Autosave State & Monotonic Versioning
+  // Debounced Autosave State, Durable Queue & Monotonic Versioning
   const [saveStatus, setSaveStatus] = React.useState<'saved' | 'saving' | 'unsaved' | 'error'>('saved');
   const versionRef = React.useRef<number>(0);
   const debouncedSaveTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const pendingSavesQueueRef = React.useRef<Record<string, { answer: any; version: number }>>({});
 
   const socketRef = React.useRef<WebSocket | null>(null);
   const submittedRef = React.useRef<boolean>(false);
@@ -159,11 +162,21 @@ export default function AssessmentAttemptPage() {
   const questionPhaseRef = React.useRef<'answering' | 'revealing'>('answering');
   const revealCountdownRef = React.useRef<number>(0);
   const submitAssessmentRef = React.useRef<(reason?: string) => Promise<void>>(() => Promise.resolve());
+  const offlineAttemptIdRef = React.useRef<string>(
+    typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `offline_${Date.now()}`
+  );
 
   const quiz = query.data || offlineQuiz;
   const questions: AssessmentQuestion[] = React.useMemo(() => quiz?.questions ?? [], [quiz?.questions]);
   const currentQuestion = questions[currentIndex];
-  const alreadyDone = Boolean(quiz?.alreadyAttempted || quiz?.attempt);
+  const alreadyDone = Boolean(quiz?.alreadyAttempted || (quiz?.attempt && quiz?.attempt?.completedAt));
+  const canResume = Boolean(quiz?.canResume || (query.data?.hasStarted && !alreadyDone));
+
+  // Enforce single-tab execution via Web Locks API
+  useExamTabLock({
+    quizId: params.quizId,
+    enabled: started && !submitting && !alreadyDone && !result,
+  });
   const configuredMinutes = Number(quiz?.durationMinutes || 30);
   const totalExamSeconds = configuredMinutes * 60;
   const settings = quiz?.settings ?? {};
@@ -245,9 +258,9 @@ export default function AssessmentAttemptPage() {
     [params.quizId, timingMode]
   );
 
-  // Initialize launch token and WebSocket
+  // Initialize launch token and WebSocket (only for started or resuming attempts)
   React.useEffect(() => {
-    if (!params.quizId || alreadyDone || result) return;
+    if (!params.quizId || alreadyDone || result || (!started && !canResume)) return;
 
     async function initLaunchToken() {
       try {
@@ -269,7 +282,7 @@ export default function AssessmentAttemptPage() {
         socketRef.current = null;
       }
     };
-  }, [params.quizId, alreadyDone, result, connectAssessmentSocket]);
+  }, [params.quizId, alreadyDone, result, started, canResume, connectAssessmentSocket]);
 
   // Preflight Verification System (Runs before assessment start)
   React.useEffect(() => {
@@ -349,6 +362,11 @@ export default function AssessmentAttemptPage() {
             durationMinutes: cached.durationMinutes,
             maxScore: cached.maxScore,
             questions: cached.questions,
+            settings: cached.settings || {},
+            timingMode: cached.timingMode || 'FIXED_TOTAL',
+            instructions: cached.instructions || '',
+            packageSignature: cached.packageSignature || '',
+            isOfflinePackage: true,
             alreadyAttempted: false,
           });
         }
@@ -359,6 +377,20 @@ export default function AssessmentAttemptPage() {
           setAnswers(draft.answers);
           answersRef.current = draft.answers;
           if (draft.elapsedSeconds) setElapsed(draft.elapsedSeconds);
+        }
+      });
+      // Restore offline timer checkpoint if previously started
+      offlineDB.offlineTimerCheckpoints.get(compoundId).then((cp) => {
+        if (cp) {
+          if (cp.attemptId) {
+            offlineAttemptIdRef.current = cp.attemptId;
+          }
+          if (cp.isCompleted) {
+            setRemaining(0);
+          } else if (cp.remainingSeconds != null) {
+            setRemaining(Math.max(0, cp.remainingSeconds));
+            if (cp.elapsedSeconds) setElapsed(cp.elapsedSeconds);
+          }
         }
       });
     }
@@ -473,13 +505,16 @@ export default function AssessmentAttemptPage() {
           .catch(() => {});
       }
 
+      // Enqueue in durable client-side pending-saves queue
+      pendingSavesQueueRef.current[qid] = { answer: currentAns, version: currentVersion };
+
       const transmitToServer = async (retryCount = 0): Promise<void> => {
         if (!isOnline) {
           setSaveStatus('saved');
           return;
         }
         try {
-          await api.post(`/student/assessments/${params.quizId}/draft-answer`, {
+          const res = await api.post(`/student/assessments/${params.quizId}/draft-answer`, {
             questionId: qid,
             answer: currentAns,
             version: currentVersion,
@@ -487,6 +522,11 @@ export default function AssessmentAttemptPage() {
             timeSpentSeconds: elapsed,
             clientTimestamp: new Date().toISOString(),
           });
+
+          // Successfully persisted on server: remove from pending queue
+          if (pendingSavesQueueRef.current[qid]?.version === currentVersion) {
+            delete pendingSavesQueueRef.current[qid];
+          }
 
           // Only mark as saved if a newer version hasn't started saving
           if (versionRef.current === currentVersion) {
@@ -502,6 +542,7 @@ export default function AssessmentAttemptPage() {
                   question_id: qid,
                   current_index: currentIndex,
                   version: currentVersion,
+                  attempted_count: res.data?.attemptedCount,
                 },
               })
             );
@@ -626,7 +667,23 @@ export default function AssessmentAttemptPage() {
             void submitAssessmentRef.current('auto_timeout');
             return 0;
           }
-          return prev - 1;
+          const nextRem = prev - 1;
+          if (user?.id && params.quizId && (nextRem % 5 === 0 || nextRem <= 0)) {
+            void offlineDB.offlineTimerCheckpoints.put({
+              id: `${user.id}_${params.quizId}`,
+              quizId: params.quizId,
+              userId: user.id,
+              attemptId: offlineAttemptIdRef.current,
+              durationMinutes: configuredMinutes,
+              elapsedSeconds: Math.max(0, Math.floor(totalExamSeconds - nextRem)),
+              remainingSeconds: nextRem,
+              lastMonotonicTime: performance.now(),
+              lastWallClock: Date.now(),
+              isCompleted: nextRem <= 0,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+          return nextRem;
         });
       }, 1000);
       return () => clearActiveTimer();
@@ -754,7 +811,7 @@ export default function AssessmentAttemptPage() {
   }, [abandonmentWarning, isOnline, params.quizId]);
 
   // Wire Anti-Cheat Subsystem
-  const { warningCount, isFullscreen, requestFullscreen, exitFullscreen } = useAntiCheat({
+  const { warningCount, isFullscreen, requestFullscreen, exitFullscreen, fullscreenCountdown } = useAntiCheat({
     enabled: started && !submitting && !alreadyDone && !result && Boolean(quiz),
     quizId: params.quizId,
     fullscreenRequired,
@@ -780,7 +837,11 @@ export default function AssessmentAttemptPage() {
 
       // Normalize reason to authoritative constants
       const authoritativeReason =
-        reason === 'auto_timeout' || reason === 'per_question_final_timeout'
+        reason === 'WARNING_LIMIT_REACHED' || reason === 'auto_warning_limit'
+          ? 'WARNING_LIMIT_REACHED'
+          : reason === 'FULLSCREEN_EXIT_TIMEOUT' || reason === 'fullscreen_exit_timeout'
+          ? 'FULLSCREEN_EXIT_TIMEOUT'
+          : reason === 'auto_timeout' || reason === 'per_question_final_timeout'
           ? 'TIMER_EXPIRED'
           : reason === 'abandonment_timeout' || reason === 'ABANDONMENT_TIMEOUT'
           ? 'ABANDONMENT_TIMEOUT'
@@ -800,12 +861,16 @@ export default function AssessmentAttemptPage() {
             })()
           : undefined;
 
+      // Durable merge: local state + answersRef + all pending unsaved entries
       const curAnswers = { ...answers, ...answersRef.current };
+      Object.keys(pendingSavesQueueRef.current).forEach((k) => {
+        curAnswers[k] = pendingSavesQueueRef.current[k].answer;
+      });
 
       // Handle offline submission
       if (!isOnline) {
         try {
-          const attemptId = crypto.randomUUID();
+          const attemptId = offlineAttemptIdRef.current;
           await syncEngine.recordAssessmentAttemptLocally({
             attemptId,
             quizId: params.quizId,
@@ -816,7 +881,7 @@ export default function AssessmentAttemptPage() {
             institutionId: user?.institutionId || null,
             batchId: null,
           });
-          setResult({ score: 'Pending Sync', offline: true, percentage: 0, passed: true });
+          setResult({ score: 'Pending Sync', offline: true, percentage: 0, passed: true, attemptId });
           toast.success('Assessment attempt saved offline. It will synchronize automatically when online.');
         } catch (err: any) {
           toast.error(err?.message || 'Failed to save offline attempt.');
@@ -852,6 +917,8 @@ export default function AssessmentAttemptPage() {
         });
 
         setResult(response.data);
+        const confirmedAttempted = response.data?.attemptedCount ?? response.data?.serverConfirmedAnswerCount ?? Object.keys(curAnswers).length;
+        toast.success(`Assessment submitted! Attempted: ${confirmedAttempted}/${questions.length} · Score: ${response.data.score}/${response.data.maxScore ?? 100}`);
         toast.success(`Assessment submitted! Score: ${response.data.score}/${response.data.maxScore ?? 100}`);
 
         // Notify socket
@@ -873,8 +940,8 @@ export default function AssessmentAttemptPage() {
           await offlineDB.assessmentDrafts.delete(`${user.id}_${params.quizId}`);
         }
       } catch (err: any) {
-        if (err?.status === 0 || err?.code === 'NETWORK_ERROR') {
-          const attemptId = crypto.randomUUID();
+        if (err?.status === 0 || err?.code === 'NETWORK_ERROR' || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+          const attemptId = offlineAttemptIdRef.current;
           await syncEngine.recordAssessmentAttemptLocally({
             attemptId,
             quizId: params.quizId,
@@ -885,7 +952,7 @@ export default function AssessmentAttemptPage() {
             institutionId: user?.institutionId || null,
             batchId: null,
           });
-          setResult({ score: 'Pending Sync', offline: true, percentage: 0, passed: true });
+          setResult({ score: 'Pending Sync', offline: true, percentage: 0, passed: true, attemptId });
           toast.success('Connection interrupted. Assessment attempt queued in outbox for automatic sync.');
         } else {
           toast.error((err as ApiError).message || 'Submission failed');
@@ -900,9 +967,9 @@ export default function AssessmentAttemptPage() {
   );
   submitAssessmentRef.current = submitAssessment;
 
-  // Relay Camera Snapshots over WebSocket
+  // Relay Camera Snapshots over WebSocket or buffer locally in IndexedDB
   const handleCameraSnapshot = React.useCallback(
-    (base64Frame: string) => {
+    async (base64Frame: string) => {
       if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
         socketRef.current.send(
           JSON.stringify({
@@ -913,9 +980,24 @@ export default function AssessmentAttemptPage() {
             },
           })
         );
+      } else if (params.quizId && user?.id) {
+        try {
+          await offlineDB.offlineSnapshots.put({
+            id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `snap_${Date.now()}`,
+            attemptId: offlineAttemptIdRef.current,
+            quizId: params.quizId,
+            userId: user.id,
+            imageData: base64Frame,
+            eventType: 'PERIODIC',
+            timestamp: new Date().toISOString(),
+            synced: false,
+          });
+        } catch (e) {
+          console.warn('Failed to buffer offline snapshot:', e);
+        }
       }
     },
-    []
+    [params.quizId, user?.id]
   );
 
   // Start Assessment handler: Enters Fullscreen & registers attempt
@@ -925,6 +1007,10 @@ export default function AssessmentAttemptPage() {
     }
     try {
       const res = await api.post(`/student/assessments/${params.quizId}/start`);
+      if (res.data?.answers && typeof res.data.answers === 'object') {
+        setAnswers((prev) => ({ ...res.data.answers, ...prev }));
+        answersRef.current = { ...res.data.answers, ...answersRef.current };
+      }
       if (res.data?.timingState) {
         const ts = res.data.timingState;
         const sOffset = ts.server_time ? new Date(ts.server_time * 1000).getTime() - Date.now() : 0;
@@ -984,17 +1070,13 @@ export default function AssessmentAttemptPage() {
     if (!currentQuestion) return;
     if (questionPhaseRef.current === 'revealing') return;
 
-    const curAns = answersRef.current[currentQuestion.id] ?? answers[currentQuestion.id];
-    const hasSelected = curAns !== undefined && curAns !== null && String(curAns).trim() !== '' && (!Array.isArray(curAns) || curAns.length > 0);
-    if (!hasSelected) {
-      toast.error('Please select an answer before proceeding to the next question');
-      return;
-    }
-    // Lock current question permanently
-    lockedQuestionsRef.current[currentQuestion.id] = true;
-    setLockedQuestions((prev) => ({ ...prev, [currentQuestion.id]: true }));
     // Save answer immediately
     await saveCurrentDraft();
+
+    if (settings.lock_on_answer) {
+      lockedQuestionsRef.current[currentQuestion.id] = true;
+      setLockedQuestions((prev) => ({ ...prev, [currentQuestion.id]: true }));
+    }
 
     if (answerRevealDuration > 0) {
       await startRevealPhase(currentQuestion.id, answerRevealDuration);
@@ -1013,7 +1095,7 @@ export default function AssessmentAttemptPage() {
     if (!currentQuestion) return;
     if (questionPhaseRef.current === 'revealing') return;
 
-    // Lock current question permanently
+    // Lock current question permanently in timed per-question mode
     lockedQuestionsRef.current[currentQuestion.id] = true;
     setLockedQuestions((prev) => ({ ...prev, [currentQuestion.id]: true }));
     // Save answer immediately
@@ -1036,7 +1118,13 @@ export default function AssessmentAttemptPage() {
     }
   };
 
-  const isCurrentQuestionLocked = Boolean(currentQuestion && lockedQuestions[currentQuestion.id]);
+  const isCurrentQuestionLocked = Boolean(
+    currentQuestion && (
+      timingMode === 'PER_QUESTION'
+        ? lockedQuestions[currentQuestion.id]
+        : Boolean(settings.lock_on_answer && lockedQuestions[currentQuestion.id])
+    )
+  );
 
   // Option selection logic
   const handleOptionSelect = (optionId: string) => {
@@ -1220,6 +1308,25 @@ export default function AssessmentAttemptPage() {
                   </p>
                 </CardHeader>
                 <CardBody className="space-y-6 pt-2">
+                  {/* Offline Pending Sync Banner */}
+                  {result?.offline && (
+                    <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-5 text-left space-y-2">
+                      <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-sm">
+                        <WifiOff className="size-5 shrink-0" />
+                        <span>Examination Locally Saved (Pending Cloud Sync)</span>
+                      </div>
+                      <p className="text-xs sm:text-sm text-foreground/80 leading-relaxed">
+                        Your offline examination has been sealed and securely recorded in your device outbox.
+                        Official grading against the server answer key will occur automatically as soon as this device reconnects to the network.
+                      </p>
+                      {result?.attemptId && (
+                        <p className="text-[11px] font-mono text-muted-foreground pt-1">
+                          Attempt Reference: {result.attemptId}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   {/* Score & Performance Category Banner */}
                   <div className="rounded-2xl bg-muted/40 border border-border p-6 text-center space-y-3">
                     <div className="flex flex-col items-center justify-center">
@@ -1283,6 +1390,15 @@ export default function AssessmentAttemptPage() {
                         {motivationalMsg}
                       </p>
                     </div>
+                  )}
+
+                  {/* Consolidated Post-Quiz Student Feedback System */}
+                  {Boolean(result?.attemptId || result?.id || data.attempt?.id || data.attemptId) && (
+                    <QuizFeedbackForm
+                      quizId={params.quizId}
+                      attemptId={String(result?.attemptId || result?.id || data.attempt?.id || data.attemptId)}
+                      className="mt-2"
+                    />
                   )}
 
                   <p className="text-xs text-muted-foreground text-center">
@@ -1420,12 +1536,15 @@ export default function AssessmentAttemptPage() {
                     <Button
                       variant="primary"
                       size="lg"
-                      className="sm:w-2/3 text-base font-semibold py-6 shadow-md"
+                      className={cn(
+                        "sm:w-2/3 text-base font-semibold py-6 shadow-md",
+                        canResume && "bg-amber-600 hover:bg-amber-700 text-white"
+                      )}
                       disabled={!canStart}
                       onClick={handleStartAssessment}
                     >
                       <Maximize2 className="mr-2 size-5" />
-                      Start Assessment &amp; Enter Fullscreen
+                      {canResume ? 'Resume Assessment & Re-enter Fullscreen' : 'Start Assessment & Enter Fullscreen'}
                     </Button>
                   </div>
                 </CardBody>
@@ -1437,6 +1556,34 @@ export default function AssessmentAttemptPage() {
         // SCENARIO 3: Active Distraction-Free Fullscreen Examination Interface
         return (
           <div className="h-[100dvh] w-full flex flex-col bg-background text-foreground overflow-hidden select-none">
+            {/* Fullscreen Exit Warning Modal with Monotonic 10-Second Countdown */}
+            {fullscreenCountdown !== null && fullscreenCountdown >= 0 && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in duration-200">
+                <div className="max-w-md w-full rounded-2xl border-2 border-rose-500 bg-card p-6 shadow-2xl text-center space-y-4">
+                  <div className="mx-auto size-16 rounded-full bg-rose-500/15 flex items-center justify-center text-rose-500 animate-pulse">
+                    <Maximize2 className="size-8" />
+                  </div>
+                  <h2 className="text-xl font-bold text-foreground">Fullscreen Required!</h2>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    You have exited fullscreen examination mode. Please re-enter fullscreen immediately or your assessment will be auto-submitted in:
+                  </p>
+                  <div className="text-5xl font-extrabold font-mono text-rose-500">
+                    {fullscreenCountdown}s
+                  </div>
+                  <div className="pt-2">
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      className="w-full bg-rose-600 hover:bg-rose-700 font-bold text-white"
+                      onClick={() => requestFullscreen()}
+                    >
+                      Return to Fullscreen Now
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Examination Abandonment Warning Modal Overlay */}
             {abandonmentWarning && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in duration-200">

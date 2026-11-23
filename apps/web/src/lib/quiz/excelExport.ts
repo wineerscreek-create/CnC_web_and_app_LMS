@@ -47,6 +47,25 @@ function formatSnapshotTimestamp(ts?: string | number): string {
   }
 }
 
+function selectRepresentativeSnapshots<T>(snaps: T[], limit = 10): T[] {
+  if (!snaps || snaps.length <= limit) return snaps ? [...snaps] : [];
+  const n = snaps.length;
+  const indices: number[] = [];
+  for (let i = 0; i < limit; i++) {
+    indices.push(Math.round((i * (n - 1)) / (limit - 1)));
+  }
+  for (let k = 1; k < indices.length; k++) {
+    if (indices[k] <= indices[k - 1]) indices[k] = indices[k - 1] + 1;
+  }
+  for (let k = 0; k < indices.length; k++) {
+    indices[k] = Math.min(indices[k], n - 1);
+  }
+  for (let k = indices.length - 2; k >= 0; k--) {
+    if (indices[k] >= indices[k + 1]) indices[k] = Math.max(0, indices[k + 1] - 1);
+  }
+  return indices.map((idx) => snaps[idx]);
+}
+
 export async function exportAssessmentResultsToExcel(
   quizName: string,
   results: StudentResultRow[],
@@ -60,7 +79,11 @@ export async function exportAssessmentResultsToExcel(
   workbook.creator = "SkillSharp LMS";
   workbook.created = new Date();
 
-  // Sheet 1: Results Summary
+  const defaultAssessmentId = options?.assessmentId || results[0]?.assessmentId || quizName;
+
+  // -------------------------------------------------------------
+  // Sheet 1: Results Summary (All Result Columns Preserved)
+  // -------------------------------------------------------------
   const resultSheet = workbook.addWorksheet("Results");
   const resultHeaders = [
     "Rank",
@@ -75,6 +98,10 @@ export async function exportAssessmentResultsToExcel(
     "Submission Timestamp",
     "Attempt Status",
     "Submission Reason",
+    "Assessment ID",
+    "Attempt ID",
+    "Warning Count",
+    "Event Type",
   ];
   resultSheet.addRow(resultHeaders);
   resultSheet.getRow(1).font = { bold: true };
@@ -90,6 +117,8 @@ export async function exportAssessmentResultsToExcel(
     const subTime = item.submissionTimestamp || item.completedAt || "—";
     const status = item.status || (item.passed ? "Completed" : "Submitted");
     const reason = item.submissionReason || "—";
+    const attId = item.attemptId || item.sessionId || "—";
+    const assessmentId = item.assessmentId || defaultAssessmentId;
 
     resultSheet.addRow([
       item.rank,
@@ -104,6 +133,10 @@ export async function exportAssessmentResultsToExcel(
       subTime,
       status,
       reason,
+      assessmentId,
+      attId,
+      warningsCount,
+      "None",
     ]);
   });
 
@@ -114,21 +147,29 @@ export async function exportAssessmentResultsToExcel(
     else if (idx === 3) col.width = 16;
     else if (idx === 9) col.width = 22;
     else if (idx === 11) col.width = 22;
+    else if (idx === 12 || idx === 13) col.width = 36;
     else col.width = 14;
   });
 
-  // Sheet 2: Camera Snapshots
+  // -------------------------------------------------------------
+  // Sheet 2: Camera Snapshots (Only Student Name, Roll Number & 10 Snapshots)
+  // -------------------------------------------------------------
   const cameraSheet = workbook.addWorksheet("Camera Snapshots");
-  const snapshotColumns = [
-    { header: "Student Name", key: "student", width: 24 },
-    { header: "Roll Number", key: "roll", width: 16 },
-    { header: "Assessment ID", key: "assessmentId", width: 36 },
-    { header: "Attempt ID", key: "attemptId", width: 36 },
-    { header: "Snapshot Timestamp", key: "timestamp", width: 22 },
-    { header: "Warning/Event Type", key: "eventType", width: 20 },
-    { header: "Camera Snapshot", key: "snapshot", width: 24 },
+  const camHeaders = [
+    "Student Name",
+    "Roll Number",
+    "Snapshot 1",
+    "Snapshot 2",
+    "Snapshot 3",
+    "Snapshot 4",
+    "Snapshot 5",
+    "Snapshot 6",
+    "Snapshot 7",
+    "Snapshot 8",
+    "Snapshot 9",
+    "Snapshot 10",
   ];
-  cameraSheet.columns = snapshotColumns;
+  cameraSheet.addRow(camHeaders);
   cameraSheet.getRow(1).font = { bold: true };
   cameraSheet.getRow(1).fill = {
     type: "pattern",
@@ -137,15 +178,16 @@ export async function exportAssessmentResultsToExcel(
   };
   cameraSheet.views = [{ state: "frozen", ySplit: 1 }];
 
+  cameraSheet.columns = [
+    { width: 24 }, // Student Name
+    { width: 16 }, // Roll Number
+    ...Array(10).fill({ width: 22 }), // Snapshot 1-10
+  ];
+
   const samplesByRoll = new Map(cameraSamples.map((s) => [(s.roll_number || "").toLowerCase(), s]));
   const samplesBySession = new Map(cameraSamples.map((s) => [s.session_id, s]));
 
-  const defaultAssessmentId = options?.assessmentId || results[0]?.assessmentId || quizName;
-
   results.forEach((res) => {
-    const studentAssessmentId = res.assessmentId || defaultAssessmentId;
-    const studentAttemptId = res.attemptId || res.sessionId || "—";
-
     // Gather snapshots from either res.snapshots (database) or live cameraSamples
     let rawSnapshots: Array<{ timestamp?: string | number; eventType?: string; image: string }> = [];
 
@@ -172,18 +214,30 @@ export async function exportAssessmentResultsToExcel(
       }
     }
 
-    if (rawSnapshots.length > 0) {
-      rawSnapshots.forEach((snap) => {
-        const row = cameraSheet.addRow({
-          student: res.name || "—",
-          roll: res.rollNumber || "—",
-          assessmentId: studentAssessmentId,
-          attemptId: studentAttemptId,
-          timestamp: formatSnapshotTimestamp(snap.timestamp),
-          eventType: snap.eventType || "PERIODIC",
-          snapshot: "",
-        });
-        row.height = 68;
+    // Select up to 10 representative snapshots chronologically distributed
+    const repSnapshots = selectRepresentativeSnapshots(rawSnapshots, 10);
+
+    const row = cameraSheet.addRow([res.name || "—", res.rollNumber || "—", ...Array(10).fill("")]);
+    row.height = 115;
+
+    // Student Name & Roll Number formatting
+    const nameCell = row.getCell(1);
+    nameCell.font = { bold: true };
+    nameCell.alignment = { horizontal: "left", vertical: "middle" };
+
+    const rollCell = row.getCell(2);
+    rollCell.alignment = { horizontal: "center", vertical: "middle" };
+
+    for (let slotIdx = 0; slotIdx < 10; slotIdx++) {
+      const colNum = 3 + slotIdx;
+      const cell = row.getCell(colNum);
+
+      if (slotIdx < repSnapshots.length) {
+        const snap = repSnapshots[slotIdx];
+        const tsFormatted = formatSnapshotTimestamp(snap.timestamp);
+        cell.value = `\n\n\n\n\n${tsFormatted}`;
+        cell.alignment = { horizontal: "center", vertical: "bottom", wrapText: true };
+        cell.font = { size: 8, color: { argb: "FF475569" } };
 
         try {
           const rawImg = snap.image || "";
@@ -194,30 +248,28 @@ export async function exportAssessmentResultsToExcel(
               extension: "jpeg",
             });
 
-            // Column 7 (0-based index 6)
             cameraSheet.addImage(imageId, {
-              tl: { col: 6, row: row.number - 1 },
-              ext: { width: 96, height: 72 },
+              tl: { col: 2 + slotIdx, row: row.number - 1 },
+              ext: { width: 100, height: 75 },
               editAs: "oneCell",
             });
           }
         } catch (err) {
           console.warn("Failed to embed snapshot image into Excel cell", err);
+          cell.value = `Image error\n${tsFormatted}`;
+          cell.font = { size: 8, color: { argb: "FFEF4444" } };
         }
-      });
-    } else {
-      const row = cameraSheet.addRow({
-        student: res.name || "—",
-        roll: res.rollNumber || "—",
-        assessmentId: studentAssessmentId,
-        attemptId: studentAttemptId,
-        timestamp: "—",
-        eventType: "—",
-        snapshot: "No camera snapshot available.",
-      });
-      row.height = 24;
-      const snapCell = row.getCell(7);
-      snapCell.font = { italic: true, color: { argb: "FF64748B" } };
+      } else {
+        // Missing snapshot position marked as unavailable
+        cell.value = "Unavailable";
+        cell.alignment = { horizontal: "center", vertical: "middle" };
+        cell.font = { italic: true, size: 9, color: { argb: "FF94A3B8" } };
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFF8FAFC" },
+        };
+      }
     }
   });
 

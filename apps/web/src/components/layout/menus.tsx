@@ -1,6 +1,6 @@
 'use client';
 
-import { Bell, Camera, CheckCheck, Edit3, HelpCircle, LogOut, Monitor, Settings, User } from 'lucide-react';
+import { Bell, BookOpen, Camera, CheckCheck, Edit3, HelpCircle, LogOut, Monitor, Settings, User } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import * as React from 'react';
@@ -93,8 +93,20 @@ export function NotificationMenu() {
                   >
                     <Icon className="size-3.5" />
                   </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-semibold text-foreground">{item.title}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-sm font-semibold text-foreground">{item.title}</span>
+                      {item.priority === 'URGENT' && (
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-500/10 text-rose-500 border border-rose-500/20">
+                          URGENT
+                        </span>
+                      )}
+                      {item.priority === 'HIGH' && (
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                          HIGH
+                        </span>
+                      )}
+                    </span>
                     <span className="mt-0.5 block text-xs text-muted-foreground">{item.body}</span>
                     <span className="mt-1 block text-2xs text-muted-foreground">
                       {relativeTime(item.createdAt)}
@@ -206,6 +218,12 @@ export function ProfileMenu({ user }: { user: SessionUser }) {
               </Link>
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem asChild>
+            <Link href="/user-guide">
+              <BookOpen aria-hidden />
+              User Guide
+            </Link>
+          </DropdownMenuItem>
           <DropdownMenuItem asChild>
             <Link href={settingsHref}>
               <Settings aria-hidden />

@@ -113,7 +113,8 @@ describe('Excel Export with Embedded Camera Photos', () => {
       undefined,
       'Rank', 'Roll Number', 'Student Name', 'Batch',
       'Marks', 'Max Marks', 'Percentage', 'Result', 'Warnings',
-      'Submission Timestamp', 'Attempt Status', 'Submission Reason'
+      'Submission Timestamp', 'Attempt Status', 'Submission Reason',
+      'Assessment ID', 'Attempt ID', 'Warning Count', 'Event Type'
     ]);
 
     // Alice row
@@ -135,27 +136,24 @@ describe('Excel Export with Embedded Camera Photos', () => {
     const camSheet = wb.getWorksheet('Camera Snapshots')!;
     expect(camSheet.getRow(1).values).toEqual([
       undefined,
-      'Student Name', 'Roll Number', 'Assessment ID', 'Attempt ID',
-      'Snapshot Timestamp', 'Warning/Event Type', 'Camera Snapshot'
+      'Student Name', 'Roll Number',
+      'Snapshot 1', 'Snapshot 2', 'Snapshot 3', 'Snapshot 4', 'Snapshot 5',
+      'Snapshot 6', 'Snapshot 7', 'Snapshot 8', 'Snapshot 9', 'Snapshot 10'
     ]);
 
-    // Alice has 2 snapshots -> rows 2 & 3
+    // Alice row (row 2)
     const camRow2 = camSheet.getRow(2);
     expect(camRow2.getCell(1).value).toBe('Alice Johnson');
     expect(camRow2.getCell(2).value).toBe('CS-001');
-    expect(camRow2.getCell(3).value).toBe('quiz-midterm-101');
-    expect(camRow2.getCell(4).value).toBe('att-alice-001');
-    expect(camRow2.getCell(6).value).toBe('INITIAL');
+    // Alice has 2 snapshots; slots 3-10 are Unavailable
+    expect(camRow2.getCell(5).value).toBe('Unavailable');
 
+    // Bob row (row 3)
     const camRow3 = camSheet.getRow(3);
-    expect(camRow3.getCell(1).value).toBe('Alice Johnson');
-    expect(camRow3.getCell(6).value).toBe('PERIODIC');
-
-    // Bob has 0 snapshots -> row 4
-    const camRow4 = camSheet.getRow(4);
-    expect(camRow4.getCell(1).value).toBe('Bob Smith');
-    expect(camRow4.getCell(2).value).toBe('CS-002');
-    expect(camRow4.getCell(7).value).toBe('No camera snapshot available.');
+    expect(camRow3.getCell(1).value).toBe('Bob Smith');
+    expect(camRow3.getCell(2).value).toBe('CS-002');
+    // Bob has 0 snapshots; all slots 1-10 are Unavailable
+    expect(camRow3.getCell(3).value).toBe('Unavailable');
 
     // Verify embedded images in media
     const media = wb.model.media || [];

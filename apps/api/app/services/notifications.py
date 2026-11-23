@@ -33,6 +33,17 @@ class Kind:
     ACCOUNT = "account"
     IMPORT_COMPLETE = "import_complete"
     CHAT_MESSAGE = "chat_message"
+    # Smart notification automated event kinds
+    ASSESSMENT_ASSIGNED = "assessment_assigned"
+    ASSESSMENT_STARTING = "assessment_starting"
+    ASSESSMENT_DEADLINE = "assessment_deadline"
+    ASSESSMENT_RESULT = "assessment_result"
+    CLASS_SCHEDULED = "class_scheduled"
+    CLASS_STARTING = "class_starting"
+    CLASS_LIVE = "class_live"
+    CLASS_CANCELLED = "class_cancelled"
+    ASSIGNMENT_ASSIGNED = "assignment_assigned"
+    ACADEMIC_ANNOUNCEMENT = "academic_announcement"
 
 
 ICON_BY_KIND = {
@@ -50,6 +61,16 @@ ICON_BY_KIND = {
     Kind.ACCOUNT: "user",
     Kind.IMPORT_COMPLETE: "upload",
     Kind.CHAT_MESSAGE: "message-square",
+    Kind.ASSESSMENT_ASSIGNED: "clipboard-list",
+    Kind.ASSESSMENT_STARTING: "clock",
+    Kind.ASSESSMENT_DEADLINE: "alert-circle",
+    Kind.ASSESSMENT_RESULT: "bar-chart-2",
+    Kind.CLASS_SCHEDULED: "calendar",
+    Kind.CLASS_STARTING: "video",
+    Kind.CLASS_LIVE: "play-circle",
+    Kind.CLASS_CANCELLED: "x-circle",
+    Kind.ASSIGNMENT_ASSIGNED: "file-text",
+    Kind.ACADEMIC_ANNOUNCEMENT: "bell",
 }
 
 
@@ -101,32 +122,12 @@ async def notify(
     college_id: Any = None,
     department_id: Any = None,
     metadata: dict[str, Any] | None = None,
+    priority: str = "MEDIUM",
+    dedup_key: str | None = None,
     push: bool = True,
+    conn: Any = None,
 ) -> str | None:
-    """Create one in-app notification."""
-    try:
-        from app.db.mongo import get_db
-        from bson import ObjectId
-        from datetime import datetime, timezone
-        db = get_db()
-        m_uid = ObjectId(str(user_id)) if ObjectId.is_valid(str(user_id)) else str(user_id)
-        m_cid = ObjectId(str(college_id)) if college_id and ObjectId.is_valid(str(college_id)) else (str(college_id) if college_id else None)
-        now_dt = datetime.now(timezone.utc)
-        await db.notifications.insert_one({
-            "userId": m_uid,
-            "title": title,
-            "body": body,
-            "message": body,
-            "kind": kind,
-            "href": href,
-            "collegeId": m_cid,
-            "read": False,
-            "at": now_dt,
-            "createdAt": now_dt,
-        })
-    except Exception:
-        pass
-
+    """Create one in-app notification with deduplication support."""
     u_uuid = _to_uuid(user_id)
     if not u_uuid:
         return "m_ok"
@@ -134,36 +135,75 @@ async def notify(
     c_uuid = _to_uuid(college_id)
     meta = metadata or {}
     meta_json = json.dumps(meta)
+    effective_dedup = dedup_key or meta.get("dedupKey") or meta.get("dedup_key")
+
+    insert_query = """
+    INSERT INTO notifications (
+        recipient_user_id, title, message, type, kind, is_read, action_url,
+        institution_id, metadata, priority, dedup_key, created_at
+    )
+    VALUES ($1, $2, $3, $4, $5, FALSE, $6, $7, $8::jsonb, $9, $10, NOW())
+    ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING
+    RETURNING id
+    """
+    params = (
+        u_uuid,
+        title,
+        body,
+        "SYSTEM",
+        kind,
+        href,
+        c_uuid,
+        meta_json,
+        priority,
+        effective_dedup,
+    )
 
     try:
-        async with get_pg_connection() as conn:
-            row = await conn.fetchrow(
-                """
-                INSERT INTO notifications (
-                    recipient_user_id, title, message, type, kind, is_read, action_url, institution_id, metadata, created_at
-                )
-                VALUES ($1, $2, $3, $4, $5, FALSE, $6, $7, $8::jsonb, NOW())
-                RETURNING id
-                """,
-                u_uuid,
-                title,
-                body,
-                "SYSTEM",
-                kind,
-                href,
-                c_uuid,
-                meta_json,
-            )
-            notif_id = str(row["id"])
+        if conn is not None:
+            row = await conn.fetchrow(insert_query, *params)
+        else:
+            async with get_pg_connection() as c:
+                row = await c.fetchrow(insert_query, *params)
+
+        if not row:
+            # Deduplication prevented duplicate insert
+            return None
+        notif_id = str(row["id"])
+
+        try:
+            from app.db.mongo import get_db
+            from bson import ObjectId
+            from datetime import datetime, timezone
+            db = get_db()
+            m_uid = ObjectId(str(user_id)) if ObjectId.is_valid(str(user_id)) else str(user_id)
+            m_cid = ObjectId(str(college_id)) if college_id and ObjectId.is_valid(str(college_id)) else (str(college_id) if college_id else None)
+            now_dt = datetime.now(timezone.utc)
+            await db.notifications.insert_one({
+                "id": notif_id,
+                "userId": m_uid,
+                "title": title,
+                "body": body,
+                "message": body,
+                "kind": kind,
+                "href": href,
+                "collegeId": m_cid,
+                "priority": priority,
+                "read": False,
+                "at": now_dt,
+                "createdAt": now_dt,
+            })
+        except Exception:
+            pass
 
         if push:
-            tokens = await _device_tokens(u_uuid)
+            tokens = await _device_tokens(u_uuid, conn=conn)
             if tokens:
                 await get_push_provider().send(
                     tokens=tokens,
                     title=title,
                     body=body,
-                    data={"kind": kind, "href": href or "", "id": notif_id},
+                    data={"kind": kind, "href": href or "", "id": notif_id, "priority": priority},
                 )
         return notif_id
     except Exception as exc:
@@ -179,18 +219,22 @@ async def notify_many(user_ids: Iterable[Any], **kwargs: Any) -> int:
     return count
 
 
-async def _device_tokens(user_uuid: UUID) -> list[str]:
+async def _device_tokens(user_uuid: UUID, conn: Any = None) -> list[str]:
     try:
-        async with get_pg_connection() as conn:
+        if conn is not None:
             row = await conn.fetchrow("SELECT preferences FROM users WHERE id = $1", user_uuid)
-            if not row or not row.get("preferences"):
-                return []
-            prefs = row["preferences"]
-            if isinstance(prefs, str):
-                prefs = json.loads(prefs)
-            if prefs.get("pushNotifications") is False:
-                return []
-            return prefs.get("deviceTokens", [])
+        else:
+            async with get_pg_connection() as c:
+                row = await c.fetchrow("SELECT preferences FROM users WHERE id = $1", user_uuid)
+
+        if not row or not row.get("preferences"):
+            return []
+        prefs = row["preferences"]
+        if isinstance(prefs, str):
+            prefs = json.loads(prefs)
+        if prefs.get("pushNotifications") is False:
+            return []
+        return prefs.get("deviceTokens", [])
     except Exception:
         return []
 
@@ -245,32 +289,45 @@ async def unread_count(user_id: Any) -> int:
 
 
 async def mark_read(user_id: Any, notification_id: Any) -> bool:
-    if not settings.USE_POSTGRES:
-        try:
-            from app.db.mongo import get_db
-            from bson import ObjectId
-            db = get_db()
-            uid = ObjectId(str(user_id)) if ObjectId.is_valid(str(user_id)) else str(user_id)
-            nid = ObjectId(str(notification_id)) if ObjectId.is_valid(str(notification_id)) else str(notification_id)
-            res = await db.notifications.update_one({"_id": nid, "userId": uid}, {"$set": {"read": True}})
-            return res.modified_count > 0
-        except Exception:
-            pass
+    updated = False
 
+    # 1. Update in-process Mongo fallback if present
+    try:
+        from app.db.mongo import get_db
+        from bson import ObjectId
+        db = get_db()
+        uid = ObjectId(str(user_id)) if ObjectId.is_valid(str(user_id)) else str(user_id)
+        nid_conditions: list[dict[str, Any]] = [{"id": str(notification_id)}]
+        if ObjectId.is_valid(str(notification_id)):
+            nid_conditions.append({"_id": ObjectId(str(notification_id))})
+        res = await db.notifications.update_one(
+            {"$or": nid_conditions, "userId": uid},
+            {"$set": {"read": True}}
+        )
+        if res.modified_count > 0:
+            updated = True
+    except Exception:
+        pass
+
+    # 2. Update PostgreSQL
     u_uuid = _to_uuid(user_id)
     n_uuid = _to_uuid(notification_id)
-    if not u_uuid or not n_uuid:
-        return False
-    try:
-        async with get_pg_connection() as conn:
-            res = await conn.execute(
-                "UPDATE notifications SET is_read = TRUE WHERE id = $1 AND recipient_user_id = $2",
-                n_uuid,
-                u_uuid,
-            )
-            return "UPDATE 1" in res
-    except Exception:
-        return False
+    if u_uuid and n_uuid:
+        try:
+            async with get_pg_connection() as conn:
+                res = await conn.execute(
+                    "UPDATE notifications SET is_read = TRUE, read_at = NOW() WHERE id = $1 AND recipient_user_id = $2",
+                    n_uuid,
+                    u_uuid,
+                )
+                parts = res.split()
+                count = int(parts[-1]) if parts and parts[-1].isdigit() else 0
+                if count > 0:
+                    updated = True
+        except Exception as exc:
+            log.error("mark_read_failed", extra={"error": str(exc), "notification_id": str(notification_id)})
+
+    return updated
 
 
 async def mark_all_read(user_id: Any) -> int:

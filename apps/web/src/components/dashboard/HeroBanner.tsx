@@ -20,11 +20,18 @@ interface HeroBannerProps {
     label: string;
     href: string;
     icon?: React.ReactNode;
+    urgency?: 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW';
   };
   secondaryAction?: {
     label: string;
     href: string;
     icon?: React.ReactNode;
+  };
+  dynamicNotice?: {
+    title: string;
+    subtitle?: string;
+    urgency?: 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW';
+    remainingSeconds?: number | null;
   };
   className?: string;
 }
@@ -38,6 +45,7 @@ export function HeroBanner({
   statSubtext,
   primaryAction,
   secondaryAction,
+  dynamicNotice,
   className,
 }: HeroBannerProps) {
   const { banner, setBanner } = useBanner();
@@ -130,6 +138,39 @@ export function HeroBanner({
               professional placement milestones.
             </p>
 
+            {/* DYNAMIC NEXT ACTION NOTIFICATION BANNER */}
+            {dynamicNotice && (
+              <div
+                className={cn(
+                  'mt-3 flex flex-wrap items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold backdrop-blur-xs max-w-xl transition-all',
+                  dynamicNotice.urgency === 'URGENT'
+                    ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30'
+                    : dynamicNotice.urgency === 'HIGH'
+                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                    : 'bg-primary/10 text-primary border border-primary/20'
+                )}
+              >
+                {dynamicNotice.urgency === 'URGENT' && (
+                  <span className="relative flex size-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full size-2 bg-rose-500"></span>
+                  </span>
+                )}
+                <span>{dynamicNotice.title}</span>
+                {dynamicNotice.subtitle && (
+                  <span className="text-[11px] opacity-80 hidden sm:inline">· {dynamicNotice.subtitle}</span>
+                )}
+                {dynamicNotice.remainingSeconds !== undefined &&
+                  dynamicNotice.remainingSeconds !== null &&
+                  dynamicNotice.remainingSeconds > 0 && (
+                    <span className="ml-auto font-mono text-[11px] font-bold">
+                      {Math.floor(dynamicNotice.remainingSeconds / 60)}m{' '}
+                      {dynamicNotice.remainingSeconds % 60}s
+                    </span>
+                  )}
+              </div>
+            )}
+
             {/* CTAs */}
             {(primaryAction || secondaryAction) && (
               <div className="mt-4 flex flex-wrap items-center gap-2.5">
@@ -138,7 +179,11 @@ export function HeroBanner({
                     asChild
                     variant="primary"
                     size="sm"
-                    className="font-medium shadow-xs"
+                    className={cn(
+                      'font-medium shadow-xs transition-transform',
+                      primaryAction.urgency === 'URGENT' &&
+                        'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-500/20 shadow-md ring-2 ring-rose-500/40 animate-pulse'
+                    )}
                   >
                     <Link href={primaryAction.href} className="flex items-center gap-1.5">
                       {primaryAction.icon || <Play className="size-3.5" />}

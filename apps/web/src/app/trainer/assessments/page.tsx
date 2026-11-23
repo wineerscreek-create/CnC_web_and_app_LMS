@@ -9,10 +9,12 @@ import {
   CheckCircle2,
   ClipboardList,
   Clock,
+  Download,
   Edit,
   Eye,
   FileSpreadsheet,
   Lock,
+  MessageSquare,
   Plus,
   RotateCcw,
   Shield,
@@ -585,6 +587,16 @@ export default function TrainerAssessmentsPage() {
                         className="text-xs flex items-center gap-1 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border-amber-500/30"
                       >
                         <Shield className="size-3" /> EEDI Analytics
+                      </Button>
+                      <Button
+                        asChild
+                        variant="secondary"
+                        size="sm"
+                        className="text-xs flex items-center gap-1 bg-primary/10 text-primary hover:bg-primary/20 border-primary/30"
+                      >
+                        <Link href={`/trainer/assessments/${quiz.id}/feedback`}>
+                          <MessageSquare className="size-3" /> View Feedback
+                        </Link>
                       </Button>
                       {quiz.isCreator && (
                         <Button
@@ -1461,16 +1473,39 @@ export default function TrainerAssessmentsPage() {
                           </td>
                           <td className="p-2.5 text-muted-foreground">{formatDate(r.completedAt, true)}</td>
                           <td className="p-2.5 text-right">
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => openRecoveryModal(r)}
-                              className="h-7 text-[11px] gap-1"
-                              title="Reassign or recover this student assessment"
-                            >
-                              <RotateCcw className="size-3" />
-                              Recover
-                            </Button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={async () => {
+                                  try {
+                                    toast.loading('Generating 4-sheet report...', { id: `indiv-${r.attemptId}` });
+                                    await api.download(
+                                      `/trainer/assessments/${activeQuiz?.id}/attempts/${r.attemptId}/export-excel`,
+                                      `${r.rollNumber || r.name}_${activeQuiz?.title || 'Assessment'}_Report.xlsx`
+                                    );
+                                    toast.success('Downloaded 4-sheet report successfully!', { id: `indiv-${r.attemptId}` });
+                                  } catch (err: any) {
+                                    toast.error(err?.message || 'Failed to download report', { id: `indiv-${r.attemptId}` });
+                                  }
+                                }}
+                                className="h-7 text-[11px] gap-1 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
+                                title="Download individual 4-sheet assessment report (Excel)"
+                              >
+                                <FileSpreadsheet className="size-3" />
+                                Report (.xlsx)
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => openRecoveryModal(r)}
+                                className="h-7 text-[11px] gap-1"
+                                title="Reassign or recover this student assessment"
+                              >
+                                <RotateCcw className="size-3" />
+                                Recover
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1488,46 +1523,73 @@ export default function TrainerAssessmentsPage() {
             )}
           </DialogBody>
           <DialogFooter className="flex items-center justify-between sm:justify-between w-full">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={async () => {
-                if (!resultsData?.results?.length) return;
-                try {
-                  const { exportAssessmentResultsToExcel } = await import('@/lib/quiz/excelExport');
-                  await exportAssessmentResultsToExcel(
-                    activeQuiz?.title || 'Assessment',
-                    resultsData.results.map((r: any) => ({
-                      rank: r.rank,
-                      rollNumber: r.rollNumber || '—',
-                      name: r.name,
-                      batchName: r.batchName,
-                      marks: r.score,
-                      maxMarks: r.maxScore || 100,
-                      percentage: r.percentage || 0,
-                      passed: Boolean(r.passed),
-                      warnings: r.warnings ?? r.warningCount ?? 0,
-                      sessionId: r.studentId || r.attemptId,
-                      attemptId: r.attemptId,
-                      assessmentId: activeQuiz?.id,
-                      submissionTimestamp: r.submittedAt || r.completedAt,
-                      status: r.status,
-                      submissionReason: r.submissionReason,
-                      snapshots: r.snapshots || [],
-                    })),
-                    undefined,
-                    { assessmentId: activeQuiz?.id }
-                  );
-                  toast.success('Excel workbook exported successfully');
-                } catch (err) {
-                  toast.error('Failed to export Excel workbook');
-                }
-              }}
-              disabled={!resultsData?.results?.length}
-            >
-              <FileSpreadsheet className="mr-1.5 size-3.5 text-emerald-600" />
-              Export Excel
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={async () => {
+                  if (!resultsData?.results?.length) return;
+                  try {
+                    const { exportAssessmentResultsToExcel } = await import('@/lib/quiz/excelExport');
+                    await exportAssessmentResultsToExcel(
+                      activeQuiz?.title || 'Assessment',
+                      resultsData.results.map((r: any) => ({
+                        rank: r.rank,
+                        rollNumber: r.rollNumber || '—',
+                        name: r.name,
+                        batchName: r.batchName,
+                        marks: r.score,
+                        maxMarks: r.maxScore || 100,
+                        percentage: r.percentage || 0,
+                        passed: Boolean(r.passed),
+                        warnings: r.warnings ?? r.warningCount ?? 0,
+                        sessionId: r.studentId || r.attemptId,
+                        attemptId: r.attemptId,
+                        assessmentId: activeQuiz?.id,
+                        submissionTimestamp: r.submittedAt || r.completedAt,
+                        status: r.status,
+                        submissionReason: r.submissionReason,
+                        snapshots: r.snapshots || [],
+                      })),
+                      undefined,
+                      { assessmentId: activeQuiz?.id }
+                    );
+                    toast.success('Excel workbook exported successfully');
+                  } catch (err) {
+                    toast.error('Failed to export Excel workbook');
+                  }
+                }}
+                disabled={!resultsData?.results?.length}
+              >
+                <FileSpreadsheet className="mr-1.5 size-3.5 text-emerald-600" />
+                Export Results Excel
+              </Button>
+
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={async () => {
+                  if (!resultsData?.results?.length) return;
+                  try {
+                    toast.loading('Packaging bulk individual reports into ZIP archive...', { id: 'bulk-zip' });
+                    await api.download(
+                      `/trainer/assessments/${activeQuiz?.id}/export-bulk-reports`,
+                      `${activeQuiz?.title || 'Assessment'}_Bulk_Reports.zip`
+                    );
+                    toast.success('Downloaded bulk reports ZIP archive successfully!', { id: 'bulk-zip' });
+                  } catch (err: any) {
+                    toast.error(err?.message || 'Failed to download bulk ZIP archive', { id: 'bulk-zip' });
+                  }
+                }}
+                disabled={!resultsData?.results?.length}
+                className="gap-1.5"
+                title="Download all student individual reports in a ZIP archive"
+              >
+                <Download className="size-3.5 text-accent" />
+                Bulk Reports (.zip)
+              </Button>
+            </div>
+
             <Button variant="secondary" size="sm" onClick={() => setResultsOpen(false)}>
               Close
             </Button>

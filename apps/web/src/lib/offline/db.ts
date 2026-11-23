@@ -69,6 +69,10 @@ export interface DownloadedQuestionSet {
   durationMinutes: number;
   maxScore: number;
   version: number;
+  packageSignature?: string;
+  instructions?: string;
+  timingMode?: string;
+  settings?: any;
   questions: {
     id: string;
     text: string;
@@ -96,6 +100,41 @@ export interface AssessmentResponseRecord {
   questionId: string;
   optionId: string;
   selectedAt: string;
+}
+
+export interface OfflineSnapshotRecord {
+  id: string;
+  attemptId: string;
+  quizId: string;
+  userId: string;
+  imageData: string;
+  eventType: string;
+  timestamp: string;
+  synced: boolean;
+}
+
+export interface OfflineTimerCheckpoint {
+  id: string; // compound: `${userId}_${quizId}`
+  quizId: string;
+  userId: string;
+  attemptId: string;
+  durationMinutes: number;
+  elapsedSeconds: number;
+  remainingSeconds: number;
+  lastMonotonicTime: number; // performance.now()
+  lastWallClock: number; // Date.now()
+  isCompleted: boolean;
+  updatedAt: string;
+}
+
+export interface OfflineProctoringEvent {
+  id: string;
+  attemptId: string;
+  quizId: string;
+  userId: string;
+  eventType: string; // 'TAB_SWITCH' | 'FULLSCREEN_EXIT' | 'FOCUS_LOST' | 'BLUR'
+  eventData?: any;
+  timestamp: string;
 }
 
 export interface OfflineAttemptRecord {
@@ -185,6 +224,9 @@ export class SkillSharpOfflineDB extends Dexie {
   syncConflicts!: Table<SyncConflictRecord, string>;
   syncMetadata!: Table<SyncMetadataRecord, string>;
   cachedQueries!: Table<CachedQueryRecord, string>;
+  offlineSnapshots!: Table<OfflineSnapshotRecord, string>;
+  offlineTimerCheckpoints!: Table<OfflineTimerCheckpoint, string>;
+  offlineProctoringEvents!: Table<OfflineProctoringEvent, string>;
 
   constructor() {
     super('SkillSharpOfflineDB');
@@ -206,6 +248,13 @@ export class SkillSharpOfflineDB extends Dexie {
     // Schema Version 2 — Multi-Role Visited Page & Route Query Cache
     this.version(2).stores({
       cachedQueries: 'id, userId, institutionId, role, path, cachedAt',
+    });
+
+    // Schema Version 3 — Offline Examination Security & Proctoring Buffers
+    this.version(3).stores({
+      offlineSnapshots: 'id, attemptId, quizId, userId, synced, timestamp',
+      offlineTimerCheckpoints: 'id, quizId, userId, isCompleted, updatedAt',
+      offlineProctoringEvents: 'id, attemptId, quizId, userId, eventType, timestamp',
     });
   }
 }
@@ -445,6 +494,9 @@ export async function purgeUserOfflineData(userId: string): Promise<void> {
     offlineDB.syncConflicts.where('userId').equals(userId).delete(),
     offlineDB.syncMetadata.where('userId').equals(userId).delete(),
     offlineDB.cachedQueries.where('userId').equals(userId).delete(),
+    offlineDB.offlineSnapshots.where('userId').equals(userId).delete(),
+    offlineDB.offlineTimerCheckpoints.where('userId').equals(userId).delete(),
+    offlineDB.offlineProctoringEvents.where('userId').equals(userId).delete(),
   ]);
 
   if (typeof window !== 'undefined' && 'serviceWorker' in navigator && navigator.serviceWorker.controller) {

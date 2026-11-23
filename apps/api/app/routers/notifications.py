@@ -21,6 +21,7 @@ async def list_notifications(
     ctx: CurrentUser,
     unreadOnly: bool = Query(False),
     kind: str | None = Query(None, max_length=40),
+    priority: str | None = Query(None, max_length=20),
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
@@ -103,6 +104,9 @@ async def list_notifications(
     if kind and kind != "all":
         params.append(kind)
         where_clauses.append(f"kind = ${len(params)}")
+    if priority and priority != "all":
+        params.append(priority.upper())
+        where_clauses.append(f"UPPER(priority) = ${len(params)}")
 
     where_sql = " AND ".join(where_clauses)
 
@@ -114,7 +118,7 @@ async def list_notifications(
         rows = await conn.fetch(
             f"""
             SELECT id, title, message as body, type, kind, is_read as read,
-                   action_url as href, metadata, created_at
+                   action_url as href, metadata, priority, created_at
             FROM notifications
             WHERE {where_sql}
             ORDER BY created_at DESC
@@ -134,6 +138,7 @@ async def list_notifications(
             "message": r["body"],
             "type": r["type"],
             "kind": r["kind"],
+            "priority": r["priority"] or "MEDIUM",
             "icon": service.ICON_BY_KIND.get(r["kind"], "bell"),
             "read": bool(r["read"]),
             "href": r["href"],

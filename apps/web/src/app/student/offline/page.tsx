@@ -339,8 +339,13 @@ export default function OfflineContentManagerPage() {
                     >
                       <div className="min-w-0 pr-2">
                         <div className="font-semibold text-heading truncate">{qs.title}</div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {qs.questions?.length || 0} questions · {qs.durationMinutes} min
+                        <div className="text-[10px] text-muted-foreground flex items-center gap-2 mt-0.5">
+                          <span>{qs.questions?.length || 0} questions · {qs.durationMinutes} min</span>
+                          {qs.packageSignature && (
+                            <span className="inline-flex items-center text-emerald-600 dark:text-emerald-400 font-mono text-[9px] bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                              ✓ Cryptographically Signed
+                            </span>
+                          )}
                         </div>
                       </div>
                       <Button asChild size="sm" variant="secondary" disabled={!isValid} className="text-[11px] h-7">
