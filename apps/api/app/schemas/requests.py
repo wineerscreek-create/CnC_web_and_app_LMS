@@ -158,14 +158,23 @@ class QuizAttemptRequest(Base):
 
 
 class DraftAnswerRequest(Base):
-    questionId: str | None = None
-    question_id: str | None = None
+    model_config = ConfigDict(str_strip_whitespace=True, extra="ignore")
+
+    questionId: str | int | None = None
+    question_id: str | int | None = None
     answer: Any = None
     selectedOptions: list[Any] | None = None
     numericalAnswer: str | int | float | None = None
-    optionId: str | None = None
+    optionId: str | int | None = None
     markedForReview: bool = False
     marked_for_review: bool = False
+    lock: bool = False
+    isLocked: bool = False
+    is_locked: bool = False
+    action: str | None = None
+    saveAction: str | None = None
+    questionIndex: int | None = None
+    question_index: int | None = None
     version: int | None = None
     timeSpentSeconds: float | None = None
     clientTimestamp: str | None = None

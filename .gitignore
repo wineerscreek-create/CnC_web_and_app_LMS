@@ -116,6 +116,7 @@ apps/api/tests/*
 !apps/api/tests/test_assessment_persistence_independent_verification.py
 !apps/api/tests/test_decentralized_offline_exam.py
 !apps/api/tests/test_assessment_reports_and_notifications.py
+!apps/api/tests/test_answer_locking_and_grace.py
 apps/api/test_*.py
 apps/api/audit_*.py
 apps/api/verify_*.py

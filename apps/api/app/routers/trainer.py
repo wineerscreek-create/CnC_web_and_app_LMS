@@ -2486,7 +2486,7 @@ async def get_trainer_assessment_results(
     batchId: str | None = Query(None),
     ctx: ScopeContext = TrainerCtx,
 ) -> dict[str, Any]:
-    data = await QuizRepository.get_trainer_quiz_results(ctx, quiz_id, batch_id=batchId)
+    data = await QuizRepository.get_trainer_quiz_results(ctx, quiz_id, batch_id=batchId, include_snapshots_data=False)
     return {"success": True, "data": data}
 
 
@@ -2507,7 +2507,7 @@ async def export_trainer_assessment_excel(
     from openpyxl.drawing.image import Image as OpenpyxlImage
     from openpyxl.utils import get_column_letter
 
-    data = await QuizRepository.get_trainer_quiz_results(ctx, quiz_id, batch_id=batchId)
+    data = await QuizRepository.get_trainer_quiz_results(ctx, quiz_id, batch_id=batchId, include_snapshots_data=True)
     quiz_title = data.get("title") or "Assessment"
     results = data.get("results") or []
 

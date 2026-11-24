@@ -3604,8 +3604,11 @@ async def save_draft_answer(
     payload: DraftAnswerRequest,
     ctx: ScopeContext = StudentCtx,
 ) -> dict[str, Any]:
-    """Persists in-progress answer on question navigation and periodic autosaves."""
-    qid = str(payload.questionId or payload.question_id or "")
+    """Persists in-progress answer on question navigation, Next & Save, and periodic autosaves."""
+    qid = str(payload.questionId or payload.question_id or "").strip()
+    if not qid:
+        raise ValidationError("Valid question ID is required")
+
     if payload.selectedOptions is not None:
         ans = payload.selectedOptions
     elif payload.numericalAnswer is not None:
@@ -3616,6 +3619,14 @@ async def save_draft_answer(
         ans = payload.answer
 
     marked = bool(payload.markedForReview or payload.marked_for_review)
+    should_lock = bool(
+        payload.lock
+        or payload.isLocked
+        or payload.is_locked
+        or (payload.action and str(payload.action).strip().upper() in ("NEXT_AND_SAVE", "LOCK", "SAVE"))
+        or (payload.saveAction and str(payload.saveAction).strip().upper() in ("NEXT_AND_SAVE", "LOCK", "SAVE"))
+    )
+
     res = await QuizRepository.save_student_draft_answer(
         ctx,
         quiz_id,
@@ -3624,6 +3635,7 @@ async def save_draft_answer(
         marked_for_review=marked,
         version=payload.version,
         time_spent_seconds=payload.timeSpentSeconds,
+        lock=should_lock,
     )
     return {"success": True, "data": res}
 

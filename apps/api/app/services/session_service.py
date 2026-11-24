@@ -148,6 +148,7 @@ async def open_session(
 
 
 async def refresh_session(refresh_token_raw: str, ip: str | None = None) -> dict[str, Any]:
+    import json
     claims = decode_token(refresh_token_raw, expected_type="refresh")
     user_id = str(claims["sub"])
     session_id = str(claims["sid"])
@@ -157,12 +158,30 @@ async def refresh_session(refresh_token_raw: str, ip: str | None = None) -> dict
     redis = get_redis()
 
     if await redis.get(K.denylist(jti)):
+        # Check if this token was rotated very recently within the 15-second concurrency grace period
+        grace_data = await redis.get(f"auth:grace:{jti}")
+        if grace_data:
+            try:
+                cached = json.loads(grace_data)
+                if cached.get("session_id") == session_id:
+                    log.info("refresh_grace_window_hit", extra={"user_id": user_id, "session_id": session_id})
+                    return {
+                        "accessToken": cached["accessToken"],
+                        "accessTokenExpiresAt": datetime.fromisoformat(cached["accessTokenExpiresAt"]),
+                        "refreshToken": cached["refreshToken"],
+                        "refreshTokenExpiresAt": datetime.fromisoformat(cached["refreshTokenExpiresAt"]),
+                        "sessionId": session_id,
+                        "user": cached.get("user"),
+                    }
+            except Exception:
+                pass
+
         log.warning("refresh_reuse_detected", extra={"user_id": user_id, "session_id": session_id})
         await revoke_family(user_id, family_id, reason="refresh_reuse")
         await write_security_event(
             kind="refresh_token_reuse",
             user_id=user_id,
-            detail="rotated refresh token re-presented; session family terminated",
+            detail="rotated refresh token re-presented outside grace window; session family terminated",
             ip=ip,
         )
         raise Unauthenticated("Security alert: invalid session — please sign in again")
@@ -222,6 +241,20 @@ async def refresh_session(refresh_token_raw: str, ip: str | None = None) -> dict
     ttl_out = max(300, remaining if remaining and remaining > 0 else REFRESH_TTL)
     await redis.setex(K.refresh(new_jti), ttl_out, session_id)
     await redis.sadd(K.refresh_family(family_id), new_jti)
+
+    # 15-second grace window to absorb in-flight concurrent requests or multi-tab rotation
+    await redis.setex(
+        f"auth:grace:{jti}",
+        15,
+        json.dumps({
+            "session_id": session_id,
+            "accessToken": access_token,
+            "accessTokenExpiresAt": access_expiry.isoformat(),
+            "refreshToken": new_refresh,
+            "refreshTokenExpiresAt": refresh_expiry.isoformat(),
+            "user": user,
+        }),
+    )
 
     try:
         async with get_pg_connection() as conn:

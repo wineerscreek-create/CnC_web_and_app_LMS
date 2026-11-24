@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   CheckCircle2,
   Clock,
   Send,
@@ -21,6 +22,11 @@ import {
   CameraOff,
   AlertCircle,
   Check,
+  Lock,
+  Circle,
+  Edit3,
+  ListOrdered,
+  X,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -144,13 +150,19 @@ export default function AssessmentAttemptPage() {
   const [abandonmentCountdown, setAbandonmentCountdown] = React.useState<number>(20);
   const abandonmentTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
+  // Collapsible Question Sidebar State (Hidden by default)
+  const [isSidebarOpen, setIsSidebarOpen] = React.useState<boolean>(false);
+
   // Debounced Autosave State, Durable Queue & Monotonic Versioning
-  const [saveStatus, setSaveStatus] = React.useState<'saved' | 'saving' | 'unsaved' | 'error'>('saved');
+  const [saveStatus, setSaveStatus] = React.useState<'saved' | 'saving' | 'unsaved' | 'error' | 'offline_saved'>('saved');
   const versionRef = React.useRef<number>(0);
   const debouncedSaveTimerRef = React.useRef<NodeJS.Timeout | null>(null);
-  const pendingSavesQueueRef = React.useRef<Record<string, { answer: any; version: number }>>({});
+  const pendingSavesQueueRef = React.useRef<Record<string, { answer: any; version: number; lock?: boolean }>>({});
 
   const socketRef = React.useRef<WebSocket | null>(null);
+  const reconnectTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = React.useRef<number>(0);
+  const isUnmountedRef = React.useRef<boolean>(false);
   const submittedRef = React.useRef<boolean>(false);
   const isSubmittingRef = React.useRef<boolean>(false);
   const activeTimerRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -219,10 +231,33 @@ export default function AssessmentAttemptPage() {
   const allowPrevious = false;
   const allowModification = false;
 
-  // Connect to native FastAPI WebSocket Hub
+  // Connect to native FastAPI WebSocket Hub with Single Active Connection & Backoff Protection
   const connectAssessmentSocket = React.useCallback(
     (token: string) => {
       if (typeof window === 'undefined') return;
+      if (isUnmountedRef.current || submittedRef.current || alreadyDone) return;
+
+      // Ensure no duplicate connections: if currently open or connecting, reuse it
+      if (
+        socketRef.current &&
+        (socketRef.current.readyState === WebSocket.OPEN ||
+          socketRef.current.readyState === WebSocket.CONNECTING)
+      ) {
+        return;
+      }
+
+      // Clean up previous socket if in closed or closing state
+      if (socketRef.current) {
+        try {
+          socketRef.current.close();
+        } catch {}
+        socketRef.current = null;
+      }
+
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
 
       const wsUrl = getAssessmentWsUrl(params.quizId);
 
@@ -231,7 +266,10 @@ export default function AssessmentAttemptPage() {
         socketRef.current = ws;
 
         ws.onopen = () => {
-          ws.send(JSON.stringify({ type: 'auth', token }));
+          reconnectAttemptsRef.current = 0;
+          try {
+            ws.send(JSON.stringify({ type: 'auth', token }));
+          } catch {}
         };
 
         ws.onmessage = (event) => {
@@ -251,21 +289,40 @@ export default function AssessmentAttemptPage() {
         ws.onerror = (err) => {
           console.warn('Assessment WebSocket notice:', err);
         };
+
+        ws.onclose = () => {
+          socketRef.current = null;
+          // Reconnect with controlled exponential backoff if assessment is still active
+          if (
+            !isUnmountedRef.current &&
+            !submittedRef.current &&
+            !alreadyDone &&
+            reconnectAttemptsRef.current < 5
+          ) {
+            const delay = Math.min(10000, 1000 * Math.pow(2, reconnectAttemptsRef.current));
+            reconnectAttemptsRef.current += 1;
+            reconnectTimerRef.current = setTimeout(() => {
+              connectAssessmentSocket(token);
+            }, delay);
+          }
+        };
       } catch (err) {
         console.warn('Failed to establish assessment WebSocket', err);
       }
     },
-    [params.quizId, timingMode]
+    [params.quizId, timingMode, alreadyDone]
   );
 
   // Initialize launch token and WebSocket (only for started or resuming attempts)
   React.useEffect(() => {
+    isUnmountedRef.current = false;
     if (!params.quizId || alreadyDone || result || (!started && !canResume)) return;
 
+    let cancel = false;
     async function initLaunchToken() {
       try {
         const res = await api.post(`/student/assessments/${params.quizId}/launch-token`);
-        if (res.data?.launchToken) {
+        if (!cancel && res.data?.launchToken) {
           setLaunchToken(res.data.launchToken);
           connectAssessmentSocket(res.data.launchToken);
         }
@@ -277,8 +334,16 @@ export default function AssessmentAttemptPage() {
     initLaunchToken();
 
     return () => {
+      cancel = true;
+      isUnmountedRef.current = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       if (socketRef.current) {
-        socketRef.current.close();
+        try {
+          socketRef.current.close();
+        } catch {}
         socketRef.current = null;
       }
     };
@@ -479,10 +544,15 @@ export default function AssessmentAttemptPage() {
     [params.quizId]
   );
 
-  // Debounced Autosave with Monotonic Versioning and Retries
+  // Debounced Autosave with Monotonic Versioning, Durability and Retries
   const saveCurrentDraft = React.useCallback(
-    async (overrideAnswer?: any, markReview?: boolean, immediate = false) => {
-      if (!currentQuestion) return;
+    async (
+      overrideAnswer?: any,
+      markReview?: boolean,
+      immediate = false,
+      lock = false
+    ): Promise<boolean> => {
+      if (!currentQuestion) return false;
       const qid = currentQuestion.id;
       const currentAns = overrideAnswer !== undefined ? overrideAnswer : (answersRef.current[qid] ?? answers[qid]);
 
@@ -506,12 +576,16 @@ export default function AssessmentAttemptPage() {
       }
 
       // Enqueue in durable client-side pending-saves queue
-      pendingSavesQueueRef.current[qid] = { answer: currentAns, version: currentVersion };
+      pendingSavesQueueRef.current[qid] = { answer: currentAns, version: currentVersion, lock };
 
-      const transmitToServer = async (retryCount = 0): Promise<void> => {
+      const transmitToServer = async (retryCount = 0): Promise<boolean> => {
         if (!isOnline) {
-          setSaveStatus('saved');
-          return;
+          setSaveStatus('offline_saved');
+          if (lock) {
+            lockedQuestionsRef.current[qid] = true;
+            setLockedQuestions((prev) => ({ ...prev, [qid]: true }));
+          }
+          return true;
         }
         try {
           const res = await api.post(`/student/assessments/${params.quizId}/draft-answer`, {
@@ -521,11 +595,18 @@ export default function AssessmentAttemptPage() {
             markedForReview: markReview !== undefined ? markReview : reviews[qid],
             timeSpentSeconds: elapsed,
             clientTimestamp: new Date().toISOString(),
+            lock,
+            action: lock ? 'NEXT_AND_SAVE' : 'DRAFT',
           });
 
           // Successfully persisted on server: remove from pending queue
           if (pendingSavesQueueRef.current[qid]?.version === currentVersion) {
             delete pendingSavesQueueRef.current[qid];
+          }
+
+          if (lock || res.data?.isLocked) {
+            lockedQuestionsRef.current[qid] = true;
+            setLockedQuestions((prev) => ({ ...prev, [qid]: true }));
           }
 
           // Only mark as saved if a newer version hasn't started saving
@@ -535,25 +616,31 @@ export default function AssessmentAttemptPage() {
 
           // Real-time WebSocket progress broadcast
           if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-            socketRef.current.send(
-              JSON.stringify({
-                event: 'answer_saved',
-                data: {
-                  question_id: qid,
-                  current_index: currentIndex,
-                  version: currentVersion,
-                  attempted_count: res.data?.attemptedCount,
-                },
-              })
-            );
+            try {
+              socketRef.current.send(
+                JSON.stringify({
+                  event: 'answer_saved',
+                  data: {
+                    question_id: qid,
+                    current_index: currentIndex,
+                    version: currentVersion,
+                    attempted_count: res.data?.attemptedCount,
+                    is_locked: lock || res.data?.isLocked,
+                  },
+                })
+              );
+            } catch {}
           }
+          return true;
         } catch (err: any) {
           if (retryCount < 2) {
             const backoffDelay = (retryCount + 1) * 800;
-            setTimeout(() => void transmitToServer(retryCount + 1), backoffDelay);
+            await new Promise((r) => setTimeout(r, backoffDelay));
+            return transmitToServer(retryCount + 1);
           } else {
             console.warn('Draft answer autosave failed after retries', err);
-            setSaveStatus('unsaved');
+            setSaveStatus(isOnline ? 'error' : 'offline_saved');
+            return false;
           }
         }
       };
@@ -563,12 +650,15 @@ export default function AssessmentAttemptPage() {
         debouncedSaveTimerRef.current = null;
       }
 
-      if (immediate) {
-        await transmitToServer();
+      if (immediate || lock) {
+        return await transmitToServer();
       } else {
-        debouncedSaveTimerRef.current = setTimeout(() => {
-          void transmitToServer();
-        }, 500);
+        return new Promise<boolean>((resolve) => {
+          debouncedSaveTimerRef.current = setTimeout(async () => {
+            const ok = await transmitToServer();
+            resolve(ok);
+          }, 500);
+        });
       }
     },
     [currentQuestion, answers, reviews, elapsed, user?.id, params.quizId, isOnline, currentIndex]
@@ -1065,66 +1155,101 @@ export default function AssessmentAttemptPage() {
     questionStartRef.current = Date.now();
   };
 
-  // Navigation actions: Mutually Exclusive per Timing Mode
-  const handleFixedTotalNext = async () => {
-    if (!currentQuestion) return;
-    if (questionPhaseRef.current === 'revealing') return;
+  const isCurrentQuestionLocked = Boolean(
+    currentQuestion && Boolean(lockedQuestions[currentQuestion.id])
+  );
 
-    // Save answer immediately
-    await saveCurrentDraft();
+  // Examination Navigation System (Previous, Next & Save, Next)
+  const handlePrevious = React.useCallback(async () => {
+    if (currentIndex <= 0 || questionPhase === 'revealing' || submitting) return;
+    // Navigation only: preserve current unsaved answer as local draft in IndexedDB
+    if (!isCurrentQuestionLocked && currentQuestion) {
+      void saveCurrentDraft(undefined, undefined, false, false);
+    }
+    const prevIdx = currentIndex - 1;
+    currentIndexRef.current = prevIdx;
+    setCurrentIndex(prevIdx);
+  }, [currentIndex, questionPhase, submitting, isCurrentQuestionLocked, currentQuestion, saveCurrentDraft]);
 
-    if (settings.lock_on_answer) {
-      lockedQuestionsRef.current[currentQuestion.id] = true;
-      setLockedQuestions((prev) => ({ ...prev, [currentQuestion.id]: true }));
+  const handleNext = React.useCallback(async () => {
+    if (currentIndex >= questions.length - 1 || questionPhase === 'revealing' || submitting) return;
+    // Navigation only: preserve current answer as editable local draft without locking
+    if (!isCurrentQuestionLocked && currentQuestion) {
+      void saveCurrentDraft(undefined, undefined, false, false);
+    }
+    const nextIdx = currentIndex + 1;
+    currentIndexRef.current = nextIdx;
+    setCurrentIndex(nextIdx);
+    if (timingMode === 'PER_QUESTION') {
+      const nextQ = questions[nextIdx];
+      const nextLimit = Number(nextQ?.time_limit || nextQ?.duration_seconds || settings.question_duration || 30);
+      setQuestionTimeLeft(nextLimit);
+    }
+  }, [currentIndex, questions, questionPhase, submitting, isCurrentQuestionLocked, currentQuestion, saveCurrentDraft, timingMode, settings.question_duration]);
+
+  const handleNextAndSave = React.useCallback(async () => {
+    if (!currentQuestion || questionPhase === 'revealing' || submitting) return;
+
+    // Validate that an answer is present
+    const qid = currentQuestion.id;
+    const curAns = answersRef.current[qid] ?? answers[qid];
+    const hasAnswer =
+      curAns !== undefined &&
+      curAns !== null &&
+      String(curAns).trim() !== '' &&
+      (!Array.isArray(curAns) || curAns.length > 0);
+
+    if (!hasAnswer && !isCurrentQuestionLocked) {
+      toast.error('Please select or enter an answer before using Next & Save.');
+      return;
     }
 
-    if (answerRevealDuration > 0) {
-      await startRevealPhase(currentQuestion.id, answerRevealDuration);
-    } else {
+    setSubmitting(true);
+    try {
+      // Permanent answer submission action: commit and lock on backend
+      const savedOk = await saveCurrentDraft(undefined, undefined, true, true);
+
+      if (!savedOk) {
+        toast.error('Save failed. Your answer is preserved locally. Please click retry.');
+        return;
+      }
+
+      toast.success('Question permanently saved and locked.');
+
+      if (answerRevealDuration > 0) {
+        await startRevealPhase(currentQuestion.id, answerRevealDuration);
+        return;
+      }
+
       if (currentIndex < questions.length - 1) {
         const nextIdx = currentIndex + 1;
         currentIndexRef.current = nextIdx;
         setCurrentIndex(nextIdx);
+        if (timingMode === 'PER_QUESTION') {
+          const nextQ = questions[nextIdx];
+          const nextLimit = Number(nextQ?.time_limit || nextQ?.duration_seconds || settings.question_duration || 30);
+          setQuestionTimeLeft(nextLimit);
+        }
       } else {
         setConfirmOpen(true);
       }
+    } finally {
+      setSubmitting(false);
     }
-  };
-
-  const handlePerQuestionNext = async () => {
-    if (!currentQuestion) return;
-    if (questionPhaseRef.current === 'revealing') return;
-
-    // Lock current question permanently in timed per-question mode
-    lockedQuestionsRef.current[currentQuestion.id] = true;
-    setLockedQuestions((prev) => ({ ...prev, [currentQuestion.id]: true }));
-    // Save answer immediately
-    await saveCurrentDraft();
-
-    if (answerRevealDuration > 0) {
-      await startRevealPhase(currentQuestion.id, answerRevealDuration);
-    } else {
-      if (currentIndex < questions.length - 1) {
-        const nextIdx = currentIndex + 1;
-        currentIndexRef.current = nextIdx;
-        setCurrentIndex(nextIdx);
-        const nextQ = questions[nextIdx];
-        const nextLimit = Number(nextQ?.time_limit || nextQ?.duration_seconds || settings.question_duration || 30);
-        setQuestionTimeLeft(nextLimit);
-      } else {
-        clearActiveTimer();
-        void submitAssessmentRef.current('per_question_completed');
-      }
-    }
-  };
-
-  const isCurrentQuestionLocked = Boolean(
-    currentQuestion && (
-      timingMode === 'PER_QUESTION'
-        ? lockedQuestions[currentQuestion.id]
-        : Boolean(settings.lock_on_answer && lockedQuestions[currentQuestion.id])
-    )
-  );
+  }, [
+    currentQuestion,
+    questionPhase,
+    submitting,
+    answers,
+    isCurrentQuestionLocked,
+    saveCurrentDraft,
+    answerRevealDuration,
+    startRevealPhase,
+    currentIndex,
+    questions,
+    timingMode,
+    settings.question_duration,
+  ]);
 
   // Option selection logic
   const handleOptionSelect = (optionId: string) => {
@@ -1611,17 +1736,20 @@ export default function AssessmentAttemptPage() {
               </div>
             )}
 
-            {/* Top Examination Bar: Exactly 3 items (Question Indicator, Remaining Timer, Autosave & Submit Action) */}
-            <header className="h-14 border-b border-border bg-card/95 px-4 sm:px-6 flex items-center justify-between shrink-0 z-30">
-              {/* Left: Question Indicator */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm sm:text-base font-bold text-foreground">
-                  Question {currentIndex + 1} of {questions.length}
+            {/* Top Examination Bar: Minimal header with compact timer, live status, and question panel trigger */}
+            <header className="h-14 border-b border-border bg-card/95 px-3 sm:px-6 flex items-center justify-between shrink-0 z-30">
+              {/* Left: Question Indicator & Assessment Title */}
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                <span className="text-xs sm:text-sm font-bold text-foreground shrink-0 font-mono">
+                  Q{currentIndex + 1}/{questions.length}
+                </span>
+                <span className="hidden md:inline-block text-xs font-medium text-muted-foreground truncate max-w-xs">
+                  · {data.title}
                 </span>
                 {warningCount > 0 && (
-                  <Badge tone="danger" className="ml-2 hidden sm:inline-flex">
+                  <Badge tone="danger" className="ml-1 hidden sm:inline-flex text-[10px]">
                     <ShieldAlert className="size-3 mr-1" />
-                    {warningCount}/{maxWarnings} Warnings
+                    {warningCount}/{maxWarnings}
                   </Badge>
                 )}
               </div>
@@ -1631,69 +1759,209 @@ export default function AssessmentAttemptPage() {
                 {timingMode === 'FIXED_TOTAL' ? (
                   <div
                     className={cn(
-                      'flex items-center gap-1.5 px-3 py-1 rounded-lg text-sm sm:text-base font-mono font-bold tracking-wider',
+                      'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs sm:text-sm font-mono font-bold tracking-wider',
                       remaining < 180
                         ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 animate-pulse'
                         : 'bg-muted/60 text-foreground'
                     )}
                     title="Total Assessment Time Remaining"
                   >
-                    <Clock className="size-4 text-muted-foreground shrink-0" />
+                    <Clock className="size-3.5 text-muted-foreground shrink-0" />
                     <span>{formatExamTimer(remaining)}</span>
                   </div>
                 ) : (
                   <div
                     className={cn(
-                      'flex items-center gap-1.5 px-3 py-1 rounded-lg text-sm sm:text-base font-mono font-bold tracking-wider',
+                      'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs sm:text-sm font-mono font-bold tracking-wider',
                       questionTimeLeft < 10
                         ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 animate-pulse'
                         : 'bg-muted/60 text-foreground'
                     )}
                     title="Question Time Remaining"
                   >
-                    <Clock className="size-4 text-amber-500 shrink-0" />
-                    <span>Question Time: {formatExamTimer(questionTimeLeft)}</span>
+                    <Clock className="size-3.5 text-amber-500 shrink-0" />
+                    <span>{formatExamTimer(questionTimeLeft)}</span>
                   </div>
                 )}
               </div>
 
-              {/* Right: Autosave Status Indicator & Submit Assessment Action */}
-              <div className="flex items-center gap-3">
-                <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-border/60 bg-muted/30">
+              {/* Right: Autosave Status Indicator & Actions */}
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] sm:text-xs font-medium border border-border/60 bg-muted/30">
                   {saveStatus === 'saved' && (
                     <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                      <CheckCircle2 className="size-3.5" /> Saved
+                      <CheckCircle2 className="size-3" /> Saved
                     </span>
                   )}
                   {saveStatus === 'saving' && (
                     <span className="inline-flex items-center gap-1 text-muted-foreground">
-                      <RefreshCw className="size-3.5 animate-spin" /> Saving...
+                      <RefreshCw className="size-3 animate-spin" /> Saving...
+                    </span>
+                  )}
+                  {saveStatus === 'offline_saved' && (
+                    <span className="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400">
+                      <WifiOff className="size-3" /> Offline — saved locally
                     </span>
                   )}
                   {saveStatus === 'unsaved' && (
                     <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                      <Save className="size-3.5" /> Unsaved changes
+                      <Save className="size-3" /> Unsaved draft
                     </span>
                   )}
                   {saveStatus === 'error' && (
                     <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400">
-                      <AlertCircle className="size-3.5" /> Save failed
+                      <AlertCircle className="size-3" /> Save failed
                     </span>
                   )}
                 </div>
+
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setIsSidebarOpen(true)}
+                  className="h-8 px-2.5 text-xs font-medium cursor-pointer"
+                  aria-label="Open Question Navigation Panel"
+                >
+                  <ListOrdered className="size-3.5 mr-1" />
+                  <span className="hidden sm:inline">Questions</span>
+                </Button>
 
                 <Button
                   variant="danger"
                   size="sm"
                   onClick={() => setConfirmOpen(true)}
                   disabled={submitting}
-                  className="font-semibold text-xs sm:text-sm px-3 sm:px-4 h-9 shadow-xs"
+                  className="font-semibold text-xs px-2.5 sm:px-3 h-8 shadow-xs"
                 >
-                  <Send className="size-3.5 mr-1.5" />
-                  <span>Submit Assessment</span>
+                  <Send className="size-3 mr-1" />
+                  <span className="hidden sm:inline">Finish Exam</span>
                 </Button>
               </div>
             </header>
+
+            {/* Collapsible Question Navigation Panel Trigger Arrow (Hidden by default, small chevron control on screen edge) */}
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen((prev) => !prev)}
+              className={cn(
+                'fixed left-0 top-1/2 -translate-y-1/2 z-40 flex items-center justify-center',
+                'h-12 w-6 rounded-r-lg bg-card border border-l-0 border-border shadow-md',
+                'text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer',
+                'focus:outline-hidden focus:ring-2 focus:ring-primary'
+              )}
+              title={isSidebarOpen ? 'Hide Question Panel' : 'Show Question Panel'}
+              aria-label={isSidebarOpen ? 'Hide Question Panel' : 'Show Question Panel'}
+            >
+              {isSidebarOpen ? <ChevronLeft className="size-4" /> : <ChevronRight className="size-4" />}
+            </button>
+
+            {/* Collapsible Question Navigation Drawer (Hidden by default) */}
+            {isSidebarOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40 bg-black/40 backdrop-blur-xs transition-opacity"
+                  onClick={() => setIsSidebarOpen(false)}
+                />
+                <aside
+                  className={cn(
+                    'fixed inset-y-0 left-0 z-50 w-72 sm:w-80 bg-card border-r border-border shadow-2xl flex flex-col',
+                    'animate-in slide-in-from-left duration-200'
+                  )}
+                >
+                  <div className="h-14 px-4 border-b border-border flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <ListOrdered className="size-4 text-primary" />
+                      <span className="font-bold text-sm text-foreground">Question Navigator</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsSidebarOpen(false)}
+                      className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer"
+                      aria-label="Close Navigator"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+
+                  {/* Legend with Accessible Colors AND Icons */}
+                  <div className="p-3 bg-muted/30 border-b border-border grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium">
+                      <Lock className="size-3 shrink-0" />
+                      <span>Saved &amp; Locked</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-medium">
+                      <Edit3 className="size-3 shrink-0" />
+                      <span>Draft (Unsaved)</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Circle className="size-3 shrink-0" />
+                      <span>Unattempted</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-primary font-semibold">
+                      <span className="size-2.5 rounded-full border-2 border-primary shrink-0" />
+                      <span>Current</span>
+                    </div>
+                  </div>
+
+                  {/* Question Grid */}
+                  <div className="flex-1 overflow-y-auto p-4 scroll-thin">
+                    <div className="grid grid-cols-5 gap-2">
+                      {questions.map((q, idx) => {
+                        const isCur = idx === currentIndex;
+                        const isLocked = Boolean(lockedQuestions[q.id]);
+                        const ans = answers[q.id];
+                        const hasAns =
+                          ans !== undefined &&
+                          ans !== null &&
+                          String(ans).trim() !== '' &&
+                          (!Array.isArray(ans) || ans.length > 0);
+
+                        let statusTone = 'border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/40';
+                        let StatusIcon = Circle;
+
+                        if (isLocked) {
+                          statusTone = 'border-emerald-500/60 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-bold';
+                          StatusIcon = Lock;
+                        } else if (hasAns) {
+                          statusTone = 'border-amber-500/60 bg-amber-500/15 text-amber-700 dark:text-amber-300 font-medium';
+                          StatusIcon = Edit3;
+                        }
+
+                        return (
+                          <button
+                            key={q.id}
+                            type="button"
+                            onClick={() => {
+                              if (timingMode === 'PER_QUESTION' && idx !== currentIndex) {
+                                toast.info('In timed per-question mode, navigate using the bottom controls.');
+                                return;
+                              }
+                              if (!isCurrentQuestionLocked && currentQuestion) {
+                                void saveCurrentDraft(undefined, undefined, false, false);
+                              }
+                              setCurrentIndex(idx);
+                              currentIndexRef.current = idx;
+                              if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                                setIsSidebarOpen(false);
+                              }
+                            }}
+                            className={cn(
+                              'relative h-11 rounded-lg border text-xs flex flex-col items-center justify-center transition-all select-none cursor-pointer',
+                              statusTone,
+                              isCur && 'ring-2 ring-primary ring-offset-2 ring-offset-background font-extrabold'
+                            )}
+                            aria-label={`Question ${idx + 1}: ${isLocked ? 'Saved and locked' : hasAns ? 'Draft answer' : 'Unattempted'}`}
+                          >
+                            <span>{idx + 1}</span>
+                            <StatusIcon className="size-2.5 mt-0.5" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </aside>
+              </>
+            )}
 
             {/* Micro-Progress Bar for Timed Questions (Only in PER_QUESTION mode) */}
             {timingMode === 'PER_QUESTION' && (
@@ -1710,9 +1978,9 @@ export default function AssessmentAttemptPage() {
               </div>
             )}
 
-            {/* Main Question Area: Occupies most of the screen */}
-            <main className="flex-1 min-h-0 overflow-y-auto px-4 py-6 sm:p-8 scroll-thin">
-              <div className="max-w-4xl mx-auto w-full pb-24">
+            {/* Main Question Area: Prioritizes question content with maximum available screen space */}
+            <main className="flex-1 min-h-0 overflow-y-auto px-4 py-6 sm:p-8 scroll-thin pb-28">
+              <div className="max-w-4xl mx-auto w-full">
                 {currentQuestion && (
                   <div className="space-y-6">
                     {/* Answer Reveal Phase Banner */}
@@ -1734,15 +2002,35 @@ export default function AssessmentAttemptPage() {
                       </div>
                     )}
 
-                    {/* Question Header & Marks */}
-                    <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
-                      <h1 className="text-lg sm:text-2xl font-semibold leading-relaxed text-foreground">
-                        {currentQuestion.text}
-                      </h1>
-                      <Badge tone="neutral" className="shrink-0 text-xs font-semibold">
+                    {/* Question Header: Status Badge & Marks */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-4">
+                      <div className="flex items-center gap-2">
+                        {isCurrentQuestionLocked ? (
+                          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-xs font-bold border border-emerald-500/30">
+                            <Lock className="size-3.5" />
+                            <span>SAVED &amp; LOCKED</span>
+                          </div>
+                        ) : answers[currentQuestion.id] !== undefined && answers[currentQuestion.id] !== null && String(answers[currentQuestion.id]).trim() !== '' ? (
+                          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 text-xs font-medium border border-amber-500/30">
+                            <Edit3 className="size-3.5" />
+                            <span>DRAFT (UNSAVED)</span>
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-xs font-medium border border-border">
+                            <Circle className="size-3.5" />
+                            <span>UNATTEMPTED</span>
+                          </div>
+                        )}
+                      </div>
+                      <Badge tone="neutral" className="shrink-0 text-xs font-semibold self-start sm:self-auto">
                         +{currentQuestion.marks} Mark{currentQuestion.marks === 1 ? '' : 's'}
                       </Badge>
                     </div>
+
+                    {/* Question Text */}
+                    <h1 className="text-lg sm:text-2xl font-semibold leading-relaxed text-foreground">
+                      {currentQuestion.text}
+                    </h1>
 
                     {/* Question Image (if present) */}
                     {currentQuestion.image && (
@@ -1823,6 +2111,10 @@ export default function AssessmentAttemptPage() {
                                 {option.text}
                               </div>
 
+                              {isCurrentQuestionLocked && isSelected && (
+                                <Lock className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-1" />
+                              )}
+
                               {/* Subtle indicator during answer reveal */}
                               {questionPhase === 'revealing' && currentReveal && (
                                 <span className="ml-2 shrink-0 text-xs font-semibold">
@@ -1850,89 +2142,82 @@ export default function AssessmentAttemptPage() {
                         {currentReveal.explanation}
                       </div>
                     )}
-
-                    {/* Active Question Navigation Controls */}
-                    {(() => {
-                      const curAns = answers[currentQuestion.id];
-                      const hasSelectedAnswer =
-                        curAns !== undefined &&
-                        curAns !== null &&
-                        String(curAns).trim() !== '' &&
-                        (!Array.isArray(curAns) || curAns.length > 0);
-
-                      return (
-                        <div className="flex items-center justify-between pt-6 border-t border-border mt-8">
-                          {/* Left: Attempt status indicator */}
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground font-medium">
-                              Question {currentIndex + 1} of {questions.length}
-                              {questionPhase === 'revealing' ? (
-                                <span className="ml-2 text-primary font-semibold">(Reviewing Answer)</span>
-                              ) : isCurrentQuestionLocked ? (
-                                <span className="ml-2 text-rose-500 font-semibold">(Locked)</span>
-                              ) : hasSelectedAnswer ? (
-                                <span className="ml-2 text-emerald-500 font-semibold">(Answer Selected)</span>
-                              ) : (
-                                <span className="ml-2 text-amber-500 font-medium">
-                                  {timingMode === 'FIXED_TOTAL' ? '(Select an answer to proceed)' : '(Awaiting answer)'}
-                                </span>
-                              )}
-                            </span>
-                          </div>
-
-                          {/* Right: Next / Submit Action */}
-                          <div className="flex items-center gap-3">
-                            {questionPhase === 'revealing' ? (
-                              <Button
-                                variant="primary"
-                                size="md"
-                                disabled
-                                className="h-10 px-6 font-semibold shadow-xs opacity-90 cursor-not-allowed"
-                              >
-                                <Clock className="size-4 mr-2 animate-spin" />
-                                <span>Advancing in {revealCountdown}s...</span>
-                              </Button>
-                            ) : currentIndex < questions.length - 1 ? (
-                              <Button
-                                variant="primary"
-                                size="md"
-                                onClick={timingMode === 'FIXED_TOTAL' ? handleFixedTotalNext : handlePerQuestionNext}
-                                disabled={
-                                  submitting ||
-                                  (timingMode === 'FIXED_TOTAL' && !hasSelectedAnswer)
-                                }
-                                className="h-10 px-6 font-semibold shadow-xs"
-                              >
-                                <span>Next Question</span>
-                                <ChevronRight className="size-4 ml-1" />
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="danger"
-                                size="md"
-                                onClick={
-                                  timingMode === 'FIXED_TOTAL'
-                                    ? handleFixedTotalNext
-                                    : () => setConfirmOpen(true)
-                                }
-                                disabled={
-                                  submitting ||
-                                  (timingMode === 'FIXED_TOTAL' && !hasSelectedAnswer)
-                                }
-                                className="h-10 px-6 font-semibold shadow-xs"
-                              >
-                                <Send className="size-4 mr-1.5" />
-                                <span>Submit Assessment</span>
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })()}
                   </div>
                 )}
               </div>
             </main>
+
+            {/* Bottom Examination Navigation Controls: Previous, Next & Save, Next */}
+            <footer className="fixed bottom-0 left-0 right-0 z-30 bg-card/95 backdrop-blur-md border-t border-border px-4 py-3 sm:px-8 flex items-center justify-between">
+              {/* Left: PREVIOUS */}
+              <Button
+                variant="secondary"
+                size="md"
+                disabled={currentIndex === 0 || questionPhase === 'revealing' || submitting}
+                onClick={handlePrevious}
+                className="h-11 px-3 sm:px-6 font-semibold cursor-pointer"
+                aria-label="Move to previous question"
+              >
+                <ArrowLeft className="size-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">Previous</span>
+                <span className="sm:hidden">← Prev</span>
+              </Button>
+
+              {/* Center: NEXT & SAVE (Permanent answer submission action) */}
+              <Button
+                variant="primary"
+                size="md"
+                disabled={questionPhase === 'revealing' || submitting}
+                onClick={handleNextAndSave}
+                className={cn(
+                  'h-11 px-4 sm:px-8 font-bold shadow-md cursor-pointer',
+                  'bg-emerald-600 hover:bg-emerald-700 text-white dark:bg-emerald-600 dark:hover:bg-emerald-500'
+                )}
+                aria-label="Save answer permanently and advance to next question"
+              >
+                {submitting ? (
+                  <>
+                    <RefreshCw className="size-4 mr-1.5 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="size-4 mr-1 sm:mr-2" />
+                    <span className="hidden sm:inline">Next &amp; Save</span>
+                    <span className="sm:hidden">✓ Save</span>
+                  </>
+                )}
+              </Button>
+
+              {/* Right: NEXT (Navigation only, does not lock) or Submit on last question */}
+              {currentIndex < questions.length - 1 ? (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  disabled={questionPhase === 'revealing' || submitting}
+                  onClick={handleNext}
+                  className="h-11 px-3 sm:px-6 font-semibold cursor-pointer"
+                  aria-label="Move to next question without saving permanently"
+                >
+                  <span className="hidden sm:inline">Next</span>
+                  <span className="sm:hidden">Next →</span>
+                  <ArrowRight className="size-4 ml-1 sm:ml-2 hidden sm:inline" />
+                </Button>
+              ) : (
+                <Button
+                  variant="danger"
+                  size="md"
+                  disabled={questionPhase === 'revealing' || submitting}
+                  onClick={() => setConfirmOpen(true)}
+                  className="h-11 px-3 sm:px-6 font-semibold cursor-pointer"
+                  aria-label="Submit entire assessment"
+                >
+                  <Send className="size-4 mr-1 sm:mr-2" />
+                  <span className="hidden sm:inline">Submit Assessment</span>
+                  <span className="sm:hidden">Submit</span>
+                </Button>
+              )}
+            </footer>
 
             {/* Floating Live Camera Thumbnail in Bottom-Right Corner */}
             {cameraRequired && (

@@ -1362,6 +1362,7 @@ class QuizRepository:
         marked_for_review: bool = False,
         version: int | None = None,
         time_spent_seconds: float | None = None,
+        lock: bool = False,
     ) -> dict[str, Any]:
         q_uuid = _safe_uuid(quiz_id)
         u_uuid = _safe_uuid(ctx.user_id)
@@ -1407,6 +1408,29 @@ class QuizRepository:
             answers_dict: dict[str, Any] = _parse_json_dict(existing["answers"]) if existing and existing["answers"] else {}
             q_states: dict[str, Any] = _parse_json_dict(existing["question_states"]) if existing and existing["question_states"] else {}
 
+            # Backend-Enforced Question Locking Guard:
+            # If question is already locked, enforce immutability:
+            # - Same answer re-sent: return idempotent success
+            # - Modified answer attempt: reject with BusinessRuleViolation
+            if qid_str in q_states and q_states[qid_str].get("is_locked"):
+                prev_ans = answers_dict.get(qid_str)
+                if prev_ans == answer or (answer is None and prev_ans is not None):
+                    persisted_attempted = len([k for k, v in answers_dict.items() if v not in (None, '', [], {})])
+                    return {
+                        "saved": True,
+                        "questionId": qid_str,
+                        "version": q_states[qid_str].get("version", 1),
+                        "attemptId": str(existing["id"]),
+                        "status": "locked",
+                        "isAttempted": True,
+                        "isLocked": True,
+                        "markedForReview": bool(q_states[qid_str].get("marked_for_review")),
+                        "attemptedCount": persisted_attempted,
+                        "serverConfirmedAnswerCount": persisted_attempted,
+                        "lockedAt": q_states[qid_str].get("locked_at"),
+                    }
+                raise BusinessRuleViolation("This question is permanently locked and its answer cannot be modified.")
+
             existing_q_state = q_states.get(qid_str) or {}
             existing_ver = existing_q_state.get("version", 0)
             if version is not None and existing_ver and version < existing_ver:
@@ -1419,10 +1443,11 @@ class QuizRepository:
                     "status": "ignored_stale",
                     "attemptedCount": persisted_attempted,
                     "serverConfirmedAnswerCount": persisted_attempted,
+                    "isLocked": bool(existing_q_state.get("is_locked")),
                 }
 
             new_version = (existing_ver + 1) if version is None else max(version, existing_ver + 1)
-            should_lock = False
+            should_lock = bool(lock)
 
             if existing:
                 started_at = as_utc(existing["created_at"])
@@ -1433,12 +1458,10 @@ class QuizRepository:
                     if elapsed_seconds > total_dur + 30:
                         raise BusinessRuleViolation("Assessment total time limit has expired")
                     lock_on_ans = bool(settings_dict.get("lock_on_answer", False))
-                    should_lock = lock_on_ans
-                    if lock_on_ans and qid_str in q_states and q_states[qid_str].get("is_locked"):
-                        if answers_dict.get(qid_str) != answer:
-                            raise BusinessRuleViolation("Previous question is locked and cannot be modified")
+                    should_lock = should_lock or lock_on_ans
                 else:
                     # PER_QUESTION
+                    should_lock = True
                     q_list = _parse_json_list(quiz_row["questions"])
                     default_q_dur = int(settings_dict.get("question_duration", 30))
                     q_limits = []
@@ -1467,11 +1490,6 @@ class QuizRepository:
                         if elapsed_seconds > answering_deadline:
                             raise BusinessRuleViolation("Answering period for this question has expired and answers are locked")
 
-                        if qid_str in q_states and q_states[qid_str].get("is_locked"):
-                            if answers_dict.get(qid_str) != answer:
-                                raise BusinessRuleViolation("Previous questions are locked for this timed assessment")
-                    should_lock = True
-
             answers_dict[qid_str] = answer
             is_attempted = (
                 answer is not None
@@ -1484,10 +1502,14 @@ class QuizRepository:
                 "selected_answer": answer,
                 "is_attempted": is_attempted,
                 "is_locked": should_lock,
+                "locked_at": server_now.isoformat() if should_lock else None,
+                "locked_by": str(u_uuid) if should_lock else None,
+                "lock_source": ("NEXT_AND_SAVE" if lock else ("PER_QUESTION_TIMER" if timing_mode == "PER_QUESTION" else ("SETTINGS_LOCK" if should_lock else None))),
                 "version": new_version,
                 "marked_for_review": marked_for_review,
                 "time_spent_seconds": time_spent_seconds,
                 "submitted_at": server_now.isoformat(),
+                "save_action": "NEXT_AND_SAVE" if lock else "DRAFT",
             }
 
             if existing:
@@ -1534,11 +1556,13 @@ class QuizRepository:
             "questionId": qid_str,
             "version": new_version,
             "attemptId": str(att_id),
-            "status": "persisted",
+            "status": "locked" if should_lock else "persisted",
             "isAttempted": is_attempted,
+            "isLocked": should_lock,
             "markedForReview": marked_for_review,
             "attemptedCount": attempted_count,
             "serverConfirmedAnswerCount": attempted_count,
+            "lockedAt": server_now.isoformat() if should_lock else None,
         }
 
     @classmethod
@@ -2119,7 +2143,13 @@ class QuizRepository:
         return {"quizId": quiz_id, "assignedBatches": len(b_uuids), "success": True}
 
     @classmethod
-    async def get_trainer_quiz_results(cls, ctx: ScopeContext, quiz_id: str, batch_id: str | None = None) -> dict[str, Any]:
+    async def get_trainer_quiz_results(
+        cls,
+        ctx: ScopeContext,
+        quiz_id: str,
+        batch_id: str | None = None,
+        include_snapshots_data: bool = False,
+    ) -> dict[str, Any]:
         t_uuid = _safe_uuid(ctx.user_id)
         q_uuid = _safe_uuid(quiz_id)
         b_uuid = _safe_uuid(batch_id)
@@ -2155,15 +2185,27 @@ class QuizRepository:
             )
 
             # Retrieve persisted camera snapshots for this quiz
-            snap_rows = await conn.fetch(
-                """
-                SELECT id, student_user_id, attempt_id, snapshot_timestamp, event_type, image_data
-                FROM quiz_camera_snapshots
-                WHERE quiz_id = $1
-                ORDER BY snapshot_timestamp ASC
-                """,
-                q_uuid
-            )
+            # When include_snapshots_data is False, image_data is omitted to avoid massive RAM and payload latency
+            if include_snapshots_data:
+                snap_rows = await conn.fetch(
+                    """
+                    SELECT id, student_user_id, attempt_id, snapshot_timestamp, event_type, image_data
+                    FROM quiz_camera_snapshots
+                    WHERE quiz_id = $1
+                    ORDER BY snapshot_timestamp ASC
+                    """,
+                    q_uuid
+                )
+            else:
+                snap_rows = await conn.fetch(
+                    """
+                    SELECT id, student_user_id, attempt_id, snapshot_timestamp, event_type
+                    FROM quiz_camera_snapshots
+                    WHERE quiz_id = $1
+                    ORDER BY snapshot_timestamp ASC
+                    """,
+                    q_uuid
+                )
             snaps_by_student: dict[str, list[dict[str, Any]]] = {}
             for s in snap_rows:
                 s_uid = str(s["student_user_id"])
@@ -2174,7 +2216,7 @@ class QuizRepository:
                     "attemptId": str(s["attempt_id"]) if s["attempt_id"] else None,
                     "timestamp": s["snapshot_timestamp"].isoformat() if s["snapshot_timestamp"] else None,
                     "eventType": s["event_type"],
-                    "imageData": s["image_data"],
+                    "imageData": s["image_data"] if include_snapshots_data and "image_data" in s else None,
                 })
 
         results = []

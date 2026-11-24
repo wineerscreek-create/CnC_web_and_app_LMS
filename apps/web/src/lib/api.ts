@@ -59,12 +59,48 @@ let accessToken: string | null = null;
 let onUnauthenticated: (() => void) | null = null;
 let refreshInFlight: Promise<string | null> | null = null;
 
+// Multi-tab token and logout coordination channel
+let authChannel: BroadcastChannel | null = null;
+if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+  try {
+    authChannel = new BroadcastChannel('wc_auth_sync');
+    authChannel.onmessage = (event) => {
+      if (event.data?.type === 'TOKEN_REFRESHED' && event.data?.token) {
+        accessToken = event.data.token;
+      } else if (event.data?.type === 'AUTH_LOGOUT') {
+        accessToken = null;
+        onUnauthenticated?.();
+      }
+    };
+  } catch {
+    // BroadcastChannel unsupported or restricted in this environment
+  }
+}
+
 export function setAccessToken(token: string | null) {
   accessToken = token;
+  if (authChannel && token) {
+    try {
+      authChannel.postMessage({ type: 'TOKEN_REFRESHED', token });
+    } catch {
+      // Ignore background postMessage failures
+    }
+  }
 }
 
 export function getAccessToken(): string | null {
   return accessToken;
+}
+
+export function broadcastLogout() {
+  accessToken = null;
+  if (authChannel) {
+    try {
+      authChannel.postMessage({ type: 'AUTH_LOGOUT' });
+    } catch {
+      // Ignore background postMessage failures
+    }
+  }
 }
 
 export function setUnauthenticatedHandler(handler: (() => void) | null) {
@@ -152,7 +188,16 @@ async function refreshSession(): Promise<string | null> {
         if (!response.ok) return null;
         const body = await readBody(response);
         const token: string | null = body?.data?.accessToken ?? null;
-        if (token) accessToken = token;
+        if (token) {
+          accessToken = token;
+          if (authChannel) {
+            try {
+              authChannel.postMessage({ type: 'TOKEN_REFRESHED', token });
+            } catch {
+              // Ignore background postMessage failures
+            }
+          }
+        }
         return token;
       } catch {
         return null;
@@ -191,6 +236,16 @@ function buildUrl(path: string, params?: RequestOptions['params']): string {
 
 export async function request<T = any>(path: string, options: RequestOptions = {}): Promise<T> {
   const { params, body, raw, _retried, headers, ...rest } = options;
+
+  // Single-flight queueing: if token refresh is currently in flight and this isn't the refresh request itself,
+  // wait for the fresh access token before dispatching to eliminate redundant 401 cascades
+  if (refreshInFlight && !path.startsWith('/auth/refresh')) {
+    try {
+      await refreshInFlight;
+    } catch {
+      // Proceed with current token if refresh settles with failure
+    }
+  }
 
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
   const isRaw = raw || isFormData;

@@ -397,12 +397,26 @@ class OfflineRepository:
                             # Autoritative Server-Side Grading: evaluate answers against true key
                             raw_questions = _parse_json(quiz["questions"])
                             answers_list = payload.get("answers") or []
+                            attempt_id = _safe_uuid(op.get("attemptId")) or uuid.uuid4()
                             answers_map: dict[str, str] = {}
                             if isinstance(answers_list, list):
                                 for a in answers_list:
                                     answers_map[str(a.get("questionId"))] = str(a.get("optionId"))
                             elif isinstance(answers_list, dict):
                                 answers_map = {str(k): str(v) for k, v in answers_list.items()}
+
+                            # Check if attempt already exists with server-locked questions
+                            existing_att = await conn.fetchrow(
+                                "SELECT id, answers, question_states FROM quiz_attempts WHERE (id = $1 OR (quiz_id = $2 AND student_user_id = $3))",
+                                attempt_id, quiz_id, u_uuid
+                            )
+                            if existing_att and existing_att.get("question_states"):
+                                srv_q_states = _parse_json_dict(existing_att["question_states"])
+                                srv_answers = _parse_json_dict(existing_att["answers"])
+                                # Protect locked answers from being overwritten by stale offline drafts
+                                for qid, qst in srv_q_states.items():
+                                    if qst.get("is_locked") and qid in srv_answers:
+                                        answers_map[qid] = str(srv_answers[qid])
 
                             earned = 0.0
                             possible = 0.0
@@ -418,7 +432,6 @@ class OfflineRepository:
 
                             official_score = round(earned / possible * 100, 1) if possible > 0 else 0.0
                             duration_secs = int(payload.get("durationSeconds") or 0)
-                            attempt_id = _safe_uuid(op.get("attemptId")) or uuid.uuid4()
                             integrity_hash = payload.get("integrityHash") or payload.get("clientHash")
                             local_sub_str = payload.get("localSubmittedAt")
                             local_submitted_at = None
