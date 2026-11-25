@@ -361,6 +361,34 @@ export const trainerGuide: RoleManual = {
       ]
     },
     {
+      id: 'trainer-eedi-indexes',
+      title: 'EEDI Score Indexes',
+      pageRoute: '/trainer/assessments',
+      iconName: 'BarChart3',
+      description: 'Complete reference of all implemented EEDI score indexes and exact codes for the assessment CSV eedi_parameters column.',
+      quickTips: [
+        'Use the exact EEDI code (e.g., TEC01 or PRB02) in the CSV eedi_parameters column.',
+        'Multiple EEDI codes for a single question can be separated with | (e.g., TEC02|PRB02).',
+        'evaluation_parameters uses the Exact Code as its primary key (no separate numeric Database ID).'
+      ],
+      faqs: [
+        {
+          id: 'trn-eedi-csv-usage',
+          question: 'How do I use EEDI Score Index codes in the Questions CSV eedi_parameters column?',
+          shortDescription: 'Map each MCQ or MSQ question to one or more exact EEDI codes from the table below.',
+          purpose: 'Enable automatic per-parameter EEDI score aggregation when students submit assessments.',
+          steps: [
+            'Download the Sample CSV from the Questions CSV import modal on the Assessments page.',
+            'Find the relevant EEDI Index Name and Exact Code in the EEDI Score Indexes table below.',
+            'Enter the Exact Code (e.g., TEC01) or pipe-separated codes (e.g., TEC02|PRB02) in the eedi_parameters column.',
+            'Upload the combined MCQ + MSQ CSV to validate and import your questions.'
+          ],
+          expectedResult: 'All EEDI codes are validated against the PostgreSQL evaluation_parameters registry and scored automatically on submission.',
+          relatedFeatures: ['Assessments', 'Evaluations']
+        }
+      ]
+    },
+    {
       id: 'trainer-assignments',
       title: 'Assignments',
       pageRoute: '/trainer/assignments',

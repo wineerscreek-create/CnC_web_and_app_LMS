@@ -22,6 +22,8 @@ import { PortalPage } from '@/components/auth/route-guard';
 import { useAppSelector } from '@/store';
 import { ROLE_HOME, type Role } from '@/lib/roleRoutes';
 import { getUserGuide } from '@/data/userGuide';
+import { EEDI_INDEX_REGISTRY, type EediIndexEntry } from '@/data/eediIndexes';
+import { api } from '@/lib/api';
 import { GuideIcon } from '@/components/user-guide/GuideIcon';
 import { HorizontalModuleNav } from '@/components/user-guide/HorizontalModuleNav';
 import { GuideAccordion } from '@/components/user-guide/GuideAccordion';
@@ -103,6 +105,42 @@ function UserGuideContent() {
   // Find active module object
   const activeModule = modules.find((m) => m.id === activeModuleId) ?? modules[0];
   const activeModuleIndex = modules.findIndex((m) => m.id === activeModuleId);
+
+  // Load live EEDI index registry when viewing the trainer EEDI Score Indexes section
+  const [eediIndexes, setEediIndexes] = React.useState<EediIndexEntry[]>(EEDI_INDEX_REGISTRY);
+  const [eediFilter, setEediFilter] = React.useState('');
+
+  React.useEffect(() => {
+    if (activeModuleId !== 'trainer-eedi-indexes') return;
+    if (!user?.role || !['TRAINER', 'ADMIN', 'SUPER_ADMIN'].includes(user.role)) return;
+    let cancelled = false;
+    api
+      .get<{ indexes?: EediIndexEntry[]; data?: { indexes: EediIndexEntry[] } }>('/trainer/eedi-indexes')
+      .then((res) => {
+        const list = res?.data?.indexes || res?.indexes;
+        if (!cancelled && list?.length) {
+          setEediIndexes(list);
+        }
+      })
+      .catch(() => {
+        // Fallback to DB-generated static registry
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeModuleId, user?.role]);
+
+  const filteredEediIndexes = React.useMemo(() => {
+    const q = eediFilter.trim().toLowerCase();
+    if (!q) return eediIndexes;
+    return eediIndexes.filter(
+      (item) =>
+        item.name.toLowerCase().includes(q) ||
+        item.code.toLowerCase().includes(q) ||
+        item.pillar.toLowerCase().includes(q) ||
+        item.description.toLowerCase().includes(q)
+    );
+  }, [eediIndexes, eediFilter]);
 
   // Prev / Next module navigation
   const prevModule = activeModuleIndex > 0 ? modules[activeModuleIndex - 1] : null;
@@ -250,11 +288,57 @@ function UserGuideContent() {
           </div>
 
           {/* Submodules / Feature Accordions */}
-          <div className="rounded-2xl border border-border/80 bg-card p-5 shadow-xs sm:p-6">
+          <div className="rounded-2xl border border-border/80 bg-card p-5 shadow-xs sm:p-6 space-y-6">
             <GuideAccordion
               faqs={activeModule.faqs}
               onNavigateToModule={handleNavigateToFeature}
             />
+
+            {activeModule.id === 'trainer-eedi-indexes' && (
+              <div className="space-y-3 border-t border-border pt-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">
+                      Available EEDI Score Indexes ({filteredEediIndexes.length})
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Generated from <code>evaluation_parameters</code>. Enter the Exact Code in your CSV <code>eedi_parameters</code> column.
+                    </p>
+                  </div>
+                  <input
+                    type="text"
+                    value={eediFilter}
+                    onChange={(e) => setEediFilter(e.target.value)}
+                    placeholder="Filter by code, name, or pillar..."
+                    className="h-8 w-full sm:w-64 rounded-lg border border-border bg-background px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <div className="overflow-x-auto rounded-xl border border-border">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-muted/60 text-muted-foreground border-b border-border">
+                      <tr>
+                        <th className="p-2.5 font-semibold">EEDI Index Name</th>
+                        <th className="p-2.5 font-semibold">Exact Code</th>
+                        <th className="p-2.5 font-semibold">Database ID</th>
+                        <th className="p-2.5 font-semibold">Description</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {filteredEediIndexes.map((item) => (
+                        <tr key={item.code} className="hover:bg-muted/30">
+                          <td className="p-2.5 font-medium text-foreground">{item.name}</td>
+                          <td className="p-2.5 font-mono font-bold text-primary">{item.code}</td>
+                          <td className="p-2.5 font-mono text-muted-foreground">
+                            {item.databaseId ?? '— (PK: code)'}
+                          </td>
+                          <td className="p-2.5 text-muted-foreground">{item.description}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Bottom Module Pagination Controls */}

@@ -127,6 +127,7 @@ export default function TrainerAssessmentsPage() {
   // CSV upload state
   const [csvFile, setCsvFile] = React.useState<File | null>(null);
   const [uploadingCsv, setUploadingCsv] = React.useState(false);
+  const [csvError, setCsvError] = React.useState<string | null>(null);
 
   // Results & EEDI state
   const [resultsData, setResultsData] = React.useState<any>(null);
@@ -305,7 +306,25 @@ export default function TrainerAssessmentsPage() {
   function openCsvModal(quiz: any) {
     setActiveQuiz(quiz);
     setCsvFile(null);
+    setCsvError(null);
     setCsvOpen(true);
+  }
+
+  function handleDownloadSampleCsv() {
+    const sampleCsv = [
+      'question_type,question,option_a,option_b,option_c,option_d,correct_answers,marks,negative_marks,explanation,eedi_parameters',
+      'MCQ,"Which language runs on the JVM?","Python","Java","C","HTML",B,2,0,"Java runs on the JVM.","TEC01"',
+      'MSQ,"Which are programming languages?","Java","Python","HTML","CSS","A|B",4,0,"Java and Python are programming languages.","TEC02|PRB02"',
+    ].join('\n');
+    const blob = new Blob([sampleCsv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'assessment_questions_sample.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   // Upload CSV
@@ -315,6 +334,7 @@ export default function TrainerAssessmentsPage() {
       return;
     }
     setUploadingCsv(true);
+    setCsvError(null);
     const formData = new FormData();
     formData.append('file', csvFile);
 
@@ -324,7 +344,9 @@ export default function TrainerAssessmentsPage() {
       setCsvOpen(false);
       quizzesQuery.refetch();
     } catch (err) {
-      toast.error((err as ApiError).message || 'Failed to import CSV');
+      const msg = (err as ApiError).message || 'Failed to import CSV';
+      setCsvError(msg);
+      toast.error(msg);
     } finally {
       setUploadingCsv(false);
     }
@@ -1533,28 +1555,53 @@ export default function TrainerAssessmentsPage() {
             <DialogTitle>Upload Questions CSV: {activeQuiz?.title}</DialogTitle>
           </DialogHeader>
           <DialogBody className="space-y-4">
-            <div className="rounded-xl bg-muted/40 border border-border p-3 text-xs space-y-1">
-              <span className="font-bold text-heading block">Supported CSV Columns:</span>
-              <p className="text-muted-foreground font-mono text-[11px]">
-                question, option_a, option_b, option_c, option_d, correct, marks, negative, <b>eedi_index</b>, <b>eedi_term</b>
+            <div className="rounded-xl bg-muted/40 border border-border p-3 text-xs space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-heading">Combined MCQ + MSQ CSV Columns:</span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleDownloadSampleCsv}
+                  className="h-7 text-[11px] gap-1.5"
+                >
+                  <Download className="size-3.5" />
+                  Download Sample CSV
+                </Button>
+              </div>
+              <p className="text-muted-foreground font-mono text-[11px] break-all">
+                question_type, question, option_a, option_b, option_c, option_d, correct_answers, marks, negative_marks, explanation, <b>eedi_parameters</b>
               </p>
-              <p className="text-muted-foreground text-[11px] pt-1">
-                Both legacy CSVs and extended CSVs with <b>eedi_index</b> &amp; <b>eedi_term</b> are automatically recognized.
+              <p className="text-muted-foreground text-[11px]">
+                Use <b>MCQ</b> (single answer, e.g. <code>B</code>) or <b>MSQ</b> (multiple answers separated by <code>|</code>, e.g. <code>A|B</code>). Check the{' '}
+                <Link href="/user-guide" className="text-primary underline font-medium">
+                  Trainer User Guide
+                </Link>{' '}
+                for exact <code>eedi_parameters</code> codes.
               </p>
             </div>
+
+            {csvError && (
+              <div className="rounded-xl border border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-800 p-3 text-xs text-red-700 dark:text-red-300 whitespace-pre-line">
+                {csvError}
+              </div>
+            )}
 
             <div className="border-2 border-dashed border-border rounded-2xl p-6 text-center hover:bg-muted/10 transition-colors">
               <Upload className="size-8 mx-auto text-primary mb-2" />
               <p className="text-xs font-semibold text-heading mb-1">
                 {csvFile ? csvFile.name : 'Choose a CSV file from your computer'}
               </p>
-              <p className="text-[11px] text-muted-foreground mb-4">UTF-8 encoded comma-separated file</p>
+              <p className="text-[11px] text-muted-foreground mb-4">UTF-8 encoded comma-separated file (MCQ &amp; MSQ)</p>
               <input
                 type="file"
                 accept=".csv"
                 id="csv-file-input"
                 className="hidden"
-                onChange={(e) => setCsvFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => {
+                  setCsvFile(e.target.files?.[0] ?? null);
+                  setCsvError(null);
+                }}
               />
               <Button asChild variant="secondary" size="sm">
                 <label htmlFor="csv-file-input" className="cursor-pointer">

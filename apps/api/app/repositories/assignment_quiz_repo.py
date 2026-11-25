@@ -5,6 +5,7 @@ Ensures participant and trainer assessments/assignments are completely native to
 from __future__ import annotations
 
 import json
+import random
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any
@@ -531,10 +532,13 @@ class QuizRepository:
                 SELECT qa.id, qa.score, qa.possible, qa.completed_at, qa.passed, qa.percentage,
                        qa.performance_category, qa.motivational_message, qa.correct_count,
                        qa.incorrect_count, qa.unattempted_count, qa.status, qa.candidate_status,
-                       qa.is_recovered, u.name as student_name
+                       qa.is_recovered, qa.question_order, qa.option_order, u.name as student_name
                 FROM quiz_attempts qa
                 LEFT JOIN users u ON u.id = qa.student_user_id
                 WHERE qa.quiz_id = $1 AND qa.student_user_id = $2
+                  AND COALESCE(LOWER(qa.status), '') <> 'superseded'
+                ORDER BY (CASE WHEN qa.status = 'in_progress' THEN 0 ELSE 1 END), qa.created_at DESC
+                LIMIT 1
                 """,
                 q_uuid, student_user_id
             )
@@ -577,6 +581,15 @@ class QuizRepository:
                     "duration_seconds": q_time_limit,
                     "question_type": q.get("question_type") or q.get("questionType") or ("mcq_multiple" if len(q.get("correct", [])) > 1 else "mcq_single"),
                 })
+
+            if attempt:
+                q_order = _parse_json_list(attempt["question_order"]) if attempt["question_order"] else []
+                o_order = _parse_json_dict(attempt["option_order"]) if attempt["option_order"] else {}
+                if (not q_order or not o_order) and attempt["status"] == "in_progress":
+                    async with get_pg_connection() as conn2:
+                        q_order, o_order = await cls._ensure_attempt_shuffle_order(conn2, attempt["id"], q_list, settings_dict)
+                if q_order or o_order:
+                    questions = cls._apply_shuffle_order(questions, q_order, o_order)
 
         is_done = bool(attempt and (attempt["completed_at"] or attempt["status"] == "completed" or (attempt["candidate_status"] in ("COMPLETED", "SUBMITTED", "OFFLINE_SUBMITTED", "AUTO_SUBMITTED", "ABANDONED") and not attempt["is_recovered"])))
         can_resume = bool(attempt and not is_done and (attempt["status"] == "in_progress" or attempt["candidate_status"] in ("IN_PROGRESS", "DISCONNECTED") or attempt["is_recovered"]))
@@ -761,10 +774,25 @@ class QuizRepository:
                 q_earned = neg if neg < 0 else (-abs(neg) if neg > 0 else 0.0)
             earned += q_earned
 
+            # EEDI metadata tracking (supports eedi_parameters list + eedi_term/eedi_index)
+            eedi_params_raw = q.get("eedi_parameters") or q.get("eediParameters") or []
+            if isinstance(eedi_params_raw, str):
+                eedi_params_list = [p.strip() for p in eedi_params_raw.replace(",", "|").split("|") if p.strip()]
+            elif isinstance(eedi_params_raw, list):
+                eedi_params_list = [str(p).strip() for p in eedi_params_raw if str(p).strip()]
+            else:
+                eedi_params_list = []
+
             eedi_term = q.get("eedi_term") or q.get("eediTerm")
             eedi_idx = q.get("eedi_index") if q.get("eedi_index") is not None else q.get("eediIndex")
-            if eedi_term:
-                term_key = (str(eedi_term).strip(), int(eedi_idx) if eedi_idx is not None else None)
+            term_keys: list[tuple[str, int | None]] = []
+            if eedi_params_list:
+                for p_code in eedi_params_list:
+                    term_keys.append((p_code, int(eedi_idx) if eedi_idx is not None else None))
+            elif eedi_term:
+                term_keys.append((str(eedi_term).strip(), int(eedi_idx) if eedi_idx is not None else None))
+
+            for term_key in term_keys:
                 if term_key not in eedi_acc:
                     eedi_acc[term_key] = {"earned": 0.0, "possible": 0.0}
                 eedi_acc[term_key]["possible"] += m
@@ -1404,6 +1432,114 @@ class QuizRepository:
                     }
                 }
 
+    @staticmethod
+    def _generate_shuffle_order(
+        q_list: list[dict[str, Any]],
+        settings_dict: dict[str, Any] | None = None,
+    ) -> tuple[list[str], dict[str, list[str]]]:
+        """Generates a randomized (or canonical) question ID list and per-question option ID map."""
+        s = settings_dict or {}
+        shuffle_q = bool(s.get("random_questions", True))
+        shuffle_o = bool(s.get("random_options", True))
+        rng = random.SystemRandom()
+
+        q_order = [str(q.get("id")) for q in q_list if q.get("id") is not None]
+        if shuffle_q and len(q_order) > 1:
+            rng.shuffle(q_order)
+
+        o_order: dict[str, list[str]] = {}
+        for q in q_list:
+            qid = str(q.get("id"))
+            opts = q.get("options")
+            if isinstance(opts, list):
+                opt_ids = [str(o.get("id", chr(65 + i))) for i, o in enumerate(opts)]
+            elif isinstance(opts, dict):
+                opt_ids = [str(k) for k in opts.keys()]
+            else:
+                opt_ids = []
+            if shuffle_o and len(opt_ids) > 1:
+                rng.shuffle(opt_ids)
+            o_order[qid] = opt_ids
+        return q_order, o_order
+
+    @classmethod
+    async def _ensure_attempt_shuffle_order(
+        cls,
+        conn: Any,
+        attempt_id: uuid.UUID,
+        q_list: list[dict[str, Any]],
+        settings_dict: dict[str, Any] | None = None,
+    ) -> tuple[list[str], dict[str, list[str]]]:
+        """Atomically persists question_order & option_order on an attempt if not already set."""
+        row = await conn.fetchrow(
+            "SELECT question_order, option_order FROM quiz_attempts WHERE id = $1",
+            attempt_id,
+        )
+        q_order = _parse_json_list(row["question_order"]) if row and row["question_order"] else []
+        o_order = _parse_json_dict(row["option_order"]) if row and row["option_order"] else {}
+        if q_order and o_order:
+            return [str(x) for x in q_order], o_order
+
+        new_q_order, new_o_order = cls._generate_shuffle_order(q_list, settings_dict)
+        await conn.execute(
+            """
+            UPDATE quiz_attempts
+            SET question_order = CASE WHEN question_order IS NULL OR question_order = '[]'::jsonb THEN $2::jsonb ELSE question_order END,
+                option_order = CASE WHEN option_order IS NULL OR option_order = '{}'::jsonb THEN $3::jsonb ELSE option_order END
+            WHERE id = $1
+            """,
+            attempt_id,
+            json.dumps(new_q_order),
+            json.dumps(new_o_order),
+        )
+        final_row = await conn.fetchrow(
+            "SELECT question_order, option_order FROM quiz_attempts WHERE id = $1",
+            attempt_id,
+        )
+        return (
+            [str(x) for x in (_parse_json_list(final_row["question_order"]) if final_row and final_row["question_order"] else new_q_order)],
+            _parse_json_dict(final_row["option_order"]) if final_row and final_row["option_order"] else new_o_order,
+        )
+
+    @staticmethod
+    def _apply_shuffle_order(
+        questions: list[dict[str, Any]],
+        question_order: list[str],
+        option_order: dict[str, list[str]],
+    ) -> list[dict[str, Any]]:
+        """Orders questions and their options deterministically using persisted IDs."""
+        by_id = {str(q.get("id")): q for q in questions}
+        ordered: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for qid in question_order:
+            q_item = by_id.get(str(qid))
+            if q_item and str(qid) not in seen:
+                ordered.append(dict(q_item))
+                seen.add(str(qid))
+        for q in questions:
+            qid = str(q.get("id"))
+            if qid not in seen:
+                ordered.append(dict(q))
+                seen.add(qid)
+
+        for q in ordered:
+            qid = str(q.get("id"))
+            o_ids = option_order.get(qid)
+            opts = q.get("options") or []
+            if o_ids and isinstance(opts, list):
+                opt_map = {str(o.get("id")): o for o in opts}
+                new_opts = []
+                seen_opts: set[str] = set()
+                for oid in o_ids:
+                    if str(oid) in opt_map and str(oid) not in seen_opts:
+                        new_opts.append(opt_map[str(oid)])
+                        seen_opts.add(str(oid))
+                for o in opts:
+                    if str(o.get("id")) not in seen_opts:
+                        new_opts.append(o)
+                q["options"] = new_opts
+        return ordered
+
     @classmethod
     async def start_or_resume_quiz_attempt(
         cls,
@@ -1446,62 +1582,71 @@ class QuizRepository:
                     q_uuid, student_user_id,
                 )
 
+                q_list = _parse_json_list(quiz["questions"])
+                settings_dict = _parse_json_dict(quiz["settings"]) if quiz["settings"] else {}
+
                 now_utc = datetime.now(timezone.utc)
                 if existing:
                     is_completed = bool(existing["status"] == "completed" or existing["completed_at"])
                     if is_completed:
                         if not bool(quiz.get("allow_retake")) and not existing.get("is_recovered"):
                             raise ScopeForbidden("Assessment attempt is already completed. Contact trainer for recovery.")
-                        # Allow retake: initialize a new attempt row
+                        # Allow retake: initialize a new attempt row with its own persisted shuffle order
                         b_row = await conn.fetchrow(
                             "SELECT batch_id, institution_id FROM student_profiles WHERE user_id = $1",
                             student_user_id,
                         )
                         att_id = uuid.uuid4()
+                        q_order, o_order = cls._generate_shuffle_order(q_list, settings_dict)
                         await conn.execute(
                             """
                             INSERT INTO quiz_attempts (
                                 id, quiz_id, student_user_id, score, possible, answers, created_at,
                                 batch_id, institution_id, warnings, warning_count, status, question_states,
-                                candidate_status, last_heartbeat_at, version
+                                candidate_status, last_heartbeat_at, version, question_order, option_order
                             ) VALUES (
                                 $1, $2, $3, 0, $4, '{}'::jsonb, $5,
                                 $6, $7, '[]'::jsonb, 0, 'in_progress', '{}'::jsonb,
-                                'IN_PROGRESS', NOW(), 1
+                                'IN_PROGRESS', NOW(), 1, $8::jsonb, $9::jsonb
                             )
                             """,
                             att_id, q_uuid, student_user_id,
                             int(quiz["max_score"] or 100), now_utc,
                             b_row["batch_id"] if b_row else None,
                             b_row["institution_id"] if b_row else None,
+                            json.dumps(q_order), json.dumps(o_order),
                         )
-                    elif existing["candidate_status"] in (None, "NOT_STARTED", "DISCONNECTED"):
-                        await conn.execute(
-                            "UPDATE quiz_attempts SET candidate_status = 'IN_PROGRESS', last_heartbeat_at = NOW() WHERE id = $1",
-                            existing["id"],
-                        )
+                    else:
+                        if existing["candidate_status"] in (None, "NOT_STARTED", "DISCONNECTED"):
+                            await conn.execute(
+                                "UPDATE quiz_attempts SET candidate_status = 'IN_PROGRESS', last_heartbeat_at = NOW() WHERE id = $1",
+                                existing["id"],
+                            )
+                        await cls._ensure_attempt_shuffle_order(conn, existing["id"], q_list, settings_dict)
                 else:
                     b_row = await conn.fetchrow(
                         "SELECT batch_id, institution_id FROM student_profiles WHERE user_id = $1",
                         student_user_id,
                     )
                     att_id = uuid.uuid4()
+                    q_order, o_order = cls._generate_shuffle_order(q_list, settings_dict)
                     await conn.execute(
                         """
                         INSERT INTO quiz_attempts (
                             id, quiz_id, student_user_id, score, possible, answers, created_at,
                             batch_id, institution_id, warnings, warning_count, status, question_states,
-                            candidate_status, last_heartbeat_at, version
+                            candidate_status, last_heartbeat_at, version, question_order, option_order
                         ) VALUES (
                             $1, $2, $3, 0, $4, '{}'::jsonb, $5,
                             $6, $7, '[]'::jsonb, 0, 'in_progress', '{}'::jsonb,
-                            'IN_PROGRESS', NOW(), 1
+                            'IN_PROGRESS', NOW(), 1, $8::jsonb, $9::jsonb
                         )
                         """,
                         att_id, q_uuid, student_user_id,
                         int(quiz["max_score"] or 100), now_utc,
                         b_row["batch_id"] if b_row else None,
                         b_row["institution_id"] if b_row else None,
+                        json.dumps(q_order), json.dumps(o_order),
                     )
 
         return await cls.get_student_attempt_timing(quiz_id, student_user_id)

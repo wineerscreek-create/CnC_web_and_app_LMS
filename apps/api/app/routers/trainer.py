@@ -3319,18 +3319,72 @@ async def get_trainer_assessment_eedi(
     return {"success": True, "data": data}
 
 
+@router.get("/eedi-indexes")
+async def get_trainer_eedi_indexes(ctx: ScopeContext = TrainerCtx) -> dict[str, Any]:
+    """Returns all available EEDI evaluation_parameters from PostgreSQL for question authoring and User Guide."""
+    from app.db.postgres import get_pg_connection
+
+    async with get_pg_connection() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT code, pillar, label, description, max_score, weight
+            FROM evaluation_parameters
+            ORDER BY pillar ASC, code ASC
+            """
+        )
+
+    return {
+        "success": True,
+        "data": {
+            "indexes": [
+                {
+                    "name": r["label"],
+                    "code": r["code"],
+                    "pillar": r["pillar"],
+                    "databaseId": None,
+                    "description": r["description"],
+                    "maxScore": float(r["max_score"] or 10),
+                    "weight": float(r["weight"] or 1),
+                }
+                for r in rows
+            ],
+            "totalCount": len(rows),
+        },
+    }
+
+
+@router.get("/assessments/sample-csv")
+async def download_sample_assessment_csv(ctx: ScopeContext = TrainerCtx) -> Response:
+    """Downloads a sample combined MCQ + MSQ CSV template for assessment question import."""
+    sample_csv = (
+        "question_type,question,option_a,option_b,option_c,option_d,correct_answers,marks,negative_marks,explanation,eedi_parameters\n"
+        'MCQ,"Which language runs on the JVM?","Python","Java","C","HTML",B,2,0,"Java runs on the JVM.","TEC01"\n'
+        'MSQ,"Which are programming languages?","Java","Python","HTML","CSS","A|B",4,0,"Java and Python are programming languages.","TEC02|PRB02"\n'
+    )
+    return Response(
+        content=sample_csv,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="assessment_questions_sample.csv"'},
+    )
+
+
 @router.post("/assessments/{quiz_id}/upload-csv")
 async def upload_trainer_assessment_csv(
     quiz_id: str,
     file: UploadFile = File(...),
     ctx: ScopeContext = TrainerCtx,
 ) -> dict[str, Any]:
-    content = await file.read()
+    """Imports combined MCQ + MSQ questions from a single CSV with row-level & EEDI validation."""
     import csv
     import io
+    from app.db.postgres import get_pg_connection
 
+    content = await file.read()
     try:
-        text_content = content.decode("utf-8-sig")
+        try:
+            text_content = content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text_content = content.decode("latin-1")
         reader = list(csv.DictReader(io.StringIO(text_content)))
     except Exception as exc:
         raise ValidationError(f"Could not parse CSV: {exc}")
@@ -3338,76 +3392,184 @@ async def upload_trainer_assessment_csv(
     if not reader:
         raise ValidationError("CSV is empty or invalid")
 
-    normalized_rows = []
+    normalized_rows: list[dict[str, str]] = []
     for row in reader:
-        norm_row = {}
+        norm_row: dict[str, str] = {}
         for k, v in row.items():
             if k is not None:
-                norm_row[str(k).strip().lower().replace(" ", "_")] = str(v).strip()
-        normalized_rows.append(norm_row)
+                norm_row[str(k).strip().lower().replace(" ", "_")] = str(v or "").strip()
+        if any(norm_row.values()):
+            normalized_rows.append(norm_row)
 
-    sample_keys = normalized_rows[0].keys()
-    for col in ["question", "option_a", "option_b", "correct"]:
-        if col not in sample_keys and col.replace("_", "") not in sample_keys:
-            found = any(c in sample_keys for c in [col, col.replace("_", ""), f"option{col[-1]}"])
-            if not found:
-                raise ValidationError(f"Missing required column: {col}")
+    if not normalized_rows:
+        raise ValidationError("CSV contained no question rows")
 
-    questions = []
-    for idx, row in enumerate(normalized_rows):
-        q_text = str(row.get("question", "")).strip()
-        if not q_text:
-            continue
-        opt_a = str(row.get("option_a", row.get("optiona", ""))).strip()
-        opt_b = str(row.get("option_b", row.get("optionb", ""))).strip()
-        opt_c = str(row.get("option_c", row.get("optionc", ""))).strip()
-        opt_d = str(row.get("option_d", row.get("optiond", ""))).strip()
-        correct_raw = str(row.get("correct", row.get("answer", ""))).strip().upper()
-        marks_raw = str(row.get("marks", row.get("mark", "1"))).strip()
-        neg_raw = str(row.get("negative", row.get("negative_marks", "0"))).strip() or "0"
-        image_raw = str(row.get("image", row.get("img", ""))).strip() or None
-        eedi_idx_raw = str(row.get("eedi_index", row.get("index", ""))).strip()
-        eedi_term_raw = str(row.get("eedi_term", row.get("term", ""))).strip()
-
-        options = [
-            {"id": "A", "text": opt_a, "correct": "A" in correct_raw},
-            {"id": "B", "text": opt_b, "correct": "B" in correct_raw},
+    sample_keys = set(normalized_rows[0].keys())
+    has_question = "question" in sample_keys
+    has_opt_a = "option_a" in sample_keys or "optiona" in sample_keys
+    has_opt_b = "option_b" in sample_keys or "optionb" in sample_keys
+    has_correct = any(k in sample_keys for k in ("correct_answers", "correct", "answer"))
+    missing = [
+        name
+        for name, ok in [
+            ("question", has_question),
+            ("option_a", has_opt_a),
+            ("option_b", has_opt_b),
+            ("correct_answers", has_correct),
         ]
-        if opt_c:
-            options.append({"id": "C", "text": opt_c, "correct": "C" in correct_raw})
-        if opt_d:
-            options.append({"id": "D", "text": opt_d, "correct": "D" in correct_raw})
+        if not ok
+    ]
+    if missing:
+        raise ValidationError(f"Missing required column(s): {', '.join(missing)}")
 
+    has_type_col = "question_type" in sample_keys
+
+    async with get_pg_connection() as conn:
+        ep_rows = await conn.fetch("SELECT code FROM evaluation_parameters")
+    valid_eedi_codes = {str(r["code"]).strip().upper(): str(r["code"]).strip() for r in ep_rows}
+    cognitive_terms = {"RECALL", "UNDERSTAND", "APPLY", "ANALYZE", "EVALUATE", "CREATE"}
+
+    row_errors: list[str] = []
+    questions: list[dict[str, Any]] = []
+    mcq_count = 0
+    msq_count = 0
+
+    for idx, row in enumerate(normalized_rows):
+        row_num = idx + 2  # 1-based CSV line including header
+        q_text = row.get("question", "").strip()
+        if not q_text:
+            row_errors.append(f"Row {row_num}: Question text is required.")
+            continue
+
+        opt_a = row.get("option_a", row.get("optiona", "")).strip()
+        opt_b = row.get("option_b", row.get("optionb", "")).strip()
+        opt_c = row.get("option_c", row.get("optionc", "")).strip()
+        opt_d = row.get("option_d", row.get("optiond", "")).strip()
+
+        if not opt_a or not opt_b:
+            row_errors.append(f"Row {row_num}: option_a and option_b are required.")
+            continue
+
+        raw_correct = row.get("correct_answers", row.get("correct", row.get("answer", ""))).strip().upper()
+        if not raw_correct:
+            row_errors.append(f"Row {row_num}: correct_answers is required.")
+            continue
+
+        sep_answers = [c.strip() for c in raw_correct.replace(",", "|").split("|") if c.strip()]
+        # Deduplicate while preserving order
+        correct_ids: list[str] = []
+        for c in sep_answers:
+            if c not in correct_ids:
+                correct_ids.append(c)
+
+        raw_qtype = row.get("question_type", "").strip().upper()
+        if has_type_col:
+            if raw_qtype not in ("MCQ", "MSQ"):
+                row_errors.append(f"Row {row_num}: Invalid question_type '{raw_qtype or 'empty'}' — must be MCQ or MSQ.")
+                continue
+            q_kind = raw_qtype
+        else:
+            q_kind = "MSQ" if len(correct_ids) > 1 else "MCQ"
+
+        available_opts = {"A": opt_a, "B": opt_b}
+        if opt_c:
+            available_opts["C"] = opt_c
+        if opt_d:
+            available_opts["D"] = opt_d
+
+        invalid_ans = [c for c in correct_ids if c not in available_opts]
+        if invalid_ans:
+            row_errors.append(
+                f"Row {row_num}: correct_answers '{','.join(invalid_ans)}' does not match non-empty options ({', '.join(available_opts.keys())})."
+            )
+            continue
+
+        if q_kind == "MCQ" and len(correct_ids) != 1:
+            row_errors.append(f"Row {row_num}: MCQ must have exactly one correct answer (got {len(correct_ids)}).")
+            continue
+        if q_kind == "MSQ" and len(correct_ids) < 1:
+            row_errors.append(f"Row {row_num}: MSQ must have at least one correct answer.")
+            continue
+
+        marks_raw = row.get("marks", row.get("mark", "1")).strip()
+        neg_raw = row.get("negative_marks", row.get("negative", "0")).strip() or "0"
         try:
             marks = float(marks_raw) if marks_raw else 1.0
+            if marks <= 0:
+                raise ValueError("marks must be > 0")
         except ValueError:
-            marks = 1.0
+            row_errors.append(f"Row {row_num}: Invalid marks '{marks_raw}'.")
+            continue
 
         try:
             negative = float(neg_raw) if neg_raw else 0.0
+            if negative < 0:
+                raise ValueError("negative_marks must be >= 0")
         except ValueError:
-            negative = 0.0
+            row_errors.append(f"Row {row_num}: Invalid negative_marks '{neg_raw}'.")
+            continue
+
+        explanation = row.get("explanation", "").strip() or None
+        image_raw = row.get("image", row.get("img", "")).strip() or None
+
+        eedi_params_raw = row.get("eedi_parameters", "").strip()
+        eedi_idx_raw = row.get("eedi_index", row.get("index", "")).strip()
+        eedi_term_raw = row.get("eedi_term", row.get("term", "")).strip()
+
+        eedi_parameters: list[str] = []
+        if eedi_params_raw:
+            tokens = [t.strip() for t in eedi_params_raw.replace(",", "|").split("|") if t.strip()]
+            bad_codes: list[str] = []
+            for tok in tokens:
+                up = tok.upper()
+                if up in valid_eedi_codes:
+                    eedi_parameters.append(valid_eedi_codes[up])
+                elif up in cognitive_terms:
+                    eedi_parameters.append(up.title())
+                else:
+                    bad_codes.append(tok)
+            if bad_codes:
+                row_errors.append(f"Row {row_num}: Unknown EEDI parameter code(s): {', '.join(bad_codes)}.")
+                continue
 
         eedi_idx = None
         if eedi_idx_raw:
             try:
                 eedi_idx = int(eedi_idx_raw)
             except ValueError:
-                eedi_idx = None
+                row_errors.append(f"Row {row_num}: Invalid eedi_index '{eedi_idx_raw}'.")
+                continue
 
+        options = [{"id": oid, "text": otext, "correct": oid in correct_ids} for oid, otext in available_opts.items()]
+        mapped_qtype = "mcq_multiple" if q_kind == "MSQ" else "mcq_single"
+        if q_kind == "MSQ":
+            msq_count += 1
+        else:
+            mcq_count += 1
+
+        primary_term = eedi_parameters[0] if eedi_parameters else (eedi_term_raw if eedi_term_raw else None)
         questions.append({
-            "id": f"q_{idx + 1}",
+            "id": f"q_{len(questions) + 1}",
+            "question_type": mapped_qtype,
+            "questionType": mapped_qtype,
+            "type": q_kind,
             "text": q_text,
             "image": image_raw,
+            "explanation": explanation,
             "options": options,
-            "correct": [c.strip() for c in correct_raw.split(",") if c.strip()],
+            "correct": correct_ids,
             "marks": marks,
             "negative": negative,
+            "eedi_parameters": eedi_parameters,
+            "eediParameters": eedi_parameters,
             "eediIndex": eedi_idx,
-            "eediTerm": eedi_term_raw if eedi_term_raw else None,
+            "eediTerm": primary_term,
             "eedi_index": eedi_idx,
-            "eedi_term": eedi_term_raw if eedi_term_raw else None,
+            "eedi_term": primary_term,
         })
+
+    if row_errors:
+        raise ValidationError("CSV validation failed:\n" + "\n".join(row_errors[:10]))
 
     if not questions:
         raise ValidationError("CSV contained no valid questions")
@@ -3415,8 +3577,21 @@ async def upload_trainer_assessment_csv(
     await QuizRepository.update_trainer_quiz(ctx, quiz_id, questions=questions)
     return {
         "success": True,
-        "message": f"Successfully imported {len(questions)} questions",
+        "message": f"Successfully imported {len(questions)} questions ({mcq_count} MCQ, {msq_count} MSQ)",
         "questionCount": len(questions),
+        "mcqCount": mcq_count,
+        "msqCount": msq_count,
+        "preview": [
+            {
+                "id": q["id"],
+                "type": q["type"],
+                "text": q["text"],
+                "marks": q["marks"],
+                "correct": q["correct"],
+                "eediParameters": q["eedi_parameters"],
+            }
+            for q in questions[:10]
+        ],
     }
 
 

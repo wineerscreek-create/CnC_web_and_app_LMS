@@ -257,8 +257,29 @@ class OfflineRepository:
                         "id": str(q.get("id")),
                         "text": q.get("text"),
                         "marks": q.get("marks", 1),
+                        "question_type": q.get("question_type") or q.get("questionType") or ("mcq_multiple" if len(q.get("correct", [])) > 1 else "mcq_single"),
                         "options": opts,
                     })
+
+                from app.repositories.assignment_quiz_repo import QuizRepository
+                att_row = await conn.fetchrow(
+                    """
+                    SELECT id, question_order, option_order
+                    FROM quiz_attempts
+                    WHERE quiz_id = $1 AND student_user_id = $2
+                      AND status = 'in_progress'
+                    ORDER BY created_at DESC LIMIT 1
+                    """,
+                    resource_id, u_uuid,
+                )
+                q_settings = _parse_json(quiz.get("settings"))
+                if att_row:
+                    q_ord, o_ord = await QuizRepository._ensure_attempt_shuffle_order(
+                        conn, att_row["id"], raw_questions, q_settings
+                    )
+                else:
+                    q_ord, o_ord = QuizRepository._generate_shuffle_order(raw_questions, q_settings)
+                sanitized_questions = QuizRepository._apply_shuffle_order(sanitized_questions, q_ord, o_ord)
 
                 bundle_data = {
                     "quizId": str(quiz["id"]),
@@ -428,12 +449,13 @@ class OfflineRepository:
                             else:
                                 attempt_id = _safe_uuid(op.get("attemptId")) or uuid.uuid4()
 
-                            answers_map: dict[str, str] = {}
+                            answers_map: dict[str, Any] = {}
                             if isinstance(answers_list, list):
                                 for a in answers_list:
-                                    answers_map[str(a.get("questionId"))] = str(a.get("optionId"))
+                                    val = a.get("optionIds") if a.get("optionIds") is not None else a.get("optionId")
+                                    answers_map[str(a.get("questionId"))] = val
                             elif isinstance(answers_list, dict):
-                                answers_map = {str(k): str(v) for k, v in answers_list.items()}
+                                answers_map = {str(k): v for k, v in answers_list.items()}
 
                             # Check if attempt already exists with server-locked questions or server-saved drafts
                             existing_att = existing_attempt
@@ -462,22 +484,44 @@ class OfflineRepository:
                             unattempted_count = 0
                             for q in raw_questions:
                                 m = float(q.get("marks", 1))
+                                neg = float(q.get("negative", 0))
                                 possible += m
                                 qid = str(q.get("id"))
-                                chosen_opt = answers_map.get(qid)
-                                if not chosen_opt:
+                                raw_chosen = answers_map.get(qid)
+                                q_type = q.get("question_type") or q.get("questionType") or "mcq_single"
+
+                                if isinstance(raw_chosen, list):
+                                    chosen_set = {str(c).strip().upper() for c in raw_chosen if str(c).strip()}
+                                elif raw_chosen is not None and str(raw_chosen).strip():
+                                    chosen_set = {str(raw_chosen).strip().upper()}
+                                else:
+                                    chosen_set = set()
+
+                                if not chosen_set:
                                     unattempted_count += 1
                                     continue
-                                is_corr = False
-                                for opt in q.get("options", []):
-                                    if str(opt.get("id")) == chosen_opt and opt.get("correct"):
-                                        earned += m
-                                        is_corr = True
-                                        break
+
+                                correct_set = {
+                                    str(opt.get("id")).strip().upper()
+                                    for opt in q.get("options", [])
+                                    if opt.get("correct")
+                                }
+                                if not correct_set and isinstance(q.get("correct"), list):
+                                    correct_set = {str(c).strip().upper() for c in q.get("correct", []) if str(c).strip()}
+
+                                if q_type == "mcq_multiple":
+                                    is_corr = bool(chosen_set and chosen_set == correct_set)
+                                else:
+                                    is_corr = bool(len(chosen_set) == 1 and next(iter(chosen_set)) in correct_set)
+
                                 if is_corr:
+                                    earned += m
                                     correct_count += 1
                                 else:
+                                    earned += (neg if neg < 0 else (-abs(neg) if neg > 0 else 0.0))
                                     incorrect_count += 1
+
+                            earned = max(0.0, earned)
 
                             official_score = round(earned / possible * 100, 1) if possible > 0 else 0.0
                             pct_score = round(earned / possible * 100, 2) if possible > 0 else 0.0
