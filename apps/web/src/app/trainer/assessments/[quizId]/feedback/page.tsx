@@ -83,10 +83,10 @@ export default function TrainerAssessmentFeedbackPage() {
     async (pageToLoad = 1) => {
       if (!params.quizId) return;
       try {
-        const res = await api.get(
+        const res = await api.get<any>(
           `/trainer/assessments/${params.quizId}/feedback?page=${pageToLoad}&limit=20`
         );
-        const data = res.data?.data;
+        const data = res.data?.data || res.data;
         if (data) {
           setQuizTitle(data.quizTitle || 'Assessment');
           setSummary(data.summary);

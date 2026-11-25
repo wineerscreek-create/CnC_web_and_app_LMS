@@ -8,6 +8,7 @@ import json
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.authz.context import ScopeContext
 from app.authz.roles import Role
@@ -148,12 +149,72 @@ def _safe_uuid(val: Any) -> uuid.UUID | None:
         return None
 
 
-def as_utc(val: Any) -> datetime:
+def _get_tz(tz_name: str = "Asia/Kolkata"):
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        if tz_name == "Asia/Kolkata":
+            return timezone(timedelta(hours=5, minutes=30))
+        return timezone.utc
+
+
+def as_utc(val: Any, *, end_of_day_if_date_only: bool = False, tz_name: str = "Asia/Kolkata") -> datetime:
     if isinstance(val, datetime):
         if val.tzinfo is None:
             return val.replace(tzinfo=timezone.utc)
         return val.astimezone(timezone.utc)
+    if isinstance(val, str) and val.strip():
+        s = val.strip()
+        # Date-only string YYYY-MM-DD: interpret in configured institution timezone
+        if len(s) == 10 and s[4] == "-" and s[7] == "-":
+            tz = _get_tz(tz_name)
+            dt = datetime.fromisoformat(s)
+            if end_of_day_if_date_only:
+                dt = dt.replace(hour=23, minute=59, second=59, microsecond=0, tzinfo=tz)
+            else:
+                dt = dt.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=tz)
+            return dt.astimezone(timezone.utc)
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=_get_tz(tz_name)).astimezone(timezone.utc)
+        return dt.astimezone(timezone.utc)
     return datetime.now(timezone.utc)
+
+
+def compute_quiz_lifecycle(
+    status: str | None,
+    opens_at: Any,
+    closes_at: Any,
+    manually_ended: bool = False,
+    now_utc: datetime | None = None,
+) -> tuple[str, str]:
+    """Returns (lifecycle_status, publication_status) without conflating inactive/scheduled/expired/completed.
+
+    lifecycle_status: DRAFT | SCHEDULED | LIVE | COMPLETED | EXPIRED | CANCELLED
+    publication_status: ACTIVE | INACTIVE
+    """
+    now = now_utc or datetime.now(timezone.utc)
+    raw = (status or "active").strip().lower()
+
+    if raw == "cancelled":
+        return "CANCELLED", "INACTIVE"
+    if raw == "draft":
+        return "DRAFT", "INACTIVE"
+    if raw == "completed" or manually_ended:
+        return "COMPLETED", "ACTIVE"
+
+    pub_status = "ACTIVE" if raw == "active" else "INACTIVE"
+    if pub_status == "INACTIVE":
+        # An inactive quiz is never automatically labelled EXPIRED
+        if opens_at and as_utc(opens_at) > now:
+            return "SCHEDULED", "INACTIVE"
+        return "DRAFT", "INACTIVE"
+
+    if opens_at and as_utc(opens_at) > now:
+        return "SCHEDULED", "ACTIVE"
+    if closes_at and as_utc(closes_at, end_of_day_if_date_only=True) < now:
+        return "EXPIRED", "ACTIVE"
+    return "LIVE", "ACTIVE"
 
 
 def _parse_json_list(val: Any) -> list[Any]:
@@ -351,6 +412,7 @@ class QuizRepository:
                 FROM quizzes q
                 LEFT JOIN quiz_attempts qa ON qa.quiz_id = q.id AND qa.student_user_id = $1
                 WHERE q.status = 'active'
+                  AND q.deleted_at IS NULL
                   AND (
                     -- Explicitly assigned to the student's batch via quiz_batch_assignments
                     EXISTS (
@@ -373,7 +435,7 @@ class QuizRepository:
         for r in rows:
             opens = r["opens_at"]
             closes = r["closes_at"]
-            is_done = bool(r["completed_at"] or r["attempt_status"] == "completed" or (r["candidate_status"] in ("COMPLETED", "SUBMITTED", "AUTO_SUBMITTED", "ABANDONED") and not r["is_recovered"]))
+            is_done = bool(r["completed_at"] or r["attempt_status"] == "completed" or (r["candidate_status"] in ("COMPLETED", "SUBMITTED", "OFFLINE_SUBMITTED", "AUTO_SUBMITTED", "ABANDONED") and not r["is_recovered"]))
             can_resume = bool(r["attempt_id"] and not is_done and (r["attempt_status"] == "in_progress" or r["candidate_status"] in ("IN_PROGRESS", "DISCONNECTED") or r["is_recovered"]))
 
             if is_done:
@@ -516,7 +578,7 @@ class QuizRepository:
                     "question_type": q.get("question_type") or q.get("questionType") or ("mcq_multiple" if len(q.get("correct", [])) > 1 else "mcq_single"),
                 })
 
-        is_done = bool(attempt and (attempt["completed_at"] or attempt["status"] == "completed" or (attempt["candidate_status"] in ("COMPLETED", "SUBMITTED", "AUTO_SUBMITTED", "ABANDONED") and not attempt["is_recovered"])))
+        is_done = bool(attempt and (attempt["completed_at"] or attempt["status"] == "completed" or (attempt["candidate_status"] in ("COMPLETED", "SUBMITTED", "OFFLINE_SUBMITTED", "AUTO_SUBMITTED", "ABANDONED") and not attempt["is_recovered"])))
         can_resume = bool(attempt and not is_done and (attempt["status"] == "in_progress" or attempt["candidate_status"] in ("IN_PROGRESS", "DISCONNECTED") or attempt["is_recovered"]))
 
         attempt_payload = None
@@ -617,262 +679,272 @@ class QuizRepository:
             if not is_authorized:
                 raise ScopeForbidden("This assessment is not assigned to your batch")
 
-            existing = await conn.fetchrow(
-                """
-                SELECT id, score, possible, percentage, passed, performance_category,
-                       motivational_message, correct_count, incorrect_count, unattempted_count,
-                       status, answers, question_states, completed_at, submission_reason,
-                       warnings, warning_count
-                FROM quiz_attempts
-                WHERE quiz_id = $1 AND student_user_id = $2
-                ORDER BY created_at DESC LIMIT 1
-                """,
-                q_uuid, u_uuid
-            )
-            if existing and existing["status"] == "completed" and not quiz["allow_retake"]:
-                u_row = await conn.fetchrow("SELECT name FROM users WHERE id = $1", u_uuid)
-                existing_answers = _parse_json_dict(existing["answers"]) if existing["answers"] else {}
-                persisted_attempted = len([k for k, v in existing_answers.items() if v not in (None, '', [], {})])
-                return {
-                    "attemptId": str(existing["id"]),
-                    "score": int(existing["score"]),
-                    "maxScore": int(existing["possible"] or quiz["max_score"] or 100),
-                    "percentage": float(existing["percentage"]) if existing["percentage"] is not None else 0.0,
-                    "passed": bool(existing["passed"]),
-                    "performanceCategory": existing["performance_category"] or "GOOD",
-                    "motivationalMessage": existing["motivational_message"] or "Well done!",
-                    "correctCount": int(existing["correct_count"] or 0),
-                    "incorrectCount": int(existing["incorrect_count"] or 0),
-                    "unattemptedCount": int(existing["unattempted_count"] or 0),
-                    "totalMarks": int(quiz["max_score"] or 100),
-                    "obtainedMarks": int(existing["score"]),
-                    "studentName": u_row["name"] if u_row and u_row["name"] else "Student",
-                    "assessmentName": quiz["title"],
-                    "submissionReason": existing.get("submission_reason") or "STUDENT_MANUAL_SUBMIT",
-                    "candidateStatus": existing.get("candidate_status") or "COMPLETED",
-                    "attemptedCount": persisted_attempted,
-                    "serverConfirmedAnswerCount": persisted_attempted,
-                    "completedAt": existing["completed_at"].isoformat() if existing["completed_at"] else now_utc.isoformat(),
-                    "idempotent": True,
-                }
+            async with conn.transaction():
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext($1))",
+                    f"{q_uuid}:{u_uuid}",
+                )
+                existing = await conn.fetchrow(
+                    """
+                    SELECT id, score, possible, percentage, passed, performance_category,
+                           motivational_message, correct_count, incorrect_count, unattempted_count,
+                           status, candidate_status, answers, question_states, completed_at, submission_reason,
+                           warnings, warning_count, is_recovered
+                    FROM quiz_attempts
+                    WHERE quiz_id = $1 AND student_user_id = $2
+                    ORDER BY (CASE WHEN status = 'in_progress' THEN 0 ELSE 1 END), created_at DESC
+                    LIMIT 1
+                    """,
+                    q_uuid, u_uuid
+                )
+                if existing and existing["status"] == "completed" and not quiz["allow_retake"]:
+                    u_row = await conn.fetchrow("SELECT name FROM users WHERE id = $1", u_uuid)
+                    existing_answers = _parse_json_dict(existing["answers"]) if existing["answers"] else {}
+                    persisted_attempted = len([k for k, v in existing_answers.items() if v not in (None, '', [], {})])
+                    return {
+                        "attemptId": str(existing["id"]),
+                        "score": int(existing["score"]),
+                        "maxScore": int(existing["possible"] or quiz["max_score"] or 100),
+                        "percentage": float(existing["percentage"]) if existing["percentage"] is not None else 0.0,
+                        "passed": bool(existing["passed"]),
+                        "performanceCategory": existing["performance_category"] or "GOOD",
+                        "motivationalMessage": existing["motivational_message"] or "Well done!",
+                        "correctCount": int(existing["correct_count"] or 0),
+                        "incorrectCount": int(existing["incorrect_count"] or 0),
+                        "unattemptedCount": int(existing["unattempted_count"] or 0),
+                        "totalMarks": int(quiz["max_score"] or 100),
+                        "obtainedMarks": int(existing["score"]),
+                        "studentName": u_row["name"] if u_row and u_row["name"] else "Student",
+                        "assessmentName": quiz["title"],
+                        "submissionReason": existing["submission_reason"] or "STUDENT_MANUAL_SUBMIT",
+                        "candidateStatus": existing["candidate_status"] or "COMPLETED",
+                        "attemptedCount": persisted_attempted,
+                        "serverConfirmedAnswerCount": persisted_attempted,
+                        "completedAt": existing["completed_at"].isoformat() if existing["completed_at"] else now_utc.isoformat(),
+                        "idempotent": True,
+                    }
 
-            # Merge supplied answers with previously persisted draft answers atomically
-            persisted_answers = {str(k): v for k, v in (_parse_json_dict(existing["answers"]) if existing and existing["answers"] else {}).items()}
-            incoming_answers = {str(k): v for k, v in (answers or {}).items()}
-            effective_answers = {**persisted_answers, **incoming_answers}
-            attempted_count = len([k for k, v in effective_answers.items() if v not in (None, '', [], {})])
+                # Merge supplied answers with previously persisted draft answers atomically
+                persisted_answers = {str(k): v for k, v in (_parse_json_dict(existing["answers"]) if existing and existing["answers"] else {}).items()}
+                incoming_answers = {str(k): v for k, v in (answers or {}).items()}
+                effective_answers = {**persisted_answers, **incoming_answers}
+                attempted_count = len([k for k, v in effective_answers.items() if v not in (None, '', [], {})])
 
-            q_list = _parse_json_list(quiz["questions"])
-            earned = 0.0
-            total_marks = 0.0
-            correct_count = 0
-            incorrect_count = 0
-            unattempted_count = 0
+                q_list = _parse_json_list(quiz["questions"])
+                earned = 0.0
+                total_marks = 0.0
+                correct_count = 0
+                incorrect_count = 0
+                unattempted_count = 0
 
-            # EEDI accumulator: (eedi_term, eedi_index) -> {"earned": float, "possible": float}
-            eedi_acc: dict[tuple[str, int | None], dict[str, float]] = {}
+                # EEDI accumulator: (eedi_term, eedi_index) -> {"earned": float, "possible": float}
+                eedi_acc: dict[tuple[str, int | None], dict[str, float]] = {}
 
-            for q in q_list:
-                m = float(q.get("marks", 1))
-                neg = float(q.get("negative", 0))
-                total_marks += m
-                qid = str(q.get("id"))
-                raw_ans = effective_answers.get(qid)
-                q_type = q.get("question_type") or q.get("questionType") or "mcq_single"
+                for q in q_list:
+                    m = float(q.get("marks", 1))
+                    neg = float(q.get("negative", 0))
+                    total_marks += m
+                    qid = str(q.get("id"))
+                    raw_ans = effective_answers.get(qid)
+                    q_type = q.get("question_type") or q.get("questionType") or "mcq_single"
 
-                # Normalize candidate answer
-                chosen_list: list[str] = []
-                if isinstance(raw_ans, list):
-                    chosen_list = [str(c).strip().upper() for c in raw_ans if str(c).strip()]
-                elif isinstance(raw_ans, dict):
-                    chosen_list = [str(c).strip().upper() for c in raw_ans.get("selected", [])]
-                elif raw_ans is not None and str(raw_ans).strip():
-                    chosen_list = [str(raw_ans).strip().upper()]
+                    # Normalize candidate answer
+                    chosen_list: list[str] = []
+                    if isinstance(raw_ans, list):
+                        chosen_list = [str(c).strip().upper() for c in raw_ans if str(c).strip()]
+                    elif isinstance(raw_ans, dict):
+                        chosen_list = [str(c).strip().upper() for c in raw_ans.get("selected", [])]
+                    elif raw_ans is not None and str(raw_ans).strip():
+                        chosen_list = [str(raw_ans).strip().upper()]
 
-                # Normalize correct answers
-                correct_raw = q.get("correct_options") or q.get("correct") or q.get("correct_answer") or q.get("correctAnswer")
-                if not correct_raw and isinstance(q.get("options"), list):
-                    correct_raw = [opt.get("id") for opt in q.get("options", []) if opt.get("correct")]
+                    # Normalize correct answers
+                    correct_raw = q.get("correct_options") or q.get("correct") or q.get("correct_answer") or q.get("correctAnswer")
+                    if not correct_raw and isinstance(q.get("options"), list):
+                        correct_raw = [opt.get("id") for opt in q.get("options", []) if opt.get("correct")]
 
-                if isinstance(correct_raw, str):
-                    correct_answers = [correct_raw.strip().upper()]
-                elif isinstance(correct_raw, list):
-                    correct_answers = [str(c).strip().upper() for c in correct_raw if str(c).strip()]
-                else:
-                    correct_answers = []
+                    if isinstance(correct_raw, str):
+                        correct_answers = [correct_raw.strip().upper()]
+                    elif isinstance(correct_raw, list):
+                        correct_answers = [str(c).strip().upper() for c in correct_raw if str(c).strip()]
+                    else:
+                        correct_answers = []
 
-                is_correct = False
-                has_attempted = False
+                    is_correct = False
+                    has_attempted = False
 
-                if q_type == "numerical":
-                    val = str(raw_ans).strip().lower() if raw_ans is not None else ""
-                    expected = str(q.get("correct_answer") or q.get("correctAnswer") or (correct_answers[0] if correct_answers else "")).strip().lower()
-                    has_attempted = bool(val)
-                    is_correct = bool(val and val == expected)
-                elif q_type == "mcq_multiple":
-                    has_attempted = bool(chosen_list)
-                    is_correct = bool(chosen_list and set(chosen_list) == set(correct_answers))
-                else:
-                    # Single choice
-                    chosen = chosen_list[0] if chosen_list else ""
-                    has_attempted = bool(chosen)
-                    if isinstance(q.get("options"), list):
-                        for opt in q.get("options", []):
-                            opt_id = str(opt.get("id", "")).strip().upper()
-                            if opt_id == chosen and (opt.get("correct") or opt_id in correct_answers):
+                    if q_type == "numerical":
+                        val = str(raw_ans).strip().lower() if raw_ans is not None else ""
+                        expected = str(q.get("correct_answer") or q.get("correctAnswer") or (correct_answers[0] if correct_answers else "")).strip().lower()
+                        has_attempted = bool(val)
+                        is_correct = bool(val and val == expected)
+                    elif q_type == "mcq_multiple":
+                        has_attempted = bool(chosen_list)
+                        is_correct = bool(chosen_list and set(chosen_list) == set(correct_answers))
+                    else:
+                        # Single choice
+                        chosen = chosen_list[0] if chosen_list else ""
+                        has_attempted = bool(chosen)
+                        if isinstance(q.get("options"), list):
+                            for opt in q.get("options", []):
+                                opt_id = str(opt.get("id", "")).strip().upper()
+                                if opt_id == chosen and (opt.get("correct") or opt_id in correct_answers):
+                                    is_correct = True
+                                    break
+                        elif isinstance(q.get("options"), dict):
+                            if chosen in correct_answers:
                                 is_correct = True
-                                break
-                    elif isinstance(q.get("options"), dict):
-                        if chosen in correct_answers:
-                            is_correct = True
 
-                if not has_attempted:
-                    unattempted_count += 1
-                elif is_correct:
-                    correct_count += 1
-                else:
-                    incorrect_count += 1
+                    if not has_attempted:
+                        unattempted_count += 1
+                    elif is_correct:
+                        correct_count += 1
+                    else:
+                        incorrect_count += 1
 
-                q_earned = 0.0
-                if is_correct:
-                    q_earned = m
-                elif has_attempted:
-                    q_earned = neg if neg < 0 else (-abs(neg) if neg > 0 else 0.0)
-                earned += q_earned
-
-                # EEDI metadata tracking (supports both camelCase and snake_case)
-                eedi_term = q.get("eedi_term") or q.get("eediTerm")
-                eedi_idx = q.get("eedi_index") if q.get("eedi_index") is not None else q.get("eediIndex")
-                if eedi_term:
-                    term_key = (str(eedi_term).strip(), int(eedi_idx) if eedi_idx is not None else None)
-                    if term_key not in eedi_acc:
-                        eedi_acc[term_key] = {"earned": 0.0, "possible": 0.0}
-                    eedi_acc[term_key]["possible"] += m
+                    q_earned = 0.0
                     if is_correct:
-                        eedi_acc[term_key]["earned"] += m
+                        q_earned = m
+                    elif has_attempted:
+                        q_earned = neg if neg < 0 else (-abs(neg) if neg > 0 else 0.0)
+                    earned += q_earned
 
-            score_val = max(0, min(int(quiz["max_score"] or 100), int(round((earned / max(1.0, total_marks)) * float(quiz["max_score"] or 100)))))
-            pct_score = max(0.0, min(100.0, round((earned / max(1.0, total_marks)) * 100.0, 2)))
-            passed = pct_score >= 60.0
+                    # EEDI metadata tracking (supports both camelCase and snake_case)
+                    eedi_term = q.get("eedi_term") or q.get("eediTerm")
+                    eedi_idx = q.get("eedi_index") if q.get("eedi_index") is not None else q.get("eediIndex")
+                    if eedi_term:
+                        term_key = (str(eedi_term).strip(), int(eedi_idx) if eedi_idx is not None else None)
+                        if term_key not in eedi_acc:
+                            eedi_acc[term_key] = {"earned": 0.0, "possible": 0.0}
+                        eedi_acc[term_key]["possible"] += m
+                        if is_correct:
+                            eedi_acc[term_key]["earned"] += m
 
-            existing_warnings: list[dict[str, Any]] = []
-            if existing and existing["warnings"]:
-                existing_warnings = _parse_json_list(existing["warnings"])
+                score_val = max(0, min(int(quiz["max_score"] or 100), int(round((earned / max(1.0, total_marks)) * float(quiz["max_score"] or 100)))))
+                pct_score = max(0.0, min(100.0, round((earned / max(1.0, total_marks)) * 100.0, 2)))
+                passed = pct_score >= 60.0
 
-            client_warnings: list[dict[str, Any]] = []
-            if warnings:
-                if isinstance(warnings, list):
-                    client_warnings = warnings
-                elif isinstance(warnings, str):
-                    client_warnings = _parse_json_list(warnings)
+                existing_warnings: list[dict[str, Any]] = []
+                if existing and existing["warnings"]:
+                    existing_warnings = _parse_json_list(existing["warnings"])
 
-            # Preserve proctoring warnings recorded during exam attempt
-            all_warnings = list(existing_warnings)
-            for cw in client_warnings:
-                if cw not in all_warnings:
-                    all_warnings.append(cw)
+                client_warnings: list[dict[str, Any]] = []
+                if warnings:
+                    if isinstance(warnings, list):
+                        client_warnings = warnings
+                    elif isinstance(warnings, str):
+                        client_warnings = _parse_json_list(warnings)
 
-            warnings_json = json.dumps(all_warnings)
-            warning_count = len(all_warnings)
+                # Preserve proctoring warnings recorded during exam attempt
+                all_warnings = list(existing_warnings)
+                for cw in client_warnings:
+                    if cw not in all_warnings:
+                        all_warnings.append(cw)
 
-            settings_dict = _parse_json_dict(quiz.get("settings"))
-            perf_ranges = settings_dict.get("performance_classification") or DEFAULT_PERFORMANCE_RANGES
-            mot_messages = settings_dict.get("motivational_feedback") or DEFAULT_MOTIVATIONAL_MESSAGES
-            perf_cat = determine_performance_category(pct_score, perf_ranges)
-            mot_msg = mot_messages.get(normalize_category_key(perf_cat)) or DEFAULT_MOTIVATIONAL_MESSAGES.get(normalize_category_key(perf_cat), "Well done!")
+                warnings_json = json.dumps(all_warnings)
+                warning_count = len(all_warnings)
 
-            u_row = await conn.fetchrow("SELECT name FROM users WHERE id = $1", u_uuid)
-            student_name = u_row["name"] if u_row and u_row["name"] else "Student"
+                settings_dict = _parse_json_dict(quiz.get("settings"))
+                perf_ranges = settings_dict.get("performance_classification") or DEFAULT_PERFORMANCE_RANGES
+                mot_messages = settings_dict.get("motivational_feedback") or DEFAULT_MOTIVATIONAL_MESSAGES
+                perf_cat = determine_performance_category(pct_score, perf_ranges)
+                mot_msg = mot_messages.get(normalize_category_key(perf_cat)) or DEFAULT_MOTIVATIONAL_MESSAGES.get(normalize_category_key(perf_cat), "Well done!")
 
-            final_cand_status = "COMPLETED"
-            if submission_reason in ("WARNING_LIMIT_REACHED", "FULLSCREEN_EXIT_TIMEOUT", "TIMER_EXPIRED", "TRAINER_END_ASSESSMENT", "AUTO_SUBMITTED"):
-                final_cand_status = "AUTO_SUBMITTED"
-            elif submission_reason in ("ABANDONMENT_TIMEOUT", "ABANDONED"):
-                final_cand_status = "ABANDONED"
+                u_row = await conn.fetchrow("SELECT name FROM users WHERE id = $1", u_uuid)
+                student_name = u_row["name"] if u_row and u_row["name"] else "Student"
 
-            if existing and existing["status"] != "completed":
-                att_id = existing["id"]
-                await conn.execute(
-                    """
-                    UPDATE quiz_attempts
-                    SET score = $3, possible = $4, answers = $5::jsonb, completed_at = NOW(),
-                        batch_id = $6, institution_id = $7, device_id = $8,
-                        warnings = $9::jsonb, warning_count = $10, status = 'completed',
-                        percentage = $11, passed = $12, performance_category = $13,
-                        motivational_message = $14, correct_count = $15, incorrect_count = $16,
-                        unattempted_count = $17, submission_reason = $18, candidate_status = $19,
-                        remaining_seconds = 0, last_heartbeat_at = NOW()
-                    WHERE id = $1 AND student_user_id = $2
-                    """,
-                    att_id, u_uuid, score_val, int(quiz["max_score"] or 100),
-                    json.dumps(effective_answers), student_batch_id, student_inst_id, device_id,
-                    warnings_json, warning_count, pct_score, passed,
-                    perf_cat, mot_msg, correct_count, incorrect_count, unattempted_count,
-                    submission_reason, final_cand_status
-                )
-            else:
-                att_id = uuid.uuid4()
-                await conn.execute(
-                    """
-                    INSERT INTO quiz_attempts (
-                        id, quiz_id, student_user_id, score, possible, answers, created_at, completed_at,
-                        batch_id, institution_id, device_id, warnings, warning_count, status, percentage, passed,
-                        performance_category, motivational_message, correct_count, incorrect_count, unattempted_count,
-                        submission_reason, candidate_status, remaining_seconds, last_heartbeat_at
-                    ) VALUES (
-                        $1, $2, $3, $4, $5, $6::jsonb, NOW(), NOW(),
-                        $7, $8, $9, $10::jsonb, $11, 'completed', $12, $13,
-                        $14, $15, $16, $17, $18, $19, $20, 0, NOW()
+                final_cand_status = "COMPLETED"
+                if submission_reason in ("WARNING_LIMIT_REACHED", "FULLSCREEN_EXIT_TIMEOUT", "TIMER_EXPIRED", "TRAINER_END_ASSESSMENT", "AUTO_SUBMITTED"):
+                    final_cand_status = "AUTO_SUBMITTED"
+                elif submission_reason in ("ABANDONMENT_TIMEOUT", "ABANDONED"):
+                    final_cand_status = "ABANDONED"
+
+                if existing and existing["status"] != "completed":
+                    att_id = existing["id"]
+                    await conn.execute(
+                        """
+                        UPDATE quiz_attempts
+                        SET score = $3, possible = $4, answers = $5::jsonb, completed_at = NOW(),
+                            batch_id = $6, institution_id = $7, device_id = $8,
+                            warnings = $9::jsonb, warning_count = $10, status = 'completed',
+                            percentage = $11, passed = $12, performance_category = $13,
+                            motivational_message = $14, correct_count = $15, incorrect_count = $16,
+                            unattempted_count = $17, submission_reason = $18, candidate_status = $19,
+                            remaining_seconds = 0, last_heartbeat_at = NOW()
+                        WHERE id = $1 AND student_user_id = $2
+                        """,
+                        att_id, u_uuid, score_val, int(quiz["max_score"] or 100),
+                        json.dumps(effective_answers), student_batch_id, student_inst_id, device_id,
+                        warnings_json, warning_count, pct_score, passed,
+                        perf_cat, mot_msg, correct_count, incorrect_count, unattempted_count,
+                        submission_reason, final_cand_status
                     )
-                    """,
-                    att_id, q_uuid, u_uuid, score_val, int(quiz["max_score"] or 100),
-                    json.dumps(effective_answers), student_batch_id, student_inst_id, device_id,
-                    warnings_json, warning_count, pct_score, passed,
-                    perf_cat, mot_msg, correct_count, incorrect_count, unattempted_count,
-                    submission_reason, final_cand_status
-                )
+                else:
+                    att_id = uuid.uuid4()
+                    await conn.execute(
+                        """
+                        INSERT INTO quiz_attempts (
+                            id, quiz_id, student_user_id, score, possible, answers, created_at, completed_at,
+                            batch_id, institution_id, device_id, warnings, warning_count, status, percentage, passed,
+                            performance_category, motivational_message, correct_count, incorrect_count, unattempted_count,
+                            submission_reason, candidate_status, remaining_seconds, last_heartbeat_at
+                        ) VALUES (
+                            $1, $2, $3, $4, $5, $6::jsonb, NOW(), NOW(),
+                            $7, $8, $9, $10::jsonb, $11, 'completed', $12, $13,
+                            $14, $15, $16, $17, $18, $19, $20, 0, NOW()
+                        )
+                        """,
+                        att_id, q_uuid, u_uuid, score_val, int(quiz["max_score"] or 100),
+                        json.dumps(effective_answers), student_batch_id, student_inst_id, device_id,
+                        warnings_json, warning_count, pct_score, passed,
+                        perf_cat, mot_msg, correct_count, incorrect_count, unattempted_count,
+                        submission_reason, final_cand_status
+                    )
 
-            # Associate any unlinked camera snapshots captured during session to this attempt
-            await conn.execute(
-                """
-                UPDATE quiz_camera_snapshots
-                SET attempt_id = $1
-                WHERE quiz_id = $2 AND student_user_id = $3 AND attempt_id IS NULL
-                """,
-                att_id, q_uuid, u_uuid
-            )
-
-            # Persist immutable permanent assessment report snapshot
-            try:
-                from app.repositories.assessment_report_repo import AssessmentReportRepository
-                await AssessmentReportRepository.generate_and_persist_report(att_id, conn=conn)
-            except Exception as e:
-                import logging
-                logging.getLogger("app").error("assessment_report_generation_failed", extra={"error": str(e), "attempt_id": str(att_id)})
-
-            # Store EEDI results (TRAINER-ONLY visibility)
-            for (term, idx), scores in eedi_acc.items():
-                p_marks = scores["possible"]
-                e_marks = max(0.0, scores["earned"])
-                term_pct = round((e_marks / max(0.01, p_marks)) * 100, 2)
+                # Associate any unlinked camera snapshots captured during session to this attempt
                 await conn.execute(
                     """
-                    INSERT INTO quiz_eedi_results (
-                        id, quiz_id, attempt_id, student_user_id, batch_id, institution_id,
-                        eedi_index, eedi_term, earned_marks, possible_marks, score_percentage,
-                        calculation_version, created_at
-                    ) VALUES (
-                        gen_random_uuid(), $1, $2, $3, $4, $5,
-                        $6, $7, $8, $9, $10, 'v1', NOW()
-                    )
-                    ON CONFLICT (attempt_id, eedi_term, eedi_index) DO UPDATE
-                    SET earned_marks = EXCLUDED.earned_marks,
-                        possible_marks = EXCLUDED.possible_marks,
-                        score_percentage = EXCLUDED.score_percentage
+                    UPDATE quiz_camera_snapshots
+                    SET attempt_id = $1
+                    WHERE quiz_id = $2 AND student_user_id = $3 AND attempt_id IS NULL
                     """,
-                    q_uuid, att_id, u_uuid, student_batch_id, student_inst_id,
-                    idx, term, e_marks, p_marks, term_pct
+                    att_id, q_uuid, u_uuid
                 )
+
+                # Persist immutable permanent assessment report snapshot
+                try:
+                    from app.repositories.assessment_report_repo import AssessmentReportRepository
+                    await AssessmentReportRepository.generate_and_persist_report(
+                        att_id,
+                        conn=conn,
+                        allow_refresh_recovered=bool(existing and existing["is_recovered"]),
+                    )
+                except Exception as e:
+                    import logging
+                    logging.getLogger("app").error("assessment_report_generation_failed", extra={"error": str(e), "attempt_id": str(att_id)})
+
+                # Store EEDI results (TRAINER-ONLY visibility)
+                for (term, idx), scores in eedi_acc.items():
+                    p_marks = scores["possible"]
+                    e_marks = max(0.0, scores["earned"])
+                    term_pct = round((e_marks / max(0.01, p_marks)) * 100, 2)
+                    await conn.execute(
+                        """
+                        INSERT INTO quiz_eedi_results (
+                            id, quiz_id, attempt_id, student_user_id, batch_id, institution_id,
+                            eedi_index, eedi_term, earned_marks, possible_marks, score_percentage,
+                            calculation_version, created_at
+                        ) VALUES (
+                            gen_random_uuid(), $1, $2, $3, $4, $5,
+                            $6, $7, $8, $9, $10, 'v1', NOW()
+                        )
+                        ON CONFLICT (attempt_id, eedi_term, eedi_index) DO UPDATE
+                        SET earned_marks = EXCLUDED.earned_marks,
+                            possible_marks = EXCLUDED.possible_marks,
+                            score_percentage = EXCLUDED.score_percentage
+                        """,
+                        q_uuid, att_id, u_uuid, student_batch_id, student_inst_id,
+                        idx, term, e_marks, p_marks, term_pct
+                    )
 
         # Notify real-time hub
         try:
@@ -937,52 +1009,65 @@ class QuizRepository:
                     settings_dict = {}
             max_warnings = int(settings_dict.get("max_warnings", 3))
 
-            existing = await conn.fetchrow(
-                "SELECT id, warnings, warning_count FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
-                q_uuid, u_uuid,
-            )
-
-            current_warnings: list[dict[str, Any]] = []
-            if existing and existing["warnings"]:
-                current_warnings = _parse_json_list(existing["warnings"])
-
-            current_warnings.append({
-                "type": str(warning_type)[:50],
-                "detail": str(detail or "")[:300],
-                "timestamp": _now().isoformat(),
-            })
-            new_count = len(current_warnings)
-            auto_submit = new_count >= max_warnings
-
-            if existing:
+            async with conn.transaction():
                 await conn.execute(
-                    """
-                    UPDATE quiz_attempts
-                    SET warnings = $1::jsonb, warning_count = $2
-                    WHERE id = $3
-                    """,
-                    json.dumps(current_warnings), new_count, existing["id"]
+                    "SELECT pg_advisory_xact_lock(hashtext($1))",
+                    f"{q_uuid}:{u_uuid}",
                 )
-            else:
-                b_row = await conn.fetchrow(
-                    "SELECT batch_id, institution_id FROM student_profiles WHERE user_id = $1",
-                    u_uuid
-                )
-                await conn.execute(
+                existing = await conn.fetchrow(
                     """
-                    INSERT INTO quiz_attempts (
-                        id, quiz_id, student_user_id, score, possible, answers, created_at,
-                        batch_id, institution_id, warnings, warning_count, status
-                    ) VALUES (
-                        gen_random_uuid(), $1, $2, 0, 100, '{}'::jsonb, NOW(),
-                        $3, $4, $5::jsonb, $6, 'in_progress'
-                    )
+                    SELECT id, warnings, warning_count, candidate_status
+                    FROM quiz_attempts
+                    WHERE quiz_id = $1 AND student_user_id = $2
+                    ORDER BY (CASE WHEN status = 'in_progress' THEN 0 ELSE 1 END), created_at DESC
+                    LIMIT 1
                     """,
                     q_uuid, u_uuid,
-                    b_row["batch_id"] if b_row else None,
-                    b_row["institution_id"] if b_row else None,
-                    json.dumps(current_warnings), new_count
                 )
+
+                current_warnings: list[dict[str, Any]] = []
+                if existing and existing["warnings"]:
+                    current_warnings = _parse_json_list(existing["warnings"])
+
+                current_warnings.append({
+                    "type": str(warning_type)[:50],
+                    "detail": str(detail or "")[:300],
+                    "timestamp": _now().isoformat(),
+                })
+                new_count = len(current_warnings)
+                auto_submit = new_count >= max_warnings
+
+                if existing:
+                    await conn.execute(
+                        """
+                        UPDATE quiz_attempts
+                        SET warnings = $1::jsonb,
+                            warning_count = $2,
+                            candidate_status = CASE WHEN candidate_status = 'NOT_STARTED' THEN 'IN_PROGRESS' ELSE candidate_status END
+                        WHERE id = $3
+                        """,
+                        json.dumps(current_warnings), new_count, existing["id"]
+                    )
+                else:
+                    b_row = await conn.fetchrow(
+                        "SELECT batch_id, institution_id FROM student_profiles WHERE user_id = $1",
+                        u_uuid
+                    )
+                    await conn.execute(
+                        """
+                        INSERT INTO quiz_attempts (
+                            id, quiz_id, student_user_id, score, possible, answers, created_at,
+                            batch_id, institution_id, warnings, warning_count, status, candidate_status
+                        ) VALUES (
+                            gen_random_uuid(), $1, $2, 0, 100, '{}'::jsonb, NOW(),
+                            $3, $4, $5::jsonb, $6, 'in_progress', 'IN_PROGRESS'
+                        )
+                        """,
+                        q_uuid, u_uuid,
+                        b_row["batch_id"] if b_row else None,
+                        b_row["institution_id"] if b_row else None,
+                        json.dumps(current_warnings), new_count
+                    )
 
         return {
             "warning_count": new_count,
@@ -1291,19 +1376,58 @@ class QuizRepository:
             if quiz["closes_at"] and now_utc > as_utc(quiz["closes_at"]):
                 raise BusinessRuleViolation("Assessment schedule has ended. Status: Expired")
 
-            # Check if attempt already exists (get latest)
-            existing = await conn.fetchrow(
-                "SELECT id, created_at, completed_at, score, answers, status, candidate_status, is_recovered FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2 ORDER BY created_at DESC LIMIT 1",
-                q_uuid, student_user_id,
-            )
+            async with conn.transaction():
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext($1))",
+                    f"{q_uuid}:{student_user_id}",
+                )
+                # Check if attempt already exists (prioritize active in_progress attempt, else latest)
+                existing = await conn.fetchrow(
+                    """
+                    SELECT id, created_at, completed_at, score, answers, status, candidate_status, is_recovered
+                    FROM quiz_attempts
+                    WHERE quiz_id = $1 AND student_user_id = $2
+                    ORDER BY (CASE WHEN status = 'in_progress' THEN 0 ELSE 1 END), created_at DESC
+                    LIMIT 1
+                    """,
+                    q_uuid, student_user_id,
+                )
 
-            now_utc = datetime.now(timezone.utc)
-            if existing:
-                is_completed = bool(existing["status"] == "completed" or existing["completed_at"])
-                if is_completed:
-                    if not bool(quiz.get("allow_retake")) and not existing.get("is_recovered"):
-                        raise ScopeForbidden("Assessment attempt is already completed. Contact trainer for recovery.")
-                    # Allow retake: initialize a new attempt row
+                now_utc = datetime.now(timezone.utc)
+                if existing:
+                    is_completed = bool(existing["status"] == "completed" or existing["completed_at"])
+                    if is_completed:
+                        if not bool(quiz.get("allow_retake")) and not existing.get("is_recovered"):
+                            raise ScopeForbidden("Assessment attempt is already completed. Contact trainer for recovery.")
+                        # Allow retake: initialize a new attempt row
+                        b_row = await conn.fetchrow(
+                            "SELECT batch_id, institution_id FROM student_profiles WHERE user_id = $1",
+                            student_user_id,
+                        )
+                        att_id = uuid.uuid4()
+                        await conn.execute(
+                            """
+                            INSERT INTO quiz_attempts (
+                                id, quiz_id, student_user_id, score, possible, answers, created_at,
+                                batch_id, institution_id, warnings, warning_count, status, question_states,
+                                candidate_status, last_heartbeat_at, version
+                            ) VALUES (
+                                $1, $2, $3, 0, $4, '{}'::jsonb, $5,
+                                $6, $7, '[]'::jsonb, 0, 'in_progress', '{}'::jsonb,
+                                'IN_PROGRESS', NOW(), 1
+                            )
+                            """,
+                            att_id, q_uuid, student_user_id,
+                            int(quiz["max_score"] or 100), now_utc,
+                            b_row["batch_id"] if b_row else None,
+                            b_row["institution_id"] if b_row else None,
+                        )
+                    elif existing["candidate_status"] in (None, "NOT_STARTED", "DISCONNECTED"):
+                        await conn.execute(
+                            "UPDATE quiz_attempts SET candidate_status = 'IN_PROGRESS', last_heartbeat_at = NOW() WHERE id = $1",
+                            existing["id"],
+                        )
+                else:
                     b_row = await conn.fetchrow(
                         "SELECT batch_id, institution_id FROM student_profiles WHERE user_id = $1",
                         student_user_id,
@@ -1326,29 +1450,6 @@ class QuizRepository:
                         b_row["batch_id"] if b_row else None,
                         b_row["institution_id"] if b_row else None,
                     )
-            else:
-                b_row = await conn.fetchrow(
-                    "SELECT batch_id, institution_id FROM student_profiles WHERE user_id = $1",
-                    student_user_id,
-                )
-                att_id = uuid.uuid4()
-                await conn.execute(
-                    """
-                    INSERT INTO quiz_attempts (
-                        id, quiz_id, student_user_id, score, possible, answers, created_at,
-                        batch_id, institution_id, warnings, warning_count, status, question_states,
-                        candidate_status, last_heartbeat_at, version
-                    ) VALUES (
-                        $1, $2, $3, 0, $4, '{}'::jsonb, $5,
-                        $6, $7, '[]'::jsonb, 0, 'in_progress', '{}'::jsonb,
-                        'IN_PROGRESS', NOW(), 1
-                    )
-                    """,
-                    att_id, q_uuid, student_user_id,
-                    int(quiz["max_score"] or 100), now_utc,
-                    b_row["batch_id"] if b_row else None,
-                    b_row["institution_id"] if b_row else None,
-                )
 
         return await cls.get_student_attempt_timing(quiz_id, student_user_id)
 
@@ -1690,13 +1791,17 @@ class QuizRepository:
         async with get_pg_connection() as conn:
             rows = await conn.fetch(
                 """
-                SELECT q.id, q.title, q.kind, q.duration_minutes, q.max_score,
-                       q.opens_at, q.closes_at, q.status, q.quiz_code, q.settings,
-                       q.created_at, q.creator_trainer_id,
+                SELECT q.id, q.title, q.description, q.instructions, q.course_id, q.kind,
+                       q.duration_minutes, q.max_score, q.opens_at, q.closes_at, q.status,
+                       q.quiz_code, q.settings, q.timing_mode, q.created_at, q.creator_trainer_id,
+                       q.manually_ended, q.ended_at, q.edited_at, q.edited_by,
+                       CASE WHEN jsonb_typeof(q.questions) = 'array' THEN jsonb_array_length(q.questions) ELSE 0 END AS question_count,
                        (SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.quiz_id = q.id) as total_attempts,
-                       (SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.status = 'completed') as submitted_attempts
+                       (SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.status = 'completed') as submitted_attempts,
+                       (SELECT COUNT(*) FROM quiz_feedback qf WHERE qf.quiz_id = q.id) as feedback_count
                 FROM quizzes q
-                WHERE (
+                WHERE q.deleted_at IS NULL
+                  AND (
                     q.creator_trainer_id = $1
                     OR EXISTS (
                         SELECT 1 FROM quiz_batch_assignments qba
@@ -1733,23 +1838,50 @@ class QuizRepository:
                         "batchCode": a["batch_code"],
                     })
 
+        now_utc = datetime.now(timezone.utc)
         items = []
         for r in rows:
+            is_creator = r["creator_trainer_id"] == t_uuid
+            can_manage = is_creator or ctx.role in (Role.ADMIN, Role.SUPER_ADMIN) or bool(assignments_by_quiz.get(r["id"]))
+            lifecycle_status, pub_status = compute_quiz_lifecycle(
+                r["status"], r["opens_at"], r["closes_at"], bool(r["manually_ended"]), now_utc
+            )
+            can_edit = bool(can_manage and lifecycle_status not in ("CANCELLED",))
+            edit_reason = None
+            if not can_manage:
+                edit_reason = "Only the quiz creator, assigned batch trainer, or admin can edit this assessment."
+            elif lifecycle_status == "CANCELLED":
+                edit_reason = "Cancelled assessments cannot be edited."
+
             items.append({
                 "id": str(r["id"]),
                 "title": r["title"],
+                "description": r["description"],
+                "instructions": r["instructions"],
+                "courseId": str(r["course_id"]) if r["course_id"] else None,
                 "kind": r["kind"] or "quiz",
                 "quizCode": r["quiz_code"],
                 "durationMinutes": r["duration_minutes"],
                 "maxScore": r["max_score"],
+                "questions": int(r["question_count"] or 0),
                 "opensAt": r["opens_at"].isoformat() if r["opens_at"] else None,
                 "closesAt": r["closes_at"].isoformat() if r["closes_at"] else None,
                 "status": r["status"],
+                "lifecycleStatus": lifecycle_status,
+                "publicationStatus": pub_status,
+                "manuallyEnded": bool(r["manually_ended"]),
+                "endedAt": r["ended_at"].isoformat() if r["ended_at"] else None,
+                "editedAt": r["edited_at"].isoformat() if r["edited_at"] else None,
+                "timingMode": r["timing_mode"] or "FIXED_TOTAL",
                 "settings": r["settings"] or {},
                 "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
-                "isCreator": r["creator_trainer_id"] == t_uuid,
+                "isCreator": is_creator,
+                "canEdit": can_edit,
+                "editRestrictionReason": edit_reason,
+                "canDelete": bool(is_creator or ctx.role in (Role.ADMIN, Role.SUPER_ADMIN) or r["creator_trainer_id"] is None),
                 "totalAttempts": int(r["total_attempts"] or 0),
                 "submittedAttempts": int(r["submitted_attempts"] or 0),
+                "feedbackCount": int(r["feedback_count"] or 0),
                 "assignedBatches": assignments_by_quiz.get(r["id"], []),
             })
         return items
@@ -1888,8 +2020,9 @@ class QuizRepository:
             quiz = await conn.fetchrow(
                 """
                 SELECT id, title, description, instructions, course_id, kind, duration_minutes, max_score, opens_at, closes_at,
-                       questions, settings, quiz_code, status, creator_trainer_id, created_at, timing_mode
-                FROM quizzes WHERE id = $1
+                       questions, settings, quiz_code, status, creator_trainer_id, created_at, timing_mode,
+                       manually_ended, ended_at, edited_at
+                FROM quizzes WHERE id = $1 AND deleted_at IS NULL
                 """,
                 q_uuid
             )
@@ -1919,24 +2052,36 @@ class QuizRepository:
                 """,
                 q_uuid
             )
+            total_attempts = await conn.fetchval("SELECT COUNT(*) FROM quiz_attempts WHERE quiz_id = $1", q_uuid) or 0
 
+        lifecycle_status, pub_status = compute_quiz_lifecycle(
+            quiz["status"], quiz["opens_at"], quiz["closes_at"], bool(quiz["manually_ended"])
+        )
         return {
             "id": str(quiz["id"]),
             "title": quiz["title"],
-            "description": quiz.get("description"),
-            "instructions": quiz.get("instructions"),
-            "courseId": str(quiz["course_id"]) if quiz.get("course_id") else None,
+            "description": quiz["description"],
+            "instructions": quiz["instructions"],
+            "courseId": str(quiz["course_id"]) if quiz["course_id"] else None,
             "kind": quiz["kind"],
             "durationMinutes": quiz["duration_minutes"],
             "maxScore": quiz["max_score"],
             "opensAt": quiz["opens_at"].isoformat() if quiz["opens_at"] else None,
             "closesAt": quiz["closes_at"].isoformat() if quiz["closes_at"] else None,
             "quizCode": quiz["quiz_code"],
-            "timingMode": quiz.get("timing_mode") or "FIXED_TOTAL",
+            "timingMode": quiz["timing_mode"] or "FIXED_TOTAL",
             "settings": quiz["settings"] or {},
             "status": quiz["status"],
+            "lifecycleStatus": lifecycle_status,
+            "publicationStatus": pub_status,
+            "manuallyEnded": bool(quiz["manually_ended"]),
+            "endedAt": quiz["ended_at"].isoformat() if quiz["ended_at"] else None,
+            "editedAt": quiz["edited_at"].isoformat() if quiz["edited_at"] else None,
+            "totalAttempts": int(total_attempts),
             "questions": _parse_json_list(quiz["questions"]),
             "isCreator": is_owner,
+            "canEdit": bool((is_owner or has_batch or ctx.role in (Role.ADMIN, Role.SUPER_ADMIN)) and lifecycle_status != "CANCELLED"),
+            "canDelete": bool(is_owner or ctx.role in (Role.ADMIN, Role.SUPER_ADMIN) or quiz["creator_trainer_id"] is None),
             "assignedBatches": [{"batchId": str(b["batch_id"]), "batchName": b["batch_name"], "batchCode": b["batch_code"]} for b in batches],
         }
 
@@ -1964,119 +2109,187 @@ class QuizRepository:
             raise NotFound("Quiz not found")
 
         async with get_pg_connection() as conn:
-            quiz = await conn.fetchrow("SELECT id, creator_trainer_id, institution_id, status, opens_at, closes_at FROM quizzes WHERE id = $1", q_uuid)
-            if not quiz:
-                raise NotFound("Quiz not found")
-
-            if quiz["creator_trainer_id"] != t_uuid and ctx.role != Role.ADMIN and ctx.role != Role.SUPER_ADMIN:
-                raise ScopeForbidden("Only the quiz creator can edit this assessment")
-
-            eff_opens = as_utc(opens_at) if opens_at is not None else as_utc(quiz["opens_at"]) if quiz["opens_at"] else None
-            eff_closes = as_utc(closes_at) if closes_at is not None else as_utc(quiz["closes_at"]) if quiz["closes_at"] else None
-            if eff_opens and eff_closes and eff_closes <= eff_opens:
-                raise ValidationError("Assessment End Date & Time must be strictly after Start Date & Time")
-
-            updates = ["updated_at = NOW()"]
-            params: list[Any] = [q_uuid]
-
-            if title is not None:
-                params.append(title.strip())
-                updates.append(f"title = ${len(params)}")
-            if description is not None:
-                params.append(description)
-                updates.append(f"description = ${len(params)}")
-            if instructions is not None:
-                params.append(instructions)
-                updates.append(f"instructions = ${len(params)}")
-            if course_id is not None:
-                params.append(_safe_uuid(course_id))
-                updates.append(f"course_id = ${len(params)}")
-            if duration_minutes is not None:
-                params.append(max(1, duration_minutes))
-                updates.append(f"duration_minutes = ${len(params)}")
-            if max_score is not None:
-                params.append(max_score)
-                updates.append(f"max_score = ${len(params)}")
-            if opens_at is not None:
-                params.append(as_utc(opens_at))
-                updates.append(f"opens_at = ${len(params)}")
-            if closes_at is not None:
-                params.append(as_utc(closes_at))
-                updates.append(f"closes_at = ${len(params)}")
-            if questions is not None:
-                params.append(json.dumps(questions))
-                updates.append(f"questions = ${len(params)}::jsonb")
-            if settings is not None:
-                clean_settings = dict(settings or {})
-                timing_mode = (clean_settings.get("timing_mode") or "").upper()
-                if not timing_mode:
-                    timing_mode = "PER_QUESTION" if clean_settings.get("enable_timed_questions") else "FIXED_TOTAL"
-                clean_settings["timing_mode"] = timing_mode
-
-                ans_dur = int(clean_settings.get("answer_reveal_duration", 0))
-                clean_settings["answer_reveal_duration"] = max(0, ans_dur)
-
-                if timing_mode == "PER_QUESTION":
-                    clean_settings["enable_timed_questions"] = True
-                    q_dur = int(clean_settings.get("question_duration", 30))
-                    if ans_dur > 0 and q_dur <= ans_dur:
-                        raise ValidationError("question_duration must be strictly greater than answer_reveal_duration")
-                    clean_settings["question_duration"] = q_dur
-                    clean_settings["auto_advance"] = True
-                    clean_settings["allow_previous"] = False
-                    clean_settings["allow_modification"] = False
-                else:
-                    clean_settings["enable_timed_questions"] = False
-                    clean_settings["allow_previous"] = False
-                    clean_settings["allow_modification"] = False
-
-                clean_ranges, clean_messages = validate_performance_classification_settings(
-                    clean_settings.get("performance_classification"),
-                    clean_settings.get("motivational_feedback"),
+            async with conn.transaction():
+                quiz = await conn.fetchrow(
+                    """
+                    SELECT id, title, description, instructions, course_id, duration_minutes, max_score,
+                           creator_trainer_id, institution_id, status, opens_at, closes_at, questions,
+                           settings, timing_mode, manually_ended, edit_audit_log
+                    FROM quizzes WHERE id = $1 AND deleted_at IS NULL FOR UPDATE
+                    """,
+                    q_uuid,
                 )
-                clean_settings["performance_classification"] = clean_ranges
-                clean_settings["motivational_feedback"] = clean_messages
+                if not quiz:
+                    raise NotFound("Quiz not found")
 
-                params.append(json.dumps(clean_settings))
-                updates.append(f"settings = ${len(params)}::jsonb")
-                params.append(timing_mode)
-                updates.append(f"timing_mode = ${len(params)}")
-            if status is not None:
-                params.append(status)
-                updates.append(f"status = ${len(params)}")
+                is_owner = quiz["creator_trainer_id"] == t_uuid
+                has_batch = bool(await conn.fetchval(
+                    """
+                    SELECT 1 FROM quiz_batch_assignments qba
+                    JOIN batch_trainers bt ON bt.batch_id = qba.batch_id
+                    WHERE qba.quiz_id = $1 AND bt.trainer_user_id = $2 AND (bt.status = 'ACTIVE' OR bt.status IS NULL)
+                    """,
+                    q_uuid, t_uuid,
+                ))
+                if not is_owner and not has_batch and ctx.role not in (Role.ADMIN, Role.SUPER_ADMIN):
+                    raise ScopeForbidden("You are not authorized to edit this assessment")
 
-            sql = f"UPDATE quizzes SET {', '.join(updates)} WHERE id = $1"
-            await conn.execute(sql, *params)
+                attempt_count = await conn.fetchval(
+                    "SELECT COUNT(*) FROM quiz_attempts WHERE quiz_id = $1",
+                    q_uuid,
+                ) or 0
 
-            # Update batch assignments if provided
-            if batch_ids is not None:
-                b_uuids = [_safe_uuid(b) for b in batch_ids if _safe_uuid(b)]
-                for b_id in b_uuids:
-                    allowed = await conn.fetchval(
-                        """
-                        SELECT 1 FROM batch_trainers
-                        WHERE trainer_user_id = $1 AND batch_id = $2 AND (status = 'ACTIVE' OR status IS NULL)
-                        """,
-                        t_uuid, b_id
+                eff_opens = as_utc(opens_at) if opens_at is not None else (as_utc(quiz["opens_at"]) if quiz["opens_at"] else None)
+                eff_closes = as_utc(closes_at, end_of_day_if_date_only=True) if closes_at is not None else (as_utc(quiz["closes_at"], end_of_day_if_date_only=True) if quiz["closes_at"] else None)
+                if eff_opens and eff_closes and eff_closes <= eff_opens:
+                    raise ValidationError("Assessment End Date & Time must be strictly after Start Date & Time")
+
+                restricted_fields: list[str] = []
+                prev_settings = _parse_json_dict(quiz["settings"]) if quiz["settings"] else {}
+
+                updates = ["updated_at = NOW()", "edited_at = NOW()"]
+                params: list[Any] = [q_uuid, t_uuid]
+                updates.append("edited_by = $2")
+
+                audit_prev: dict[str, Any] = {}
+                audit_next: dict[str, Any] = {}
+
+                if title is not None and title.strip() != quiz["title"]:
+                    audit_prev["title"] = quiz["title"]
+                    audit_next["title"] = title.strip()
+                    params.append(title.strip())
+                    updates.append(f"title = ${len(params)}")
+                if description is not None and description != quiz["description"]:
+                    audit_prev["description"] = quiz["description"]
+                    audit_next["description"] = description
+                    params.append(description)
+                    updates.append(f"description = ${len(params)}")
+                if instructions is not None and instructions != quiz["instructions"]:
+                    audit_prev["instructions"] = quiz["instructions"]
+                    audit_next["instructions"] = instructions
+                    params.append(instructions)
+                    updates.append(f"instructions = ${len(params)}")
+                if course_id is not None:
+                    params.append(_safe_uuid(course_id))
+                    updates.append(f"course_id = ${len(params)}")
+                if duration_minutes is not None and max(1, duration_minutes) != quiz["duration_minutes"]:
+                    audit_prev["duration_minutes"] = quiz["duration_minutes"]
+                    audit_next["duration_minutes"] = max(1, duration_minutes)
+                    params.append(max(1, duration_minutes))
+                    updates.append(f"duration_minutes = ${len(params)}")
+                if max_score is not None and max_score != quiz["max_score"]:
+                    if attempt_count > 0:
+                        restricted_fields.append("maxScore")
+                    else:
+                        audit_prev["max_score"] = quiz["max_score"]
+                        audit_next["max_score"] = max_score
+                        params.append(max_score)
+                        updates.append(f"max_score = ${len(params)}")
+                if opens_at is not None:
+                    audit_prev["opens_at"] = quiz["opens_at"].isoformat() if quiz["opens_at"] else None
+                    audit_next["opens_at"] = eff_opens.isoformat() if eff_opens else None
+                    params.append(eff_opens)
+                    updates.append(f"opens_at = ${len(params)}")
+                if closes_at is not None:
+                    audit_prev["closes_at"] = quiz["closes_at"].isoformat() if quiz["closes_at"] else None
+                    audit_next["closes_at"] = eff_closes.isoformat() if eff_closes else None
+                    params.append(eff_closes)
+                    updates.append(f"closes_at = ${len(params)}")
+                if questions is not None:
+                    if attempt_count > 0:
+                        restricted_fields.append("questions")
+                    else:
+                        params.append(json.dumps(questions))
+                        updates.append(f"questions = ${len(params)}::jsonb")
+                if settings is not None:
+                    clean_settings = {**prev_settings, **dict(settings or {})}
+                    if attempt_count > 0 and "negative_marking" in (settings or {}) and settings.get("negative_marking") != prev_settings.get("negative_marking"):
+                        clean_settings["negative_marking"] = prev_settings.get("negative_marking", 0)
+                        restricted_fields.append("negativeMarking")
+
+                    timing_mode = (clean_settings.get("timing_mode") or quiz["timing_mode"] or "FIXED_TOTAL").upper()
+                    clean_settings["timing_mode"] = timing_mode
+
+                    ans_dur = int(clean_settings.get("answer_reveal_duration", 0))
+                    clean_settings["answer_reveal_duration"] = max(0, ans_dur)
+
+                    if timing_mode == "PER_QUESTION":
+                        clean_settings["enable_timed_questions"] = True
+                        q_dur = int(clean_settings.get("question_duration", 30))
+                        if ans_dur > 0 and q_dur <= ans_dur:
+                            raise ValidationError("question_duration must be strictly greater than answer_reveal_duration")
+                        clean_settings["question_duration"] = q_dur
+                        clean_settings["auto_advance"] = True
+                        clean_settings["allow_previous"] = False
+                        clean_settings["allow_modification"] = False
+                    else:
+                        clean_settings["enable_timed_questions"] = False
+
+                    clean_ranges, clean_messages = validate_performance_classification_settings(
+                        clean_settings.get("performance_classification"),
+                        clean_settings.get("motivational_feedback"),
                     )
-                    if not allowed and ctx.role != Role.ADMIN and ctx.role != Role.SUPER_ADMIN:
-                        raise ScopeForbidden(f"You are not authorized to assign assessments to batch {b_id}")
+                    clean_settings["performance_classification"] = clean_ranges
+                    clean_settings["motivational_feedback"] = clean_messages
 
-                await conn.execute(
-                    "UPDATE quiz_batch_assignments SET status = 'INACTIVE' WHERE quiz_id = $1 AND NOT (batch_id = ANY($2::uuid[]))",
-                    q_uuid, b_uuids
-                )
-                for b_id in b_uuids:
+                    params.append(json.dumps(clean_settings))
+                    updates.append(f"settings = ${len(params)}::jsonb")
+                    params.append(timing_mode)
+                    updates.append(f"timing_mode = ${len(params)}")
+                if status is not None and status != quiz["status"]:
+                    audit_prev["status"] = quiz["status"]
+                    audit_next["status"] = status
+                    params.append(status)
+                    updates.append(f"status = ${len(params)}")
+
+                audit_log = _parse_json_list(quiz["edit_audit_log"]) if quiz["edit_audit_log"] else []
+                audit_log.append({
+                    "editedBy": str(ctx.user_id),
+                    "editedAt": datetime.now(timezone.utc).isoformat(),
+                    "previous": audit_prev,
+                    "updated": audit_next,
+                    "restrictedFields": restricted_fields,
+                })
+                params.append(json.dumps(audit_log))
+                updates.append(f"edit_audit_log = ${len(params)}::jsonb")
+
+                sql = f"UPDATE quizzes SET {', '.join(updates)} WHERE id = $1"
+                await conn.execute(sql, *params)
+
+                if batch_ids is not None:
+                    b_uuids = [_safe_uuid(b) for b in batch_ids if _safe_uuid(b)]
+                    for b_id in b_uuids:
+                        allowed = await conn.fetchval(
+                            """
+                            SELECT 1 FROM batch_trainers
+                            WHERE trainer_user_id = $1 AND batch_id = $2 AND (status = 'ACTIVE' OR status IS NULL)
+                            """,
+                            t_uuid, b_id
+                        )
+                        if not allowed and ctx.role not in (Role.ADMIN, Role.SUPER_ADMIN):
+                            raise ScopeForbidden(f"You are not authorized to assign assessments to batch {b_id}")
+
                     await conn.execute(
-                        """
-                        INSERT INTO quiz_batch_assignments (id, quiz_id, batch_id, institution_id, assigned_by, assigned_at, status)
-                        VALUES (gen_random_uuid(), $1, $2, $3, $4, NOW(), 'ACTIVE')
-                        ON CONFLICT (quiz_id, batch_id) DO UPDATE SET status = 'ACTIVE'
-                        """,
-                        q_uuid, b_id, quiz["institution_id"], t_uuid
+                        "UPDATE quiz_batch_assignments SET status = 'INACTIVE' WHERE quiz_id = $1 AND NOT (batch_id = ANY($2::uuid[]))",
+                        q_uuid, b_uuids
                     )
+                    for b_id in b_uuids:
+                        await conn.execute(
+                            """
+                            INSERT INTO quiz_batch_assignments (id, quiz_id, batch_id, institution_id, assigned_by, assigned_at, status)
+                            VALUES (gen_random_uuid(), $1, $2, $3, $4, NOW(), 'ACTIVE')
+                            ON CONFLICT (quiz_id, batch_id) DO UPDATE SET status = 'ACTIVE'
+                            """,
+                            q_uuid, b_id, quiz["institution_id"], t_uuid
+                        )
 
-        return {"id": quiz_id, "updated": True}
+        canonical = await cls.get_trainer_quiz(ctx, quiz_id)
+        if restricted_fields:
+            canonical["restrictedFields"] = restricted_fields
+            canonical["restrictionMessage"] = (
+                f"Preserved original {', '.join(restricted_fields)} because {attempt_count} candidate attempt(s) already exist."
+            )
+        return canonical
 
     @classmethod
     async def delete_trainer_quiz(cls, ctx: ScopeContext, quiz_id: str) -> dict[str, Any]:
@@ -2086,16 +2299,46 @@ class QuizRepository:
             raise NotFound("Quiz not found")
 
         async with get_pg_connection() as conn:
-            quiz = await conn.fetchrow("SELECT id, creator_trainer_id FROM quizzes WHERE id = $1", q_uuid)
-            if not quiz:
-                raise NotFound("Quiz not found")
+            async with conn.transaction():
+                quiz = await conn.fetchrow(
+                    "SELECT id, creator_trainer_id, status FROM quizzes WHERE id = $1 AND deleted_at IS NULL",
+                    q_uuid,
+                )
+                if not quiz:
+                    raise NotFound("Quiz not found")
 
-            if quiz["creator_trainer_id"] != t_uuid and ctx.role != Role.ADMIN and ctx.role != Role.SUPER_ADMIN:
-                raise ScopeForbidden("Only the quiz creator can delete this assessment")
+                if (
+                    quiz["creator_trainer_id"] is not None
+                    and quiz["creator_trainer_id"] != t_uuid
+                    and ctx.role not in (Role.ADMIN, Role.SUPER_ADMIN)
+                ):
+                    raise ScopeForbidden("Only the quiz creator or an admin can delete this assessment")
 
-            await conn.execute("DELETE FROM quizzes WHERE id = $1", q_uuid)
+                has_records = bool(await conn.fetchval(
+                    """
+                    SELECT 1 FROM quiz_attempts WHERE quiz_id = $1
+                    UNION ALL
+                    SELECT 1 FROM assessment_reports WHERE quiz_id = $1
+                    LIMIT 1
+                    """,
+                    q_uuid,
+                ))
 
-        return {"id": quiz_id, "deleted": True}
+                # Soft-delete / archive when attempts or reports exist (and safely archive even when empty)
+                await conn.execute(
+                    """
+                    UPDATE quizzes
+                    SET deleted_at = NOW(),
+                        deleted_by = $2,
+                        status = 'cancelled',
+                        updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    q_uuid,
+                    t_uuid,
+                )
+
+        return {"id": quiz_id, "deleted": True, "archived": has_records}
 
     @classmethod
     async def assign_quiz_batches(cls, ctx: ScopeContext, quiz_id: str, batch_ids: list[str]) -> dict[str, Any]:
@@ -2737,7 +2980,7 @@ class QuizRepository:
             candidate_status = (att["candidate_status"] or "").upper()
             is_completed = (
                 status in ("completed", "submitted", "abandonment_timeout", "expired", "auto_submitted")
-                or candidate_status in ("SUBMITTED", "EXPIRED", "ABANDONMENT_TIMEOUT", "AUTO_SUBMITTED")
+                or candidate_status in ("SUBMITTED", "COMPLETED", "OFFLINE_SUBMITTED", "EXPIRED", "ABANDONMENT_TIMEOUT", "AUTO_SUBMITTED")
                 or att["completed_at"] is not None
             )
             if not is_completed:

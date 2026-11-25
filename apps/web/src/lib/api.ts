@@ -350,6 +350,30 @@ export const api = {
     a.remove();
     window.URL.revokeObjectURL(url);
   },
+  downloadPost: async (path: string, body: unknown, defaultFilename: string) => {
+    const token = getAccessToken();
+    const headers = new Headers({ 'Content-Type': 'application/json' });
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const res = await fetch(buildUrl(path), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      credentials: 'include',
+    });
+    if (!res.ok) throw toApiError(res.status, await readBody(res));
+    const disp = res.headers.get('Content-Disposition') || '';
+    const m = disp.match(/filename="?([^"]+)"?/i);
+    const filename = m?.[1] || defaultFilename;
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
   refresh: refreshSession,
 };
 

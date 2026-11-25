@@ -1438,7 +1438,7 @@ export default function AssessmentAttemptPage() {
                     <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-5 text-left space-y-2">
                       <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-sm">
                         <WifiOff className="size-5 shrink-0" />
-                        <span>Examination Locally Saved (Pending Cloud Sync)</span>
+                        <span>OFFLINE – SYNC PENDING (Locally Sealed)</span>
                       </div>
                       <p className="text-xs sm:text-sm text-foreground/80 leading-relaxed">
                         Your offline examination has been sealed and securely recorded in your device outbox.

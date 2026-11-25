@@ -30,7 +30,8 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/cn';
 
 import { PageHeader } from '@/components/shared/page-header';
-import { StatusBadge } from '@/components/shared/status-badge';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { ExportAssessmentModal } from '@/components/quiz/ExportAssessmentModal';
 import { AsyncSection } from '@/components/shared/state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -132,6 +133,16 @@ export default function TrainerAssessmentsPage() {
   const [loadingResults, setLoadingResults] = React.useState(false);
   const [eediData, setEediData] = React.useState<any>(null);
   const [loadingEedi, setLoadingEedi] = React.useState(false);
+
+  // Edit, Delete, Export & Mobile Action Hint states
+  const [editOpen, setEditOpen] = React.useState(false);
+  const [loadingEdit, setLoadingEdit] = React.useState(false);
+  const [savingEdit, setSavingEdit] = React.useState(false);
+  const [editForm, setEditForm] = React.useState<any>(null);
+  const [deleteTarget, setDeleteTarget] = React.useState<any>(null);
+  const [deletingQuiz, setDeletingQuiz] = React.useState(false);
+  const [exportQuiz, setExportQuiz] = React.useState<any>(null);
+  const [mobileHint, setMobileHint] = React.useState<{ quizId: string; label: string } | null>(null);
 
   // Reassignment & Recovery state
   const [recoveryOpen, setRecoveryOpen] = React.useState(false);
@@ -381,15 +392,107 @@ export default function TrainerAssessmentsPage() {
     }
   }
 
-  // Delete Quiz
-  async function handleDeleteQuiz(quizId: string) {
-    if (!confirm('Are you sure you want to delete this assessment? All associated data will be removed.')) return;
+  // Open Edit Modal (loads canonical quiz record from backend)
+  async function openEditModal(quiz: any) {
+    if (quiz.canEdit === false) {
+      toast.info(quiz.editRestrictionReason || 'Editing is not permitted for this assessment');
+      return;
+    }
+    setActiveQuiz(quiz);
+    setEditOpen(true);
+    setLoadingEdit(true);
     try {
-      await api.delete(`/trainer/assessments/${quizId}`);
-      toast.success('Assessment deleted');
+      const res = await api.get<any>(`/trainer/assessments/${quiz.id}`);
+      const q = res.data;
+      const toLocalInput = (iso?: string | null) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return '';
+        const pad = (n: number) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      };
+      setEditForm({
+        id: q.id,
+        title: q.title || '',
+        description: q.description || '',
+        instructions: q.instructions || '',
+        durationMinutes: q.durationMinutes || 30,
+        maxScore: q.maxScore || 100,
+        opensAt: toLocalInput(q.opensAt),
+        closesAt: toLocalInput(q.closesAt),
+        status: q.status || 'active',
+        timingMode: q.timingMode || q.settings?.timing_mode || 'FIXED_TOTAL',
+        negativeMarking: Number(q.settings?.negative_marking || 0),
+        batchIds: (q.assignedBatches || []).map((b: any) => b.batchId),
+        totalAttempts: q.totalAttempts || 0,
+      });
+    } catch (err) {
+      toast.error((err as ApiError).message || 'Failed to load assessment details');
+      setEditOpen(false);
+    } finally {
+      setLoadingEdit(false);
+    }
+  }
+
+  async function handleSaveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editForm) return;
+    if (!editForm.title.trim()) {
+      toast.error('Assessment title is required');
+      return;
+    }
+    if (editForm.opensAt && editForm.closesAt && new Date(editForm.closesAt) <= new Date(editForm.opensAt)) {
+      toast.error('End Date & Time must be strictly after Start Date & Time');
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      const res = await api.put<any>(`/trainer/assessments/${editForm.id}`, {
+        title: editForm.title.trim(),
+        description: editForm.description,
+        instructions: editForm.instructions,
+        durationMinutes: Number(editForm.durationMinutes),
+        maxScore: Number(editForm.maxScore),
+        opensAt: editForm.opensAt ? new Date(editForm.opensAt).toISOString() : undefined,
+        closesAt: editForm.closesAt ? new Date(editForm.closesAt).toISOString() : undefined,
+        status: editForm.status,
+        batchIds: editForm.batchIds,
+        settings: {
+          timing_mode: editForm.timingMode,
+          negative_marking: Number(editForm.negativeMarking || 0),
+        },
+      });
+      if (res.data?.restrictionMessage) {
+        toast.warning(res.data.restrictionMessage);
+      } else {
+        toast.success('Assessment updated and synchronized across all views');
+      }
+      setEditOpen(false);
+      quizzesQuery.refetch();
+    } catch (err) {
+      toast.error((err as ApiError).message || 'Failed to update assessment');
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  // Delete Quiz (with confirmation dialog)
+  async function confirmDeleteQuiz() {
+    if (!deleteTarget) return;
+    setDeletingQuiz(true);
+    try {
+      const res = await api.delete<any>(`/trainer/assessments/${deleteTarget.id}`);
+      toast.success(
+        res.data?.archived
+          ? 'Assessment archived safely (historical results & reports preserved)'
+          : 'Assessment deleted'
+      );
+      setDeleteTarget(null);
       quizzesQuery.refetch();
     } catch (err) {
       toast.error((err as ApiError).message || 'Failed to delete assessment');
+    } finally {
+      setDeletingQuiz(false);
     }
   }
 
@@ -445,31 +548,39 @@ export default function TrainerAssessmentsPage() {
               >
                 <CardBody className="p-5 flex flex-col h-full space-y-4">
                   <div className="flex items-start justify-between gap-3">
-                    <span className="flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20">
+                    <span className="flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20 shrink-0">
                       <ClipboardList className="size-5" aria-hidden />
                     </span>
-                    <div className="flex items-center gap-2">
-                      {/* Scheduling Status Badge */}
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
                       {(() => {
-                        const now = new Date();
-                        if (quiz.opensAt && new Date(quiz.opensAt) > now) {
-                          return (
-                            <Badge tone="info" className="text-[10px] font-bold">
-                              UPCOMING
-                            </Badge>
-                          );
-                        }
-                        if (quiz.closesAt && new Date(quiz.closesAt) < now) {
-                          return (
-                            <Badge tone="danger" className="text-[10px] font-bold">
-                              EXPIRED
-                            </Badge>
-                          );
-                        }
+                        const lc = (quiz.lifecycleStatus || 'LIVE').toUpperCase();
+                        const pub = (quiz.publicationStatus || 'ACTIVE').toUpperCase();
+                        const tone =
+                          lc === 'LIVE'
+                            ? 'success'
+                            : lc === 'SCHEDULED'
+                            ? 'info'
+                            : lc === 'COMPLETED'
+                            ? 'purple'
+                            : lc === 'EXPIRED' || lc === 'CANCELLED'
+                            ? 'danger'
+                            : 'neutral';
                         return (
-                          <Badge tone="success" className="text-[10px] font-bold">
-                            ACTIVE
-                          </Badge>
+                          <>
+                            <Badge tone={tone} className="text-[10px] font-bold">
+                              {lc}
+                            </Badge>
+                            {pub === 'INACTIVE' && (
+                              <Badge tone="neutral" className="text-[10px] font-semibold">
+                                INACTIVE
+                              </Badge>
+                            )}
+                            {quiz.manuallyEnded && lc === 'COMPLETED' && (
+                              <Badge tone="amber" className="text-[10px]">
+                                Ended
+                              </Badge>
+                            )}
+                          </>
                         );
                       })()}
                       {quiz.quizCode && (
@@ -477,7 +588,21 @@ export default function TrainerAssessmentsPage() {
                           {quiz.quizCode}
                         </Badge>
                       )}
-                      <StatusBadge status={quiz.status} />
+                      <button
+                        type="button"
+                        onClick={() => void openEditModal(quiz)}
+                        disabled={quiz.canEdit === false}
+                        aria-label={quiz.canEdit === false ? (quiz.editRestrictionReason || 'Edit disabled') : 'Edit Assessment'}
+                        title={quiz.canEdit === false ? (quiz.editRestrictionReason || 'Editing disabled') : 'Edit Assessment'}
+                        className={cn(
+                          'size-7 rounded-lg border flex items-center justify-center transition-all ml-0.5',
+                          quiz.canEdit === false
+                            ? 'border-border/60 text-muted-foreground/40 cursor-not-allowed'
+                            : 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 shadow-[0_0_8px_rgba(20,184,166,0.28)] animate-pulse'
+                        )}
+                      >
+                        <Edit className="size-3.5" />
+                      </button>
                     </div>
                   </div>
 
@@ -540,75 +665,125 @@ export default function TrainerAssessmentsPage() {
                     </div>
                   </div>
 
-                  {/* Action Buttons */}
-                  <div className="pt-2 border-t border-border flex flex-wrap items-center justify-between gap-2 mt-auto">
-                    <div className="flex items-center gap-1.5">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => openAssignModal(quiz)}
-                        className="text-xs flex items-center gap-1"
-                      >
-                        <Users className="size-3" /> Assign Batches
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => openCsvModal(quiz)}
-                        className="text-xs flex items-center gap-1"
-                      >
-                        <Upload className="size-3" /> Questions CSV
-                      </Button>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
+                  {/* Compact Action Buttons */}
+                  <div className="pt-2 border-t border-border space-y-1.5 mt-auto">
+                    {mobileHint && mobileHint.quizId === quiz.id && (
+                      <div className="sm:hidden text-[11px] font-medium text-primary bg-primary/10 rounded-md px-2 py-1 flex items-center justify-between">
+                        <span>{mobileHint.label}</span>
+                        <button type="button" onClick={() => setMobileHint(null)} className="text-xs px-1">×</button>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <Button
                         asChild
                         variant="primary"
                         size="sm"
-                        className="text-xs flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                        className="h-8 text-xs flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
                       >
                         <Link href={`/trainer/assessments/${quiz.id}/monitor`}>
-                          <Eye className="size-3" /> Monitor Live
+                          <Eye className="size-3.5" /> Monitor Live
                         </Link>
                       </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => openResultsModal(quiz)}
-                        className="text-xs flex items-center gap-1"
-                      >
-                        <BarChart3 className="size-3" /> Results
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => openEediModal(quiz)}
-                        className="text-xs flex items-center gap-1 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border-amber-500/30"
-                      >
-                        <Shield className="size-3" /> EEDI Analytics
-                      </Button>
-                      <Button
-                        asChild
-                        variant="secondary"
-                        size="sm"
-                        className="text-xs flex items-center gap-1 bg-primary/10 text-primary hover:bg-primary/20 border-primary/30"
-                      >
-                        <Link href={`/trainer/assessments/${quiz.id}/feedback`}>
-                          <MessageSquare className="size-3" /> View Feedback
-                        </Link>
-                      </Button>
-                      {quiz.isCreator && (
+
+                      <div className="flex flex-wrap items-center gap-1">
                         <Button
-                          variant="ghost"
+                          variant="secondary"
                           size="sm"
-                          onClick={() => handleDeleteQuiz(quiz.id)}
-                          className="text-destructive hover:bg-destructive/10 p-1.5"
-                          title="Delete Assessment"
+                          onClick={() => {
+                            setMobileHint({ quizId: quiz.id, label: 'Assign Batches' });
+                            openAssignModal(quiz);
+                          }}
+                          className="size-8 p-0"
+                          title="Assign Batches"
+                          aria-label="Assign Batches"
                         >
-                          <Trash2 className="size-3.5" />
+                          <Users className="size-3.5" />
                         </Button>
-                      )}
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            setMobileHint({ quizId: quiz.id, label: 'Upload Questions CSV' });
+                            openCsvModal(quiz);
+                          }}
+                          className="size-8 p-0"
+                          title="Questions CSV"
+                          aria-label="Questions CSV"
+                        >
+                          <Upload className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            setMobileHint({ quizId: quiz.id, label: 'View Results' });
+                            void openResultsModal(quiz);
+                          }}
+                          className="size-8 p-0"
+                          title="Results"
+                          aria-label="Results"
+                        >
+                          <BarChart3 className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            setMobileHint({ quizId: quiz.id, label: 'Export Excel' });
+                            setExportQuiz(quiz);
+                          }}
+                          className="size-8 p-0 text-emerald-600 hover:bg-emerald-500/10"
+                          title="Export Excel"
+                          aria-label="Export Excel"
+                        >
+                          <FileSpreadsheet className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            setMobileHint({ quizId: quiz.id, label: 'EEDI Analytics' });
+                            void openEediModal(quiz);
+                          }}
+                          className="size-8 p-0 text-amber-500 hover:bg-amber-500/15"
+                          title="EEDI Analytics"
+                          aria-label="EEDI Analytics"
+                        >
+                          <Shield className="size-3.5" />
+                        </Button>
+                        <Button
+                          asChild
+                          variant="secondary"
+                          size="sm"
+                          className="relative size-8 p-0 text-primary hover:bg-primary/15"
+                          title={`View Feedback (${quiz.feedbackCount || 0})`}
+                          aria-label="View Feedback"
+                        >
+                          <Link href={`/trainer/assessments/${quiz.id}/feedback`}>
+                            <MessageSquare className="size-3.5" />
+                            {(quiz.feedbackCount || 0) > 0 && (
+                              <span className="absolute -top-1 -right-1 rounded-full bg-primary text-white text-[9px] font-bold px-1 leading-tight">
+                                {quiz.feedbackCount}
+                              </span>
+                            )}
+                          </Link>
+                        </Button>
+                        {(quiz.canDelete ?? quiz.isCreator) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setMobileHint({ quizId: quiz.id, label: 'Delete Assessment' });
+                              setDeleteTarget(quiz);
+                            }}
+                            className="size-8 p-0 text-destructive hover:bg-destructive/10"
+                            title="Delete Assessment"
+                            aria-label="Delete Assessment"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </CardBody>
@@ -1412,6 +1587,17 @@ export default function TrainerAssessmentsPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>Total Submissions: {resultsData?.totalSubmissions || 0}</span>
+                  {activeQuiz && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setExportQuiz(activeQuiz)}
+                      className="h-7 text-xs gap-1.5 text-emerald-600"
+                    >
+                      <FileSpreadsheet className="size-3.5" />
+                      Export Excel
+                    </Button>
+                  )}
                 </div>
                 <div className="overflow-x-auto rounded-xl border border-border">
                   <table className="w-full text-xs">
@@ -1808,6 +1994,192 @@ export default function TrainerAssessmentsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* -------------------- 6. EDIT ASSESSMENT MODAL -------------------- */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="size-4 text-primary" />
+              Edit Assessment: {activeQuiz?.title}
+            </DialogTitle>
+          </DialogHeader>
+          {loadingEdit || !editForm ? (
+            <DialogBody>
+              <p className="py-6 text-center text-xs text-muted-foreground">Loading assessment configuration...</p>
+            </DialogBody>
+          ) : (
+            <form onSubmit={handleSaveEdit}>
+              <DialogBody className="space-y-4 text-xs">
+                {editForm.totalAttempts > 0 && (
+                  <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 flex items-start gap-2 text-amber-700 dark:text-amber-300">
+                    <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                    <span>
+                      <b>Attempt-Safety Active:</b> {editForm.totalAttempts} candidate attempt(s) already exist. Max Score, Negative Marking, and Question keys are locked to preserve grading integrity. You may safely update title, instructions, schedule, duration, and batch assignments.
+                    </span>
+                  </div>
+                )}
+
+                <Field label="Title" htmlFor="edit-quiz-title">
+                  <Input
+                    id="edit-quiz-title"
+                    required
+                    value={editForm.title}
+                    onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                  />
+                </Field>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <Field label="Duration (mins)" htmlFor="edit-quiz-dur">
+                    <Input
+                      id="edit-quiz-dur"
+                      type="number"
+                      min={1}
+                      max={300}
+                      value={editForm.durationMinutes}
+                      onChange={(e) => setEditForm({ ...editForm, durationMinutes: Number(e.target.value) })}
+                    />
+                  </Field>
+                  <Field label="Max Score" htmlFor="edit-quiz-max">
+                    <Input
+                      id="edit-quiz-max"
+                      type="number"
+                      min={1}
+                      disabled={editForm.totalAttempts > 0}
+                      value={editForm.maxScore}
+                      onChange={(e) => setEditForm({ ...editForm, maxScore: Number(e.target.value) })}
+                    />
+                  </Field>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-heading">Publication Status</label>
+                    <Select
+                      value={editForm.status}
+                      onValueChange={(val) => setEditForm({ ...editForm, status: val })}
+                    >
+                      <SelectTrigger className="h-9 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="active">Active (Published)</SelectItem>
+                        <SelectItem value="inactive">Inactive</SelectItem>
+                        <SelectItem value="draft">Draft</SelectItem>
+                        <SelectItem value="completed">Completed (Closed)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block font-semibold text-heading">Start Date &amp; Time</label>
+                    <input
+                      type="datetime-local"
+                      value={editForm.opensAt}
+                      onChange={(e) => setEditForm({ ...editForm, opensAt: e.target.value })}
+                      className="w-full h-9 rounded-lg border border-input bg-card px-2.5 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-semibold text-heading">End Date &amp; Time</label>
+                    <input
+                      type="datetime-local"
+                      value={editForm.closesAt}
+                      onChange={(e) => setEditForm({ ...editForm, closesAt: e.target.value })}
+                      className="w-full h-9 rounded-lg border border-input bg-card px-2.5 text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-1 block font-semibold text-heading">Description</label>
+                  <textarea
+                    rows={2}
+                    value={editForm.description}
+                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                    className="w-full rounded-xl border border-input bg-card p-2.5 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block font-semibold text-heading">Instructions</label>
+                  <textarea
+                    rows={2}
+                    value={editForm.instructions}
+                    onChange={(e) => setEditForm({ ...editForm, instructions: e.target.value })}
+                    className="w-full rounded-xl border border-input bg-card p-2.5 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1.5 block font-semibold text-heading">Assigned Batches</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto">
+                    {batches.map((b: any) => {
+                      const checked = (editForm.batchIds || []).includes(b.id);
+                      return (
+                        <label
+                          key={b.id}
+                          className={cn(
+                            'flex items-center justify-between rounded-lg border p-2 cursor-pointer text-xs',
+                            checked ? 'border-primary bg-primary/10' : 'border-border'
+                          )}
+                        >
+                          <span className="truncate font-medium">
+                            {b.name} ({b.code})
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const next = e.target.checked
+                                ? [...editForm.batchIds, b.id]
+                                : editForm.batchIds.filter((id: string) => id !== b.id);
+                              setEditForm({ ...editForm, batchIds: next });
+                            }}
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </DialogBody>
+              <DialogFooter>
+                <Button type="button" variant="secondary" onClick={() => setEditOpen(false)} disabled={savingEdit}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="primary" loading={savingEdit}>
+                  Save Changes
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* -------------------- 7. DELETE CONFIRMATION DIALOG -------------------- */}
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        title={`Delete "${deleteTarget?.title || 'Assessment'}"?`}
+        description={
+          (deleteTarget?.totalAttempts || 0) > 0
+            ? 'This assessment has existing student attempts. It will be safely archived so all historical results, reports, and feedback remain preserved.'
+            : 'Are you sure you want to remove this assessment?'
+        }
+        confirmLabel="Confirm Delete"
+        onConfirm={confirmDeleteQuiz}
+        pending={deletingQuiz}
+      />
+
+      {/* -------------------- 8. BATCH-SCOPED EXCEL EXPORT MODAL -------------------- */}
+      {exportQuiz && (
+        <ExportAssessmentModal
+          open={Boolean(exportQuiz)}
+          onOpenChange={(o) => !o && setExportQuiz(null)}
+          quizId={exportQuiz.id}
+          quizTitle={exportQuiz.title}
+          batches={batches}
+        />
+      )}
     </div>
   );
 }

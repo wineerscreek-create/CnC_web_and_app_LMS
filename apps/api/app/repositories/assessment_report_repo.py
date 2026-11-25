@@ -63,6 +63,7 @@ class AssessmentReportRepository:
         cls,
         attempt_id: uuid.UUID | str,
         conn=None,
+        allow_refresh_recovered: bool = False,
     ) -> dict[str, Any]:
         """Generates an immutable assessment report snapshot from an attempt and stores it permanently.
 
@@ -75,10 +76,10 @@ class AssessmentReportRepository:
         async def _execute(c):
             # Check if report already exists for this exact attempt
             existing = await c.fetchrow(
-                "SELECT id, attempt_id, quiz_id, student_user_id, marks_obtained, max_marks, percentage, result_status FROM assessment_reports WHERE attempt_id = $1",
+                "SELECT id, attempt_id, quiz_id, student_user_id, marks_obtained, max_marks, percentage, result_status, approval_status FROM assessment_reports WHERE attempt_id = $1",
                 att_uuid,
             )
-            if existing:
+            if existing and not allow_refresh_recovered:
                 return dict(existing)
 
             # Fetch attempt
@@ -344,7 +345,21 @@ class AssessmentReportRepository:
                     $28, $29, $30::jsonb, $31::jsonb,
                     $32::jsonb, $33::jsonb, NOW(), NOW()
                 )
-                ON CONFLICT (attempt_id) DO UPDATE SET updated_at = NOW()
+                ON CONFLICT (attempt_id) DO UPDATE SET
+                    marks_obtained = CASE WHEN $34 THEN EXCLUDED.marks_obtained ELSE assessment_reports.marks_obtained END,
+                    max_marks = CASE WHEN $34 THEN EXCLUDED.max_marks ELSE assessment_reports.max_marks END,
+                    percentage = CASE WHEN $34 THEN EXCLUDED.percentage ELSE assessment_reports.percentage END,
+                    result_status = CASE WHEN $34 THEN EXCLUDED.result_status ELSE assessment_reports.result_status END,
+                    total_questions = CASE WHEN $34 THEN EXCLUDED.total_questions ELSE assessment_reports.total_questions END,
+                    attempted_questions = CASE WHEN $34 THEN EXCLUDED.attempted_questions ELSE assessment_reports.attempted_questions END,
+                    unattempted_questions = CASE WHEN $34 THEN EXCLUDED.unattempted_questions ELSE assessment_reports.unattempted_questions END,
+                    correct_answers = CASE WHEN $34 THEN EXCLUDED.correct_answers ELSE assessment_reports.correct_answers END,
+                    incorrect_answers = CASE WHEN $34 THEN EXCLUDED.incorrect_answers ELSE assessment_reports.incorrect_answers END,
+                    question_summary = CASE WHEN $34 THEN EXCLUDED.question_summary ELSE assessment_reports.question_summary END,
+                    topic_performance = CASE WHEN $34 THEN EXCLUDED.topic_performance ELSE assessment_reports.topic_performance END,
+                    proctoring_summary = CASE WHEN $34 THEN EXCLUDED.proctoring_summary ELSE assessment_reports.proctoring_summary END,
+                    submitted_at = CASE WHEN $34 THEN EXCLUDED.submitted_at ELSE assessment_reports.submitted_at END,
+                    updated_at = NOW()
                 RETURNING *
                 """,
                 report_id,
@@ -380,6 +395,7 @@ class AssessmentReportRepository:
                 json.dumps(question_summary),
                 json.dumps(topic_performance),
                 json.dumps(feedback),
+                bool(allow_refresh_recovered),
             )
 
             # Fire idempotent notification to student
@@ -523,6 +539,10 @@ class AssessmentReportRepository:
                 "resultStatus": r["result_status"],
                 "passed": r["result_status"] == "PASSED",
                 "warningCount": r["warning_count"],
+                "approvalStatus": r["approval_status"] if "approval_status" in r else "PENDING",
+                "approvedAt": r["approved_at"].isoformat() if ("approved_at" in r and r["approved_at"]) else None,
+                "rejectedAt": r["rejected_at"].isoformat() if ("rejected_at" in r and r["rejected_at"]) else None,
+                "reviewNotes": r["review_notes"] if "review_notes" in r else None,
             })
 
         total_pages = max(1, (total + page_size - 1) // page_size)
@@ -597,6 +617,11 @@ class AssessmentReportRepository:
             "questionSummary": _parse_json(row["question_summary"]),
             "topicPerformance": _parse_json(row["topic_performance"]),
             "feedback": _parse_json(row["feedback"]),
+            "approvalStatus": row["approval_status"] if "approval_status" in row else "PENDING",
+            "approvedAt": row["approved_at"].isoformat() if ("approved_at" in row and row["approved_at"]) else None,
+            "rejectedAt": row["rejected_at"].isoformat() if ("rejected_at" in row and row["rejected_at"]) else None,
+            "reviewNotes": row["review_notes"] if "review_notes" in row else None,
+            "approvalHistory": _parse_json(row["approval_history"]) if ("approval_history" in row and row["approval_history"]) else [],
             "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         }
 
@@ -1104,3 +1129,244 @@ class AssessmentReportRepository:
         zip_buffer.seek(0)
         archive_name = f"{sanitized_title}_Reports.zip"
         return zip_buffer.getvalue(), archive_name
+
+    @classmethod
+    async def _authorize_trainer_quiz(cls, conn, ctx: ScopeContext, q_uuid: uuid.UUID) -> Any:
+        quiz = await conn.fetchrow(
+            "SELECT id, title, creator_trainer_id, batch_id FROM quizzes WHERE id = $1",
+            q_uuid,
+        )
+        if not quiz:
+            raise NotFound("Assessment not found.")
+        if ctx.role not in (Role.ADMIN, Role.SUPER_ADMIN) and str(quiz["creator_trainer_id"]) != str(ctx.user_id):
+            t_uuid = _safe_uuid(ctx.user_id)
+            is_assigned = await conn.fetchval(
+                """
+                SELECT 1 FROM batch_trainers bt
+                WHERE bt.trainer_user_id = $2
+                  AND (bt.status = 'ACTIVE' OR bt.status IS NULL)
+                  AND (
+                      bt.batch_id = $3
+                      OR bt.batch_id IN (
+                          SELECT qba.batch_id FROM quiz_batch_assignments qba
+                          WHERE qba.quiz_id = $1 AND UPPER(COALESCE(qba.status, 'ACTIVE')) = 'ACTIVE'
+                      )
+                  )
+                LIMIT 1
+                """,
+                q_uuid,
+                t_uuid,
+                quiz["batch_id"],
+            )
+            if not is_assigned:
+                raise ScopeForbidden("You are not authorized to manage reports for this assessment.")
+        return quiz
+
+    @classmethod
+    async def list_trainer_assessment_reports(
+        cls,
+        ctx: ScopeContext,
+        quiz_id: str,
+        approval_status: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict[str, Any]:
+        q_uuid = _safe_uuid(quiz_id)
+        if not q_uuid:
+            raise NotFound("Assessment not found.")
+
+        async with get_pg_connection() as conn:
+            await cls._authorize_trainer_quiz(conn, ctx, q_uuid)
+
+            clauses = ["ar.quiz_id = $1"]
+            params: list[Any] = [q_uuid]
+            if approval_status and approval_status.upper() in ("PENDING", "APPROVED", "REJECTED"):
+                params.append(approval_status.upper())
+                clauses.append(f"ar.approval_status = ${len(params)}")
+            if search and search.strip():
+                params.append(f"%{search.strip()}%")
+                clauses.append(
+                    f"(ar.student_name ILIKE ${len(params)} OR ar.roll_number ILIKE ${len(params)} OR ar.email ILIKE ${len(params)})"
+                )
+            where_sql = " AND ".join(clauses)
+
+            counts = await conn.fetchrow(
+                """
+                SELECT COUNT(*) AS total,
+                       COUNT(*) FILTER (WHERE approval_status = 'PENDING') AS pending_count,
+                       COUNT(*) FILTER (WHERE approval_status = 'APPROVED') AS approved_count,
+                       COUNT(*) FILTER (WHERE approval_status = 'REJECTED') AS rejected_count
+                FROM assessment_reports
+                WHERE quiz_id = $1
+                """,
+                q_uuid,
+            )
+
+            total_filtered = await conn.fetchval(
+                f"SELECT COUNT(*) FROM assessment_reports ar WHERE {where_sql}",
+                *params,
+            ) or 0
+            offset = (max(1, page) - 1) * page_size
+            params.extend([page_size, offset])
+            rows = await conn.fetch(
+                f"""
+                SELECT ar.id, ar.attempt_id, ar.quiz_id, ar.student_user_id, ar.attempt_number,
+                       ar.student_name, ar.roll_number, ar.email, ar.batch_name,
+                       ar.marks_obtained, ar.max_marks, ar.percentage, ar.result_status,
+                       ar.warning_count, ar.submitted_at, ar.approval_status,
+                       ar.approved_by, ar.approved_at, ar.rejected_by, ar.rejected_at,
+                       ar.review_notes, ar.approval_history
+                FROM assessment_reports ar
+                WHERE {where_sql}
+                ORDER BY ar.submitted_at DESC, ar.attempt_number DESC
+                LIMIT ${len(params) - 1} OFFSET ${len(params)}
+                """,
+                *params,
+            )
+
+        return {
+            "counts": {
+                "total": int(counts["total"] or 0),
+                "pending": int(counts["pending_count"] or 0),
+                "approved": int(counts["approved_count"] or 0),
+                "rejected": int(counts["rejected_count"] or 0),
+            },
+            "pagination": {
+                "page": page,
+                "pageSize": page_size,
+                "total": int(total_filtered),
+                "totalPages": max(1, (int(total_filtered) + page_size - 1) // page_size),
+            },
+            "items": [
+                {
+                    "id": str(r["id"]),
+                    "reportId": str(r["id"]),
+                    "attemptId": str(r["attempt_id"]),
+                    "quizId": str(r["quiz_id"]),
+                    "studentUserId": str(r["student_user_id"]),
+                    "attemptNumber": r["attempt_number"],
+                    "studentName": r["student_name"],
+                    "rollNumber": r["roll_number"] or "—",
+                    "email": r["email"] or "",
+                    "batchName": r["batch_name"] or "—",
+                    "marksObtained": float(r["marks_obtained"]),
+                    "maxMarks": float(r["max_marks"]),
+                    "percentage": float(r["percentage"]),
+                    "resultStatus": r["result_status"],
+                    "warningCount": r["warning_count"],
+                    "submittedAt": r["submitted_at"].isoformat() if r["submitted_at"] else None,
+                    "approvalStatus": r["approval_status"],
+                    "approvedAt": r["approved_at"].isoformat() if r["approved_at"] else None,
+                    "rejectedAt": r["rejected_at"].isoformat() if r["rejected_at"] else None,
+                    "reviewNotes": r["review_notes"],
+                    "approvalHistory": _parse_json(r["approval_history"]) if r["approval_history"] else [],
+                }
+                for r in rows
+            ],
+        }
+
+    @classmethod
+    async def review_assessment_report(
+        cls,
+        ctx: ScopeContext,
+        report_id: str,
+        decision: str,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        """Approves or rejects an assessment report idempotently with full audit history."""
+        r_uuid = _safe_uuid(report_id)
+        actor_uuid = _safe_uuid(ctx.user_id)
+        if not r_uuid:
+            raise NotFound("Assessment report not found.")
+        norm_decision = decision.strip().upper()
+        if norm_decision not in ("APPROVED", "REJECTED"):
+            raise ValidationError("Approval decision must be APPROVED or REJECTED.")
+
+        async with get_pg_connection() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    "SELECT * FROM assessment_reports WHERE id = $1 FOR UPDATE",
+                    r_uuid,
+                )
+                if not row:
+                    raise NotFound("Assessment report not found.")
+
+                await cls._authorize_trainer_quiz(conn, ctx, row["quiz_id"])
+
+                prev_status = row["approval_status"] or "PENDING"
+                if prev_status == norm_decision:
+                    # Idempotent handling of duplicate approval/rejection requests
+                    return {
+                        "id": str(row["id"]),
+                        "reportId": str(row["id"]),
+                        "approvalStatus": prev_status,
+                        "approvedAt": row["approved_at"].isoformat() if row["approved_at"] else None,
+                        "rejectedAt": row["rejected_at"].isoformat() if row["rejected_at"] else None,
+                        "reviewNotes": row["review_notes"],
+                        "approvalHistory": _parse_json(row["approval_history"]) if row["approval_history"] else [],
+                        "idempotent": True,
+                    }
+
+                now_dt = _now()
+                history = _parse_json(row["approval_history"]) if row["approval_history"] else []
+                if not isinstance(history, list):
+                    history = []
+                history.append({
+                    "action": norm_decision,
+                    "previousStatus": prev_status,
+                    "actorId": str(ctx.user_id),
+                    "actorRole": str(ctx.role),
+                    "notes": (notes or "").strip() or None,
+                    "timestamp": now_dt.isoformat(),
+                })
+
+                if norm_decision == "APPROVED":
+                    updated = await conn.fetchrow(
+                        """
+                        UPDATE assessment_reports
+                        SET approval_status = 'APPROVED',
+                            approved_by = $2,
+                            approved_at = $3,
+                            review_notes = COALESCE($4, review_notes),
+                            approval_history = $5::jsonb,
+                            updated_at = NOW()
+                        WHERE id = $1
+                        RETURNING *
+                        """,
+                        r_uuid,
+                        actor_uuid,
+                        now_dt,
+                        (notes or "").strip() or None,
+                        json.dumps(history),
+                    )
+                else:
+                    updated = await conn.fetchrow(
+                        """
+                        UPDATE assessment_reports
+                        SET approval_status = 'REJECTED',
+                            rejected_by = $2,
+                            rejected_at = $3,
+                            review_notes = COALESCE($4, review_notes),
+                            approval_history = $5::jsonb,
+                            updated_at = NOW()
+                        WHERE id = $1
+                        RETURNING *
+                        """,
+                        r_uuid,
+                        actor_uuid,
+                        now_dt,
+                        (notes or "").strip() or None,
+                        json.dumps(history),
+                    )
+
+        return {
+            "id": str(updated["id"]),
+            "reportId": str(updated["id"]),
+            "approvalStatus": updated["approval_status"],
+            "approvedAt": updated["approved_at"].isoformat() if updated["approved_at"] else None,
+            "rejectedAt": updated["rejected_at"].isoformat() if updated["rejected_at"] else None,
+            "reviewNotes": updated["review_notes"],
+            "approvalHistory": _parse_json(updated["approval_history"]) if updated["approval_history"] else [],
+            "idempotent": False,
+        }

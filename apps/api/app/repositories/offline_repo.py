@@ -50,6 +50,11 @@ def _parse_json(val: Any) -> Any:
     return {}
 
 
+def _parse_json_dict(val: Any) -> dict[str, Any]:
+    parsed = _parse_json(val)
+    return parsed if isinstance(parsed, dict) else {}
+
+
 class OfflineRepository:
     @classmethod
     async def authorize_package(
@@ -357,19 +362,31 @@ class OfflineRepository:
                                 raise ValidationError("Missing quiz identifier.")
 
                             quiz = await conn.fetchrow(
-                                "SELECT id, title, questions, max_score, allow_retake FROM quizzes WHERE id = $1",
+                                "SELECT id, title, questions, max_score, allow_retake, settings FROM quizzes WHERE id = $1",
                                 quiz_id,
                             )
                             if not quiz:
                                 raise NotFound("Assessment not found.")
 
+                            # Serialize concurrent sync/online mutations for this student+quiz
+                            await conn.execute(
+                                "SELECT pg_advisory_xact_lock(hashtext($1))",
+                                f"{quiz_id}:{u_uuid}",
+                            )
+
                             existing_attempt = await conn.fetchrow(
-                                "SELECT id, score FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2",
+                                """
+                                SELECT id, score, status, candidate_status, answers, question_states, batch_id, institution_id
+                                FROM quiz_attempts
+                                WHERE quiz_id = $1 AND student_user_id = $2
+                                ORDER BY (CASE WHEN status = 'in_progress' THEN 0 ELSE 1 END), created_at DESC
+                                LIMIT 1
+                                """,
                                 quiz_id,
                                 u_uuid,
                             )
-                            if existing_attempt and not quiz.get("allow_retake"):
-                                # Conflict: already submitted
+                            if existing_attempt and existing_attempt["status"] == "completed" and not quiz.get("allow_retake"):
+                                # Conflict: already completed/submitted
                                 await conn.execute(
                                     """
                                     INSERT INTO sync_conflicts (
@@ -397,7 +414,12 @@ class OfflineRepository:
                             # Autoritative Server-Side Grading: evaluate answers against true key
                             raw_questions = _parse_json(quiz["questions"])
                             answers_list = payload.get("answers") or []
-                            attempt_id = _safe_uuid(op.get("attemptId")) or uuid.uuid4()
+                            # If an in_progress attempt already exists on server, complete that exact attempt row
+                            if existing_attempt and existing_attempt["status"] == "in_progress":
+                                attempt_id = existing_attempt["id"]
+                            else:
+                                attempt_id = _safe_uuid(op.get("attemptId")) or uuid.uuid4()
+
                             answers_map: dict[str, str] = {}
                             if isinstance(answers_list, list):
                                 for a in answers_list:
@@ -405,32 +427,55 @@ class OfflineRepository:
                             elif isinstance(answers_list, dict):
                                 answers_map = {str(k): str(v) for k, v in answers_list.items()}
 
-                            # Check if attempt already exists with server-locked questions
-                            existing_att = await conn.fetchrow(
-                                "SELECT id, answers, question_states FROM quiz_attempts WHERE (id = $1 OR (quiz_id = $2 AND student_user_id = $3))",
-                                attempt_id, quiz_id, u_uuid
-                            )
-                            if existing_att and existing_att.get("question_states"):
-                                srv_q_states = _parse_json_dict(existing_att["question_states"])
-                                srv_answers = _parse_json_dict(existing_att["answers"])
-                                # Protect locked answers from being overwritten by stale offline drafts
-                                for qid, qst in srv_q_states.items():
-                                    if qst.get("is_locked") and qid in srv_answers:
-                                        answers_map[qid] = str(srv_answers[qid])
+                            # Check if attempt already exists with server-locked questions or server-saved drafts
+                            existing_att = existing_attempt
+                            if not existing_att:
+                                existing_att = await conn.fetchrow(
+                                    "SELECT id, answers, question_states FROM quiz_attempts WHERE id = $1",
+                                    attempt_id,
+                                )
+                            if existing_att:
+                                srv_answers = _parse_json_dict(existing_att["answers"]) if existing_att["answers"] else {}
+                                # Preserve server drafts not present in offline payload
+                                for qid, ans_val in srv_answers.items():
+                                    if qid not in answers_map and ans_val not in (None, "", [], {}):
+                                        answers_map[qid] = str(ans_val)
+                                if existing_att["question_states"]:
+                                    srv_q_states = _parse_json_dict(existing_att["question_states"])
+                                    # Protect locked answers from being overwritten by stale offline drafts
+                                    for qid, qst in srv_q_states.items():
+                                        if qst.get("is_locked") and qid in srv_answers:
+                                            answers_map[qid] = str(srv_answers[qid])
 
                             earned = 0.0
                             possible = 0.0
+                            correct_count = 0
+                            incorrect_count = 0
+                            unattempted_count = 0
                             for q in raw_questions:
                                 m = float(q.get("marks", 1))
                                 possible += m
                                 qid = str(q.get("id"))
                                 chosen_opt = answers_map.get(qid)
+                                if not chosen_opt:
+                                    unattempted_count += 1
+                                    continue
+                                is_corr = False
                                 for opt in q.get("options", []):
                                     if str(opt.get("id")) == chosen_opt and opt.get("correct"):
                                         earned += m
+                                        is_corr = True
                                         break
+                                if is_corr:
+                                    correct_count += 1
+                                else:
+                                    incorrect_count += 1
 
                             official_score = round(earned / possible * 100, 1) if possible > 0 else 0.0
+                            pct_score = round(earned / possible * 100, 2) if possible > 0 else 0.0
+                            q_settings = _parse_json_dict(quiz["settings"]) if quiz["settings"] else {}
+                            passing_marks = float(q_settings.get("passing_marks") or 0)
+                            passed = official_score >= passing_marks if passing_marks > 0 else pct_score >= 40.0
                             duration_secs = int(payload.get("durationSeconds") or 0)
                             integrity_hash = payload.get("integrityHash") or payload.get("clientHash")
                             local_sub_str = payload.get("localSubmittedAt")
@@ -445,24 +490,47 @@ class OfflineRepository:
                             await conn.execute(
                                 """
                                 INSERT INTO quiz_attempts (
-                                    id, quiz_id, student_user_id, score, possible, answers,
-                                    status, candidate_status, submission_source, offline_integrity_hash,
-                                    time_taken_seconds, local_submitted_at, created_at, completed_at
+                                    id, quiz_id, student_user_id, score, possible, percentage, passed,
+                                    correct_count, incorrect_count, unattempted_count,
+                                    answers, status, candidate_status, submission_source,
+                                    submission_reason, offline_integrity_hash, time_taken_seconds,
+                                    local_submitted_at, remaining_seconds, created_at, completed_at
                                 ) VALUES (
-                                    $1, $2, $3, $4, $5, $6::jsonb,
-                                    'completed', 'COMPLETED', 'OFFLINE_SYNC', $7,
-                                    $8, $9, NOW() - ($10 * INTERVAL '1 second'), NOW()
+                                    $1, $2, $3, $4, $5, $6, $7,
+                                    $8, $9, $10,
+                                    $11::jsonb, 'completed', 'OFFLINE_SUBMITTED', 'OFFLINE_SYNC',
+                                    'OFFLINE_SYNC_SUBMIT', $12, $13,
+                                    $14, 0, NOW() - ($15 * INTERVAL '1 second'), NOW()
                                 ) ON CONFLICT (id) DO UPDATE SET
                                     score = EXCLUDED.score,
+                                    possible = EXCLUDED.possible,
+                                    percentage = EXCLUDED.percentage,
+                                    passed = EXCLUDED.passed,
+                                    correct_count = EXCLUDED.correct_count,
+                                    incorrect_count = EXCLUDED.incorrect_count,
+                                    unattempted_count = EXCLUDED.unattempted_count,
                                     answers = EXCLUDED.answers,
-                                    completed_at = EXCLUDED.completed_at
+                                    status = 'completed',
+                                    candidate_status = 'OFFLINE_SUBMITTED',
+                                    submission_source = 'OFFLINE_SYNC',
+                                    submission_reason = 'OFFLINE_SYNC_SUBMIT',
+                                    offline_integrity_hash = EXCLUDED.offline_integrity_hash,
+                                    time_taken_seconds = EXCLUDED.time_taken_seconds,
+                                    local_submitted_at = EXCLUDED.local_submitted_at,
+                                    remaining_seconds = 0,
+                                    completed_at = COALESCE(quiz_attempts.completed_at, NOW())
                                 """,
                                 attempt_id,
                                 quiz_id,
                                 u_uuid,
                                 int(official_score),
                                 int(quiz["max_score"] or 100),
-                                json.dumps(answers_list),
+                                pct_score,
+                                passed,
+                                correct_count,
+                                incorrect_count,
+                                unattempted_count,
+                                json.dumps(answers_map),
                                 integrity_hash,
                                 int(duration_secs),
                                 local_submitted_at,

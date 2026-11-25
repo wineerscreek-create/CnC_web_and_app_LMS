@@ -317,8 +317,9 @@ class AssessmentHub:
         if state:
             state["status"] = result.get("candidate_status") or "submitted"
             state["online"] = False
+            state["camera_on"] = False
             state["last_seen"] = time.time()
-            # Immediately release camera snapshot resources upon submission
+            # Immediately release in-memory live camera snapshot upon submission
             if quiz_id in self.latest_snapshots and user_id in self.latest_snapshots[quiz_id]:
                 del self.latest_snapshots[quiz_id][user_id]
             await self.broadcast_to_trainers(

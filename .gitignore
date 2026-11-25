@@ -117,6 +117,10 @@ apps/api/tests/*
 !apps/api/tests/test_decentralized_offline_exam.py
 !apps/api/tests/test_assessment_reports_and_notifications.py
 !apps/api/tests/test_answer_locking_and_grace.py
+!apps/api/tests/test_p0_offline_and_concurrency.py
+!apps/api/tests/test_monitor_lifecycle_and_scale.py
+!apps/api/tests/test_phase15_reports_and_approvals.py
+!apps/api/tests/test_consolidated_quiz_phases.py
 apps/api/test_*.py
 apps/api/audit_*.py
 apps/api/verify_*.py

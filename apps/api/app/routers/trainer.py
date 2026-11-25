@@ -2490,6 +2490,299 @@ async def get_trainer_assessment_results(
     return {"success": True, "data": data}
 
 
+from pydantic import BaseModel as _PydanticBaseModel, Field as _PydanticField
+
+
+class BatchExcelExportRequest(_PydanticBaseModel):
+    batchIds: list[str] = _PydanticField(..., min_length=1)
+    includePhotos: bool = False
+
+
+@router.post("/assessments/{quiz_id}/export-excel")
+async def export_trainer_assessment_excel_batch_scoped(
+    quiz_id: str,
+    payload: BatchExcelExportRequest,
+    ctx: ScopeContext = TrainerCtx,
+) -> Response:
+    """Generates a secure, batch-scoped Excel workbook (.xlsx) with optional camera snapshot sheets."""
+    import io
+    import re
+    import base64
+    from datetime import datetime, timezone
+    from PIL import Image as PILImage, ImageFile
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.drawing.image import Image as OpenpyxlImage
+    from openpyxl.utils import get_column_letter
+    from app.db.postgres import get_pg_connection
+    from app.repositories.assignment_quiz_repo import _safe_uuid, _parse_json_list
+    from app.core.errors import NotFound, ScopeForbidden, ValidationError
+
+    q_uuid = _safe_uuid(quiz_id)
+    if not q_uuid:
+        raise NotFound("Assessment not found")
+
+    req_batch_uuids = []
+    for bid in payload.batchIds:
+        bu = _safe_uuid(bid)
+        if not bu:
+            raise ValidationError(f"Invalid batch ID: {bid}")
+        if bu not in req_batch_uuids:
+            req_batch_uuids.append(bu)
+    if not req_batch_uuids:
+        raise ValidationError("Select at least one batch to export.")
+
+    t_uuid = _safe_uuid(ctx.user_id)
+    async with get_pg_connection() as conn:
+        quiz = await conn.fetchrow(
+            "SELECT id, title, creator_trainer_id, institution_id, max_score FROM quizzes WHERE id = $1 AND deleted_at IS NULL",
+            q_uuid,
+        )
+        if not quiz:
+            raise NotFound("Assessment not found")
+
+        # Validate quiz access
+        if ctx.role not in (Role.ADMIN, Role.SUPER_ADMIN) and quiz["creator_trainer_id"] != t_uuid:
+            has_quiz_access = await conn.fetchval(
+                """
+                SELECT 1 FROM quiz_batch_assignments qba
+                JOIN batch_trainers bt ON bt.batch_id = qba.batch_id
+                WHERE qba.quiz_id = $1 AND bt.trainer_user_id = $2 AND (bt.status = 'ACTIVE' OR bt.status IS NULL)
+                LIMIT 1
+                """,
+                q_uuid, t_uuid,
+            )
+            if not has_quiz_access:
+                raise ScopeForbidden("You are not authorized to export this assessment.")
+
+        # Validate every requested batch belongs to trainer's authorized batches (prevent IDOR)
+        if ctx.role in (Role.ADMIN, Role.SUPER_ADMIN):
+            auth_batches = await conn.fetch(
+                "SELECT id, name, code FROM batches WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL",
+                req_batch_uuids,
+            )
+        else:
+            auth_batches = await conn.fetch(
+                """
+                SELECT b.id, b.name, b.code
+                FROM batches b
+                JOIN batch_trainers bt ON bt.batch_id = b.id
+                WHERE b.id = ANY($1::uuid[])
+                  AND bt.trainer_user_id = $2
+                  AND (bt.status = 'ACTIVE' OR bt.status IS NULL)
+                  AND b.deleted_at IS NULL
+                """,
+                req_batch_uuids, t_uuid,
+            )
+        auth_batch_map = {r["id"]: r for r in auth_batches}
+        for bu in req_batch_uuids:
+            if bu not in auth_batch_map:
+                raise ScopeForbidden("You are not authorized to export one or more selected batches.")
+
+        wb = Workbook()
+        # Remove default empty sheet after creating batch sheets
+        default_sheet = wb.active
+        header_fill = PatternFill(start_color="FFE2E8F0", end_color="FFE2E8F0", fill_type="solid")
+        header_font = Font(name="Calibri", size=11, bold=True)
+        regular_font = Font(name="Calibri", size=10)
+        bold_font = Font(name="Calibri", size=10, bold=True)
+        center_align = Alignment(horizontal="center", vertical="center")
+        left_align = Alignment(horizontal="left", vertical="center")
+        thin_border = Border(
+            left=Side(style='thin', color='E2E8F0'),
+            right=Side(style='thin', color='E2E8F0'),
+            top=Side(style='thin', color='E2E8F0'),
+            bottom=Side(style='thin', color='E2E8F0'),
+        )
+
+        def _sheet_title(prefix: str, batch_label: str, existing_names: set[str]) -> str:
+            clean = re.sub(r'[:\\/?*\[\]\s]+', '_', batch_label).strip('_') or 'Batch'
+            base = f"{prefix}_{clean}"[:31]
+            cand = base
+            idx = 2
+            while cand in existing_names:
+                suffix = f"_{idx}"
+                cand = f"{base[:31 - len(suffix)]}{suffix}"
+                idx += 1
+            existing_names.add(cand)
+            return cand
+
+        used_sheet_names: set[str] = set()
+        batch_slugs: list[str] = []
+
+        for bu in req_batch_uuids:
+            b_info = auth_batch_map[bu]
+            b_label = b_info["code"] or b_info["name"] or "Batch"
+            batch_slugs.append(re.sub(r'[^a-zA-Z0-9_-]', '_', b_label))
+
+            attempts = await conn.fetch(
+                """
+                SELECT qa.id, qa.student_user_id, u.name AS student_name, sp.roll_number,
+                       qa.score, qa.possible, qa.percentage, qa.passed,
+                       qa.correct_count, qa.incorrect_count, qa.unattempted_count,
+                       qa.status, qa.candidate_status, qa.submission_reason,
+                       qa.submission_source, qa.time_taken_seconds, qa.completed_at,
+                       qa.warning_count, qa.warnings
+                FROM quiz_attempts qa
+                JOIN users u ON u.id = qa.student_user_id
+                LEFT JOIN student_profiles sp ON sp.user_id = qa.student_user_id
+                WHERE qa.quiz_id = $1
+                  AND COALESCE(qa.batch_id, sp.batch_id) = $2
+                ORDER BY qa.score DESC NULLS LAST, sp.roll_number ASC NULLS LAST
+                """,
+                q_uuid, bu,
+            )
+
+            res_title = _sheet_title("Result", b_label, used_sheet_names)
+            ws_res = wb.create_sheet(title=res_title)
+            ws_res.views.sheetView[0].state = "frozen"
+            ws_res.views.sheetView[0].ySplit = 1
+
+            res_headers = [
+                "Roll Number", "Student Name", "Batch", "Quiz Title",
+                "Total Marks", "Obtained Marks", "Percentage", "Correct Answers",
+                "Incorrect Answers", "Unattempted Questions", "Submission Status",
+                "Submission Time", "Duration (s)", "Warnings", "Submission Reason"
+            ]
+            ws_res.append(res_headers)
+            for col_idx in range(1, len(res_headers) + 1):
+                c = ws_res.cell(row=1, column=col_idx)
+                c.font = header_font
+                c.fill = header_fill
+                c.alignment = center_align
+                c.border = thin_border
+            ws_res.row_dimensions[1].height = 24
+
+            for a in attempts:
+                sub_time = a["completed_at"].isoformat() if a["completed_at"] else "—"
+                ws_res.append([
+                    a["roll_number"] or "—",
+                    a["student_name"] or "Student",
+                    b_info["name"] or b_label,
+                    quiz["title"],
+                    int(a["possible"] or quiz["max_score"] or 100),
+                    int(a["score"] or 0),
+                    f"{float(a['percentage'] or 0):.2f}%",
+                    int(a["correct_count"] or 0),
+                    int(a["incorrect_count"] or 0),
+                    int(a["unattempted_count"] or 0),
+                    a["candidate_status"] or a["status"] or "—",
+                    sub_time,
+                    int(a["time_taken_seconds"] or 0),
+                    int(a["warning_count"] or 0),
+                    a["submission_reason"] or "—",
+                ])
+
+            for r_idx in range(2, ws_res.max_row + 1):
+                ws_res.row_dimensions[r_idx].height = 20
+                for c_idx in range(1, len(res_headers) + 1):
+                    cell = ws_res.cell(row=r_idx, column=c_idx)
+                    cell.font = regular_font
+                    cell.border = thin_border
+                    cell.alignment = center_align if c_idx in (5, 6, 7, 8, 9, 10, 13, 14) else left_align
+
+            for col_i, w in enumerate([16, 24, 18, 26, 12, 14, 12, 14, 15, 18, 18, 24, 12, 10, 22], start=1):
+                ws_res.column_dimensions[get_column_letter(col_i)].width = w
+
+            if payload.includePhotos:
+                snap_title = _sheet_title("Snapshot", b_label, used_sheet_names)
+                ws_snap = wb.create_sheet(title=snap_title)
+                ws_snap.views.sheetView[0].state = "frozen"
+                ws_snap.views.sheetView[0].ySplit = 1
+                snap_headers = ["Roll Number", "Student Name"] + [f"Snapshot {i}" for i in range(1, 11)]
+                ws_snap.append(snap_headers)
+                for col_idx in range(1, len(snap_headers) + 1):
+                    c = ws_snap.cell(row=1, column=col_idx)
+                    c.font = header_font
+                    c.fill = header_fill
+                    c.alignment = center_align
+                    c.border = thin_border
+                ws_snap.row_dimensions[1].height = 24
+                ws_snap.column_dimensions["A"].width = 16
+                ws_snap.column_dimensions["B"].width = 24
+                for idx in range(3, 13):
+                    ws_snap.column_dimensions[get_column_letter(idx)].width = 22
+
+                student_ids_in_batch = list({a["student_user_id"] for a in attempts})
+                snaps_by_student: dict[Any, list[Any]] = {}
+                if student_ids_in_batch:
+                    snap_rows = await conn.fetch(
+                        """
+                        SELECT student_user_id, attempt_id, snapshot_timestamp, image_data
+                        FROM quiz_camera_snapshots
+                        WHERE quiz_id = $1 AND student_user_id = ANY($2::uuid[])
+                        ORDER BY snapshot_timestamp ASC
+                        """,
+                        q_uuid, student_ids_in_batch,
+                    )
+                    for sr in snap_rows:
+                        snaps_by_student.setdefault(sr["student_user_id"], []).append(sr)
+
+                cam_row = 2
+                for a in attempts:
+                    stu_snaps = [
+                        s for s in snaps_by_student.get(a["student_user_id"], [])
+                        if s["attempt_id"] is None or s["attempt_id"] == a["id"]
+                    ][:10]
+                    ws_snap.append([a["roll_number"] or "—", a["student_name"] or "Student"] + [""] * 10)
+                    ws_snap.row_dimensions[cam_row].height = 110
+                    ws_snap.cell(row=cam_row, column=1).font = regular_font
+                    ws_snap.cell(row=cam_row, column=1).border = thin_border
+                    ws_snap.cell(row=cam_row, column=2).font = bold_font
+                    ws_snap.cell(row=cam_row, column=2).border = thin_border
+
+                    for slot in range(10):
+                        c_idx = 3 + slot
+                        cell = ws_snap.cell(row=cam_row, column=c_idx)
+                        cell.border = thin_border
+                        if slot < len(stu_snaps):
+                            s_item = stu_snaps[slot]
+                            ts_lbl = s_item["snapshot_timestamp"].strftime("%H:%M:%S") if s_item["snapshot_timestamp"] else ""
+                            cell.value = f"\n\n\n\n\n{ts_lbl}"
+                            cell.font = Font(name="Calibri", size=8, color="475569")
+                            cell.alignment = Alignment(horizontal="center", vertical="bottom", wrap_text=True)
+                            try:
+                                raw_b64 = (s_item["image_data"] or "").split(",")[-1].strip()
+                                img_bytes = base64.b64decode(raw_b64)
+                                pil_img = PILImage.open(io.BytesIO(img_bytes))
+                                ow, oh = pil_img.size
+                                scale = min(110.0 / max(1, ow), 75.0 / max(1, oh))
+                                dw, dh = max(1, int(ow * scale)), max(1, int(oh * scale))
+                                pil_img.thumbnail((dw, dh))
+                                out_io = io.BytesIO()
+                                pil_img.save(out_io, format="JPEG", quality=85)
+                                out_io.seek(0)
+                                xl_img = OpenpyxlImage(out_io)
+                                xl_img.width = dw
+                                xl_img.height = dh
+                                ws_snap.add_image(xl_img, f"{get_column_letter(c_idx)}{cam_row}")
+                            except Exception:
+                                cell.value = f"Image error\n{ts_lbl}"
+                        else:
+                            cell.value = "Unavailable"
+                            cell.font = Font(name="Calibri", size=9, italic=True, color="94A3B8")
+                            cell.alignment = center_align
+                    cam_row += 1
+
+        if default_sheet in wb.worksheets and len(wb.worksheets) > 1:
+            wb.remove(default_sheet)
+
+    out_buf = io.BytesIO()
+    wb.save(out_buf)
+    out_buf.seek(0)
+    safe_title = re.sub(r'[^a-zA-Z0-9_\-]', '_', quiz["title"])
+    batch_part = "_".join(batch_slugs[:3]) + ("_more" if len(batch_slugs) > 3 else "")
+    date_part = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    filename = f"{safe_title}_{batch_part}_{date_part}.xlsx"
+
+    return Response(
+        content=out_buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/assessments/{quiz_id}/export-excel")
 async def export_trainer_assessment_excel(
     quiz_id: str,
@@ -2821,6 +3114,81 @@ async def export_bulk_assessment_reports(
     )
 
 
+@router.get("/assessments/{quiz_id}/reports")
+async def list_trainer_assessment_reports(
+    quiz_id: str,
+    approval_status: str | None = Query(None, alias="status"),
+    search: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    """Lists permanent assessment reports for a quiz with approval status filtering."""
+    from app.repositories.assessment_report_repo import AssessmentReportRepository
+
+    data = await AssessmentReportRepository.list_trainer_assessment_reports(
+        ctx=ctx,
+        quiz_id=quiz_id,
+        approval_status=approval_status,
+        search=search,
+        page=page,
+        page_size=page_size,
+    )
+    return {"success": True, "data": data}
+
+
+@router.post("/assessments/reports/{report_id}/approve")
+async def approve_assessment_report(
+    report_id: str,
+    payload: dict[str, Any] | None = None,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    """Approves an assessment report idempotently and records audit history."""
+    from app.repositories.assessment_report_repo import AssessmentReportRepository
+
+    notes = (payload or {}).get("notes") if isinstance(payload, dict) else None
+    res = await AssessmentReportRepository.review_assessment_report(
+        ctx=ctx,
+        report_id=report_id,
+        decision="APPROVED",
+        notes=notes,
+    )
+    await write_audit(
+        ctx,
+        action="approve_assessment_report",
+        entity_type="assessment_reports",
+        entity_id=report_id,
+        detail=f"Approved assessment report {report_id}",
+    )
+    return {"success": True, "data": res}
+
+
+@router.post("/assessments/reports/{report_id}/reject")
+async def reject_assessment_report(
+    report_id: str,
+    payload: dict[str, Any] | None = None,
+    ctx: ScopeContext = TrainerCtx,
+) -> dict[str, Any]:
+    """Rejects an assessment report idempotently and records audit history."""
+    from app.repositories.assessment_report_repo import AssessmentReportRepository
+
+    notes = (payload or {}).get("notes") or (payload or {}).get("reason") if isinstance(payload, dict) else None
+    res = await AssessmentReportRepository.review_assessment_report(
+        ctx=ctx,
+        report_id=report_id,
+        decision="REJECTED",
+        notes=notes,
+    )
+    await write_audit(
+        ctx,
+        action="reject_assessment_report",
+        entity_type="assessment_reports",
+        entity_id=report_id,
+        detail=f"Rejected assessment report {report_id}",
+    )
+    return {"success": True, "data": res}
+
+
 @router.get("/assessments/{quiz_id}/feedback")
 async def get_trainer_assessment_feedback(
     quiz_id: str,
@@ -2890,9 +3258,11 @@ async def get_trainer_assessment_offline_readiness(
             quiz_uuid,
         ) or 0
 
-        downloaded_count = len(packages)
+        downloaded_user_ids = {p["user_id"] for p in packages}
+        synced_user_ids = {a["student_user_id"] for a in synced_attempts}
+        downloaded_count = len(downloaded_user_ids)
         synced_count = len(synced_attempts)
-        pending_count = max(0, downloaded_count - synced_count)
+        pending_count = len(downloaded_user_ids - synced_user_ids)
 
         return {
             "success": True,
