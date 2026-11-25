@@ -2622,138 +2622,145 @@ class QuizRepository:
             raise ValidationError("Recovery action must be RESTART or RESUME")
 
         async with get_pg_connection() as conn:
-            quiz = await conn.fetchrow(
-                "SELECT id, title, duration_minutes, creator_trainer_id FROM quizzes WHERE id = $1",
-                q_uuid
-            )
-            if not quiz:
-                raise NotFound("Assessment not found")
-
-            if ctx.role not in (Role.ADMIN, Role.SUPER_ADMIN) and str(quiz["creator_trainer_id"]) != str(ctx.user_id):
-                is_assigned = await conn.fetchval(
-                    """
-                    SELECT 1 FROM quiz_batch_assignments qba
-                    JOIN batch_trainers bt ON bt.batch_id = qba.batch_id
-                    WHERE qba.quiz_id = $1 AND bt.trainer_user_id = $2 AND (bt.status = 'ACTIVE' OR bt.status IS NULL)
-                    """,
-                    q_uuid, t_uuid
+            async with conn.transaction():
+                quiz = await conn.fetchrow(
+                    "SELECT id, title, duration_minutes, creator_trainer_id FROM quizzes WHERE id = $1",
+                    q_uuid
                 )
-                if not is_assigned:
-                    raise ScopeForbidden("You are not authorized to recover attempts for this assessment")
+                if not quiz:
+                    raise NotFound("Assessment not found")
 
-            att = await conn.fetchrow(
-                """
-                SELECT id, student_user_id, status, candidate_status, score, percentage,
-                       passed, answers, question_states, created_at, completed_at,
-                       submission_reason, warnings, warning_count, recovery_history
-                FROM quiz_attempts
-                WHERE id = $1 AND quiz_id = $2
-                """,
-                att_uuid, q_uuid
-            )
-            if not att:
-                raise NotFound("Attempt record not found")
+                if ctx.role not in (Role.ADMIN, Role.SUPER_ADMIN) and str(quiz["creator_trainer_id"]) != str(ctx.user_id):
+                    is_assigned = await conn.fetchval(
+                        """
+                        SELECT 1 FROM quiz_batch_assignments qba
+                        JOIN batch_trainers bt ON bt.batch_id = qba.batch_id
+                        WHERE qba.quiz_id = $1 AND bt.trainer_user_id = $2 AND (bt.status = 'ACTIVE' OR bt.status IS NULL)
+                        """,
+                        q_uuid, t_uuid
+                    )
+                    if not is_assigned:
+                        raise ScopeForbidden("You are not authorized to recover attempts for this assessment")
 
-            snapshot = {
-                "attempt_id": str(att["id"]),
-                "student_user_id": str(att["student_user_id"]),
-                "previous_status": att["status"],
-                "previous_candidate_status": att["candidate_status"],
-                "score": att["score"],
-                "percentage": float(att["percentage"]) if att["percentage"] is not None else 0.0,
-                "passed": att["passed"],
-                "answers": _parse_json_dict(att["answers"]),
-                "question_states": _parse_json_dict(att["question_states"]),
-                "submission_reason": att["submission_reason"],
-                "completed_at": att["completed_at"].isoformat() if att["completed_at"] else None,
-            }
+                att = await conn.fetchrow(
+                    """
+                    SELECT id, student_user_id, status, candidate_status, score, percentage,
+                           passed, answers, question_states, created_at, completed_at,
+                           submission_reason, warnings, warning_count, recovery_history
+                    FROM quiz_attempts
+                    WHERE id = $1 AND quiz_id = $2
+                    FOR UPDATE
+                    """,
+                    att_uuid, q_uuid
+                )
+                if not att:
+                    raise NotFound("Attempt record not found")
 
-            history = _parse_json_list(att["recovery_history"]) if att["recovery_history"] else []
-            history_entry = {
-                "trainer_id": str(ctx.user_id),
-                "action": act,
-                "reason": reason,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "previous_status": att["status"],
-                "previous_submission_reason": att["submission_reason"],
-            }
-            history.append(history_entry)
-
-            duration_mins = int(quiz["duration_minutes"] or 30)
-            prev_answers: dict[str, Any] = {}
-
-            if act == "RESTART":
-                # Option A: Restart Assessment (Fresh attempt, reset answers, timer according to duration)
                 await conn.execute(
-                    """
-                    UPDATE quiz_attempts
-                    SET answers = '{}'::jsonb,
-                        question_states = '{}'::jsonb,
-                        score = 0,
-                        percentage = 0.0,
-                        passed = FALSE,
-                        status = 'in_progress',
-                        candidate_status = 'IN_PROGRESS',
-                        current_question_index = 0,
-                        completed_at = NULL,
-                        submission_reason = NULL,
-                        abandonment_warning_at = NULL,
-                        abandonment_timeout_at = NULL,
-                        remaining_seconds = $2,
-                        created_at = NOW(),
-                        last_heartbeat_at = NOW(),
-                        is_recovered = TRUE,
-                        recovery_history = $3::jsonb
-                    WHERE id = $1
-                    """,
-                    att_uuid, duration_mins * 60, json.dumps(history)
+                    "SELECT pg_advisory_xact_lock(hashtext($1))",
+                    f"{q_uuid}:{att['student_user_id']}",
                 )
-                res_remaining = duration_mins * 60
-                res_q_idx = 0
-            else:
-                # Option B: Resume Assessment (Restore last persisted answers, remaining time, do not restart Q1)
-                prev_answers = _parse_json_dict(att["answers"])
-                if att["created_at"] and att["completed_at"]:
-                    spent = max(0.0, (as_utc(att["completed_at"]) - as_utc(att["created_at"])).total_seconds())
-                    res_remaining = max(60, int((duration_mins * 60) - spent))
-                else:
-                    spent = 0.0
+
+                snapshot = {
+                    "attempt_id": str(att["id"]),
+                    "student_user_id": str(att["student_user_id"]),
+                    "previous_status": att["status"],
+                    "previous_candidate_status": att["candidate_status"],
+                    "score": att["score"],
+                    "percentage": float(att["percentage"]) if att["percentage"] is not None else 0.0,
+                    "passed": att["passed"],
+                    "answers": _parse_json_dict(att["answers"]),
+                    "question_states": _parse_json_dict(att["question_states"]),
+                    "submission_reason": att["submission_reason"],
+                    "completed_at": att["completed_at"].isoformat() if att["completed_at"] else None,
+                }
+
+                history = _parse_json_list(att["recovery_history"]) if att["recovery_history"] else []
+                history_entry = {
+                    "trainer_id": str(ctx.user_id),
+                    "action": act,
+                    "reason": reason,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "previous_status": att["status"],
+                    "previous_submission_reason": att["submission_reason"],
+                }
+                history.append(history_entry)
+
+                duration_mins = int(quiz["duration_minutes"] or 30)
+                prev_answers: dict[str, Any] = {}
+
+                if act == "RESTART":
+                    # Option A: Restart Assessment (Fresh attempt, reset answers, timer according to duration)
+                    await conn.execute(
+                        """
+                        UPDATE quiz_attempts
+                        SET answers = '{}'::jsonb,
+                            question_states = '{}'::jsonb,
+                            score = 0,
+                            percentage = 0.0,
+                            passed = FALSE,
+                            status = 'in_progress',
+                            candidate_status = 'IN_PROGRESS',
+                            current_question_index = 0,
+                            completed_at = NULL,
+                            submission_reason = NULL,
+                            abandonment_warning_at = NULL,
+                            abandonment_timeout_at = NULL,
+                            remaining_seconds = $2,
+                            created_at = NOW(),
+                            last_heartbeat_at = NOW(),
+                            is_recovered = TRUE,
+                            recovery_history = $3::jsonb
+                        WHERE id = $1
+                        """,
+                        att_uuid, duration_mins * 60, json.dumps(history)
+                    )
                     res_remaining = duration_mins * 60
+                    res_q_idx = 0
+                else:
+                    # Option B: Resume Assessment (Restore last persisted answers, remaining time, do not restart Q1)
+                    prev_answers = _parse_json_dict(att["answers"])
+                    if att["created_at"] and att["completed_at"]:
+                        spent = max(0.0, (as_utc(att["completed_at"]) - as_utc(att["created_at"])).total_seconds())
+                        res_remaining = max(60, int((duration_mins * 60) - spent))
+                    else:
+                        spent = 0.0
+                        res_remaining = duration_mins * 60
 
-                res_q_idx = max(0, len(prev_answers) - 1) if prev_answers else 0
+                    res_q_idx = max(0, len(prev_answers) - 1) if prev_answers else 0
 
+                    await conn.execute(
+                        """
+                        UPDATE quiz_attempts
+                        SET status = 'in_progress',
+                            candidate_status = 'IN_PROGRESS',
+                            completed_at = NULL,
+                            submission_reason = NULL,
+                            abandonment_warning_at = NULL,
+                            abandonment_timeout_at = NULL,
+                            remaining_seconds = $2,
+                            created_at = NOW() - make_interval(secs => $3),
+                            last_heartbeat_at = NOW(),
+                            is_recovered = TRUE,
+                            recovery_history = $4::jsonb
+                        WHERE id = $1
+                        """,
+                        att_uuid, res_remaining, float(spent), json.dumps(history)
+                    )
+
+                # Insert immutable audit record into quiz_recovery_logs
                 await conn.execute(
                     """
-                    UPDATE quiz_attempts
-                    SET status = 'in_progress',
-                        candidate_status = 'IN_PROGRESS',
-                        completed_at = NULL,
-                        submission_reason = NULL,
-                        abandonment_warning_at = NULL,
-                        abandonment_timeout_at = NULL,
-                        remaining_seconds = $2,
-                        created_at = NOW() - make_interval(secs => $3),
-                        last_heartbeat_at = NOW(),
-                        is_recovered = TRUE,
-                        recovery_history = $4::jsonb
-                    WHERE id = $1
+                    INSERT INTO quiz_recovery_logs (
+                        id, trainer_user_id, student_user_id, quiz_id, attempt_id,
+                        recovery_action, recovery_reason, previous_attempt_snapshot, created_at
+                    ) VALUES (
+                        gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7::jsonb, NOW()
+                    )
                     """,
-                    att_uuid, res_remaining, float(spent), json.dumps(history)
+                    t_uuid, att["student_user_id"], q_uuid, att_uuid,
+                    act, reason, json.dumps(snapshot)
                 )
-
-            # Insert immutable audit record into quiz_recovery_logs
-            await conn.execute(
-                """
-                INSERT INTO quiz_recovery_logs (
-                    id, trainer_user_id, student_user_id, quiz_id, attempt_id,
-                    recovery_action, recovery_reason, previous_attempt_snapshot, created_at
-                ) VALUES (
-                    gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7::jsonb, NOW()
-                )
-                """,
-                t_uuid, att["student_user_id"], q_uuid, att_uuid,
-                act, reason, json.dumps(snapshot)
-            )
 
         # Broadcast update to supervisor hub
         try:

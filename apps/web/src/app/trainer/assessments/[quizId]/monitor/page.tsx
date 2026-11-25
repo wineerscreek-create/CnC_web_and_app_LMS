@@ -293,7 +293,20 @@ export default function TrainerAssessmentMonitorPage() {
         quizCompletedRef.current = res.data.quiz?.status === 'completed';
         const list: MonitoredStudent[] = res.data.students || [];
         setStudents(list);
-        if (res.data.counters) setCounters(res.data.counters);
+        if (res.data.counters) {
+          setCounters(res.data.counters);
+        } else {
+          setCounters({
+            ...EMPTY_COUNTERS,
+            totalCandidates: list.length,
+            startedCount: list.length,
+            activeCount: list.filter((s) => s.candidate_status === 'ACTIVE' || s.candidate_status === 'IN_PROGRESS').length,
+            completedCount: list.filter((s) => s.candidate_status === 'COMPLETED' || s.status === 'completed').length,
+            abandonedCount: list.filter((s) => s.candidate_status === 'ABANDONED').length,
+            disconnectedCount: list.filter((s) => s.candidate_status === 'DISCONNECTED').length,
+            warningsTotal: list.reduce((acc, s) => acc + (s.warnings || 0), 0),
+          });
+        }
         if (res.data.pagination) setPagination(res.data.pagination);
         pollErrorCountRef.current = 0;
         void fetchVisibleSnapshots(list);
@@ -519,23 +532,7 @@ export default function TrainerAssessmentMonitorPage() {
               );
             } else if (evt === 'submit') {
               pushActivity(`✔ ${data.roll_number} submitted`);
-              const subCandStatus = data.result?.candidate_status || 'COMPLETED';
-              setStudents((prev) =>
-                prev.map((s) =>
-                  s.session_id === data.session_id
-                    ? {
-                        ...s,
-                        status: 'completed',
-                        candidate_status: subCandStatus,
-                        online: false,
-                        camera_on: false,
-                        camera_status: 'DONE',
-                        remaining_seconds: 0,
-                        completed_at: new Date().toISOString(),
-                      }
-                    : s
-                )
-              );
+              void fetchMonitorRef.current();
             } else if (evt === 'abandonment_warning') {
               pushActivity(`⚠ Abandonment warning on ${data.roll_number || 'Candidate'}`);
               setStudents((prev) =>

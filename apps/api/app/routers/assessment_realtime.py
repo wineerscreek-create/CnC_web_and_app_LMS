@@ -160,7 +160,7 @@ async def get_assessment_monitor_data(
                                qa.created_at DESC
                        ) AS rn
                 FROM quiz_attempts qa
-                WHERE qa.quiz_id = $1
+                WHERE qa.quiz_id = $1 AND qa.status <> 'superseded'
             )
             SELECT ra.*, u.name, u.email, sp.roll_number
             FROM ranked_attempts ra
