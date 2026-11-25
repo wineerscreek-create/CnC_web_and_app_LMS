@@ -376,16 +376,24 @@ class OfflineRepository:
 
                             existing_attempt = await conn.fetchrow(
                                 """
-                                SELECT id, score, status, candidate_status, answers, question_states, batch_id, institution_id
+                                SELECT id, score, status, candidate_status, submission_reason, answer_source,
+                                       answers, question_states, batch_id, institution_id
                                 FROM quiz_attempts
                                 WHERE quiz_id = $1 AND student_user_id = $2
+                                  AND COALESCE(LOWER(status), '') <> 'superseded'
                                 ORDER BY (CASE WHEN status = 'in_progress' THEN 0 ELSE 1 END), created_at DESC
                                 LIMIT 1
                                 """,
                                 quiz_id,
                                 u_uuid,
                             )
-                            if existing_attempt and existing_attempt["status"] == "completed" and not quiz.get("allow_retake"):
+                            can_reconcile_late_timeout = bool(
+                                existing_attempt
+                                and existing_attempt["status"] == "completed"
+                                and existing_attempt["submission_reason"] == "AUTO_SUBMITTED_CONNECTION_TIMEOUT"
+                                and existing_attempt["answer_source"] != "LATE_OFFLINE_RECONCILED"
+                            )
+                            if existing_attempt and existing_attempt["status"] == "completed" and not quiz.get("allow_retake") and not can_reconcile_late_timeout:
                                 # Conflict: already completed/submitted
                                 await conn.execute(
                                     """
@@ -414,8 +422,8 @@ class OfflineRepository:
                             # Autoritative Server-Side Grading: evaluate answers against true key
                             raw_questions = _parse_json(quiz["questions"])
                             answers_list = payload.get("answers") or []
-                            # If an in_progress attempt already exists on server, complete that exact attempt row
-                            if existing_attempt and existing_attempt["status"] == "in_progress":
+                            # If an in_progress attempt (or auto-submitted timeout attempt eligible for late reconciliation) exists, update that exact attempt row
+                            if existing_attempt and (existing_attempt["status"] == "in_progress" or can_reconcile_late_timeout):
                                 attempt_id = existing_attempt["id"]
                             else:
                                 attempt_id = _safe_uuid(op.get("attemptId")) or uuid.uuid4()
@@ -494,13 +502,13 @@ class OfflineRepository:
                                     correct_count, incorrect_count, unattempted_count,
                                     answers, status, candidate_status, submission_source,
                                     submission_reason, offline_integrity_hash, time_taken_seconds,
-                                    local_submitted_at, remaining_seconds, created_at, completed_at
+                                    local_submitted_at, remaining_seconds, created_at, completed_at, answer_source
                                 ) VALUES (
                                     $1, $2, $3, $4, $5, $6, $7,
                                     $8, $9, $10,
                                     $11::jsonb, 'completed', 'OFFLINE_SUBMITTED', 'OFFLINE_SYNC',
                                     'OFFLINE_SYNC_SUBMIT', $12, $13,
-                                    $14, 0, NOW() - ($15 * INTERVAL '1 second'), NOW()
+                                    $14, 0, NOW() - ($15 * INTERVAL '1 second'), NOW(), $16
                                 ) ON CONFLICT (id) DO UPDATE SET
                                     score = EXCLUDED.score,
                                     possible = EXCLUDED.possible,
@@ -518,7 +526,8 @@ class OfflineRepository:
                                     time_taken_seconds = EXCLUDED.time_taken_seconds,
                                     local_submitted_at = EXCLUDED.local_submitted_at,
                                     remaining_seconds = 0,
-                                    completed_at = COALESCE(quiz_attempts.completed_at, NOW())
+                                    completed_at = COALESCE(quiz_attempts.completed_at, NOW()),
+                                    answer_source = EXCLUDED.answer_source
                                 """,
                                 attempt_id,
                                 quiz_id,
@@ -535,6 +544,7 @@ class OfflineRepository:
                                 int(duration_secs),
                                 local_submitted_at,
                                 float(duration_secs),
+                                "LATE_OFFLINE_RECONCILED" if can_reconcile_late_timeout else "OFFLINE_SYNC",
                             )
 
                             # Ingest offline camera snapshots if present in payload
@@ -586,7 +596,11 @@ class OfflineRepository:
                             # Generate permanent assessment report snapshot
                             try:
                                 from app.repositories.assessment_report_repo import AssessmentReportRepository
-                                await AssessmentReportRepository.generate_and_persist_report(attempt_id, conn=conn)
+                                await AssessmentReportRepository.generate_and_persist_report(
+                                    attempt_id,
+                                    conn=conn,
+                                    allow_refresh_recovered=can_reconcile_late_timeout,
+                                )
                             except Exception as e:
                                 import logging
                                 logging.getLogger("app").error("offline_assessment_report_failed", extra={"error": str(e), "attempt_id": str(attempt_id)})

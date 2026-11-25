@@ -164,12 +164,12 @@ async def test_monitor_dedup_auth_status_camera_and_search():
     assert counters["notStartedCount"] == 1
     assert counters["totalCandidates"] == 9
     assert counters["activeCount"] == 1
-    assert counters["disconnectedCount"] == 1
+    assert counters["submissionProcessingCount"] == 1
     assert counters["syncPendingCount"] == 1
     assert counters["offlineSubmittedCount"] == 1
     assert counters["completedCount"] == 2  # Eve + Hank (deduped)
-    assert counters["autoSubmittedCount"] == 1
-    assert counters["abandonedCount"] == 1
+    assert counters["submittedCount"] == 2
+    assert counters["autoSubmittedCount"] == 2
     assert counters["warningsTotal"] == 2  # Only Eve's 2 warnings (Hank's old abandoned attempt warning not double-counted)
 
     students_by_roll = {s["roll_number"]: s for s in data["students"]}

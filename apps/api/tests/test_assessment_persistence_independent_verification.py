@@ -558,10 +558,10 @@ async def test_disconnections_never_trigger_auto_submit():
         # Disconnect WebSocket in hub
         await assessment_hub.unregister_student(str(quiz_id), str(student["id"]), ws=None)
 
-        # Check DB status is STILL IN_PROGRESS
+        # Check DB status is STILL in_progress (grace period started, NOT immediately auto-submitted)
         row = await conn.fetchrow("SELECT status, candidate_status FROM quiz_attempts WHERE quiz_id = $1 AND student_user_id = $2", quiz_id, student["id"])
         assert row["status"] == "in_progress"
-        assert row["candidate_status"] == "IN_PROGRESS"
+        assert row["candidate_status"] == "SUBMISSION_PROCESSING"
 
 
 # =============================================================================

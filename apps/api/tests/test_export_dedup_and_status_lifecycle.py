@@ -395,30 +395,31 @@ async def test_monitor_status_lifecycle_and_websocket_isolation():
     assert by_roll["R01"]["camera_status"] == "DONE"
     assert by_roll["R01"]["attempt_count"] == 2  # excludes SUPERSEDED_DUPLICATE
 
-    assert by_roll["R02"]["candidate_status"] == "AUTO_SUBMITTED"
+    assert by_roll["R02"]["candidate_status"] == "SUBMITTED"
     assert by_roll["R02"]["connection_status"] == "DISCONNECTED"
 
     assert by_roll["R03"]["candidate_status"] == "OFFLINE_SUBMITTED"
     assert by_roll["R03"]["connection_status"] == "OFFLINE"
 
-    assert by_roll["R04"]["candidate_status"] == "DISCONNECTED"
-    assert by_roll["R04"]["submission_status"] == "IN_PROGRESS"
+    assert by_roll["R04"]["candidate_status"] == "SUBMISSION_PROCESSING"
+    assert by_roll["R04"]["submission_status"] == "SUBMISSION_PROCESSING"
     assert by_roll["R04"]["connection_status"] == "DISCONNECTED"
 
     assert by_roll["R05"]["candidate_status"] == "ACTIVE"
-    assert by_roll["R05"]["submission_status"] == "IN_PROGRESS"
+    assert by_roll["R05"]["submission_status"] == "ACTIVE"
     assert by_roll["R05"]["connection_status"] == "ONLINE"
 
-    assert by_roll["R06"]["candidate_status"] == "OFFLINE_SYNC_PENDING"
+    assert by_roll["R06"]["candidate_status"] == "SYNC_PENDING"
     assert by_roll["R06"]["submission_status"] == "SYNC_PENDING"
     assert by_roll["R06"]["connection_status"] == "OFFLINE"
 
     counters = data["counters"]
     assert counters["startedCount"] == 6
     assert counters["completedCount"] == 1
+    assert counters["submittedCount"] == 1
     assert counters["autoSubmittedCount"] == 1
     assert counters["offlineSubmittedCount"] == 1
-    assert counters["disconnectedCount"] == 1
+    assert counters["submissionProcessingCount"] == 1
     assert counters["activeCount"] == 1
     assert counters["syncPendingCount"] == 1
 
@@ -430,7 +431,7 @@ async def test_monitor_status_lifecycle_and_websocket_isolation():
     mon_retake = await get_assessment_monitor_data(str(retake_quiz_id), ctx=ctx, status_filter="ALL_STARTED")
     r07 = next(s for s in mon_retake["data"]["students"] if s["roll_number"] == "R07")
     assert r07["candidate_status"] == "ACTIVE"
-    assert r07["submission_status"] == "IN_PROGRESS"
+    assert r07["submission_status"] == "ACTIVE"
 
     # WebSocket disconnect / heartbeat / reconnect after submit must preserve is_finalized=True
     hub = AssessmentHub()

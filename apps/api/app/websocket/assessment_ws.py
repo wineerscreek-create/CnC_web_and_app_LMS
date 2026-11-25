@@ -86,6 +86,20 @@ class AssessmentHub:
                         self.student_states[quiz_id][user_id]["deadline"] = eff_deadline
 
         is_finalized = bool(self.student_states[quiz_id][user_id].get("is_finalized"))
+        if not is_finalized:
+            try:
+                from app.repositories.assignment_quiz_repo import QuizRepository
+                reconn = await QuizRepository.cancel_connection_loss_on_reconnect(quiz_id, user_id)
+                if reconn.get("finalized"):
+                    async with self._lock:
+                        st = self.student_states.get(quiz_id, {}).get(user_id)
+                        if st:
+                            st["is_finalized"] = True
+                            st["submission_status"] = reconn.get("candidateStatus") or "AUTO_SUBMITTED"
+                            st["status"] = st["submission_status"]
+                    is_finalized = True
+            except Exception:
+                pass
         log.info("student_ws_registered", extra={"quiz_id": quiz_id, "user_id": user_id, "student_name": name})
         if is_finalized:
             await self.broadcast_to_trainers(
@@ -123,6 +137,14 @@ class AssessmentHub:
                 is_finalized = bool(st.get("is_finalized"))
                 sub_status = st.get("submission_status")
 
+        grace_info = None
+        if not is_finalized:
+            try:
+                from app.repositories.assignment_quiz_repo import QuizRepository
+                grace_info = await QuizRepository.mark_connection_lost_if_active(quiz_id, user_id)
+            except Exception:
+                grace_info = None
+
         log.info("student_ws_unregistered", extra={"quiz_id": quiz_id, "user_id": user_id})
         await self.broadcast_to_trainers(
             quiz_id,
@@ -132,7 +154,9 @@ class AssessmentHub:
                 "online": False,
                 "connection_status": "DISCONNECTED",
                 "is_finalized": is_finalized,
-                "submission_status": sub_status,
+                "submission_status": sub_status if is_finalized else ("SUBMISSION_PROCESSING" if grace_info else sub_status),
+                "candidate_status": sub_status if is_finalized else ("SUBMISSION_PROCESSING" if grace_info else None),
+                "grace_deadline_at": grace_info.get("graceDeadlineAt") if grace_info else None,
             },
         )
 

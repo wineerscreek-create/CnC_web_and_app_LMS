@@ -1,6 +1,7 @@
 """FastAPI application factory."""
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -83,7 +84,27 @@ async def lifespan(app: FastAPI):
     )
     if not redis_ok:
         log.warning("redis_unreachable_sessions_and_queue_degraded")
-    yield
+
+    async def _connection_grace_sweeper() -> None:
+        from app.repositories.assignment_quiz_repo import QuizRepository
+        while True:
+            try:
+                await asyncio.sleep(3)
+                await QuizRepository.sweep_expired_grace_deadlines()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                log.warning("connection_grace_sweeper_error", extra={"error": str(exc)})
+
+    sweeper_task = asyncio.create_task(_connection_grace_sweeper())
+    try:
+        yield
+    finally:
+        sweeper_task.cancel()
+        try:
+            await sweeper_task
+        except asyncio.CancelledError:
+            pass
     await close_postgres()
     # PostgreSQL pool closed
     # MongoDB closed

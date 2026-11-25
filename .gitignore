@@ -123,6 +123,7 @@ apps/api/tests/*
 !apps/api/tests/test_consolidated_quiz_phases.py
 !apps/api/tests/test_p0_migration_035_reconciliation.py
 !apps/api/tests/test_export_dedup_and_status_lifecycle.py
+!apps/api/tests/test_submission_grace_period_lifecycle.py
 apps/api/test_*.py
 apps/api/audit_*.py
 apps/api/verify_*.py

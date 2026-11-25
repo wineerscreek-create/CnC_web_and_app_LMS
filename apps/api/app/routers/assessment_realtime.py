@@ -128,6 +128,9 @@ async def get_assessment_monitor_data(
     if not isinstance(page_size, int):
         page_size = 50
 
+    # Sweep any expired connection-loss grace deadlines for this quiz before reading monitor state
+    await QuizRepository.sweep_expired_grace_deadlines(str(q_uuid))
+
     async with get_pg_connection() as conn:
         quiz = await _authorize_trainer_for_quiz(
             conn,
@@ -166,6 +169,7 @@ async def get_assessment_monitor_data(
                        qa.is_recovered, qa.warning_count, qa.completed_at, qa.local_submitted_at,
                        qa.created_at, qa.remaining_seconds, qa.camera_status, qa.last_heartbeat_at,
                        qa.last_camera_frame_at, qa.current_question_index,
+                       qa.connection_lost_at, qa.grace_deadline_at, qa.answer_source,
                        COUNT(*) OVER (PARTITION BY qa.student_user_id) AS attempt_count,
                        ROW_NUMBER() OVER (
                            PARTITION BY qa.student_user_id
@@ -242,7 +246,9 @@ async def get_assessment_monitor_data(
         "startedCount": len(db_attempts),
         "notStartedCount": int(not_started_count),
         "activeCount": 0,
+        "submissionProcessingCount": 0,
         "completedCount": 0,
+        "submittedCount": 0,
         "offlineSubmittedCount": 0,
         "syncPendingCount": 0,
         "autoSubmittedCount": 0,
@@ -275,15 +281,26 @@ async def get_assessment_monitor_data(
         att_status = att["status"] or "in_progress"
         raw_cand = (att["candidate_status"] or "").upper()
         sub_source = (att["submission_source"] or "ONLINE").upper()
+        sub_reason = (att["submission_reason"] or "").upper()
+        auto_reasons = {
+            "AUTO_SUBMITTED",
+            "AUTO_SUBMITTED_CONNECTION_TIMEOUT",
+            "ABANDONMENT_TIMEOUT",
+            "TIMER_EXPIRED",
+            "WARNING_LIMIT_REACHED",
+            "FULLSCREEN_EXIT_TIMEOUT",
+            "TRAINER_END_ASSESSMENT",
+        }
 
         if att_status == "completed":
             if sub_source == "OFFLINE_SYNC" or raw_cand == "OFFLINE_SUBMITTED":
                 cand_status = "OFFLINE_SUBMITTED"
                 sub_status = "OFFLINE_SUBMITTED"
                 counters["offlineSubmittedCount"] += 1
-            elif raw_cand == "AUTO_SUBMITTED":
-                cand_status = "AUTO_SUBMITTED"
-                sub_status = "AUTO_SUBMITTED"
+            elif raw_cand in ("AUTO_SUBMITTED", "SUBMITTED") or (raw_cand == "ABANDONED" and sub_reason in auto_reasons):
+                cand_status = "SUBMITTED"
+                sub_status = "SUBMITTED"
+                counters["submittedCount"] += 1
                 counters["autoSubmittedCount"] += 1
             elif raw_cand == "ABANDONED":
                 cand_status = "ABANDONED"
@@ -293,21 +310,19 @@ async def get_assessment_monitor_data(
                 cand_status = "COMPLETED"
                 sub_status = "COMPLETED"
                 counters["completedCount"] += 1
-        elif uid in pending_sync_users or raw_cand == "OFFLINE_SYNC_PENDING":
-            cand_status = "OFFLINE_SYNC_PENDING"
+        elif uid in pending_sync_users or raw_cand in ("OFFLINE_SYNC_PENDING", "SYNC_PENDING"):
+            cand_status = "SYNC_PENDING"
             sub_status = "SYNC_PENDING"
             counters["syncPendingCount"] += 1
-        elif raw_cand == "ABANDONMENT_WARNING":
-            cand_status = "ABANDONMENT_WARNING"
-            sub_status = "IN_PROGRESS"
-            counters["activeCount"] += 1
-        elif not is_online:
-            cand_status = "DISCONNECTED"
-            sub_status = "IN_PROGRESS"
-            counters["disconnectedCount"] += 1
+        elif raw_cand == "SUBMISSION_PROCESSING" or att["grace_deadline_at"] is not None or not is_online:
+            if not is_online and att["grace_deadline_at"] is None:
+                await QuizRepository.mark_connection_lost_if_active(str(q_uuid), uid)
+            cand_status = "SUBMISSION_PROCESSING"
+            sub_status = "SUBMISSION_PROCESSING"
+            counters["submissionProcessingCount"] += 1
         else:
             cand_status = "ACTIVE"
-            sub_status = "IN_PROGRESS"
+            sub_status = "ACTIVE"
             counters["activeCount"] += 1
 
         if is_online:
@@ -327,7 +342,7 @@ async def get_assessment_monitor_data(
         has_snapshot = bool(att["last_camera_frame_at"]) or bool(live and live.get("camera_on"))
         if is_finished:
             camera_stat = "DONE"
-        elif cand_status == "DISCONNECTED":
+        elif cand_status == "SUBMISSION_PROCESSING":
             camera_stat = "HISTORICAL" if has_snapshot else "OFF"
         elif camera_active:
             camera_stat = (live.get("camera_status") if live else None) or "LIVE"
@@ -378,6 +393,8 @@ async def get_assessment_monitor_data(
             "connection_status": conn_status,
             "submission_source": sub_source,
             "submission_reason": att["submission_reason"],
+            "answer_source": att["answer_source"] or "SERVER_PERSISTED",
+            "grace_deadline_at": att["grace_deadline_at"].isoformat() if att["grace_deadline_at"] else None,
             "is_recovered": bool(att["is_recovered"]),
             "score": float(att["score"]) if att["score"] is not None else None,
             "percentage": float(att["percentage"]) if att["percentage"] is not None else None,
@@ -431,19 +448,19 @@ async def get_assessment_monitor_data(
     else:
         filtered = all_candidates
         if sf == "ACTIVE":
-            filtered = [c for c in filtered if c["candidate_status"] in ("ACTIVE", "ABANDONMENT_WARNING")]
+            filtered = [c for c in filtered if c["candidate_status"] == "ACTIVE"]
+        elif sf == "SUBMISSION_PROCESSING":
+            filtered = [c for c in filtered if c["candidate_status"] == "SUBMISSION_PROCESSING"]
         elif sf == "COMPLETED":
             filtered = [c for c in filtered if c["candidate_status"] == "COMPLETED"]
         elif sf == "OFFLINE_SUBMITTED":
             filtered = [c for c in filtered if c["candidate_status"] == "OFFLINE_SUBMITTED"]
         elif sf in ("SYNC_PENDING", "OFFLINE_SYNC_PENDING"):
-            filtered = [c for c in filtered if c["candidate_status"] == "OFFLINE_SYNC_PENDING"]
-        elif sf == "AUTO_SUBMITTED":
-            filtered = [c for c in filtered if c["candidate_status"] == "AUTO_SUBMITTED"]
+            filtered = [c for c in filtered if c["candidate_status"] in ("SYNC_PENDING", "OFFLINE_SYNC_PENDING")]
+        elif sf in ("SUBMITTED", "AUTO_SUBMITTED"):
+            filtered = [c for c in filtered if c["candidate_status"] in ("SUBMITTED", "AUTO_SUBMITTED")]
         elif sf == "ABANDONED":
             filtered = [c for c in filtered if c["candidate_status"] == "ABANDONED"]
-        elif sf == "DISCONNECTED":
-            filtered = [c for c in filtered if c["candidate_status"] == "DISCONNECTED"]
         elif sf == "WITH_WARNINGS":
             filtered = [c for c in filtered if c["warnings"] > 0]
 
@@ -461,13 +478,14 @@ async def get_assessment_monitor_data(
     reverse = sort_dir.strip().lower() == "desc"
     status_group_order = {
         "ACTIVE": 0,
-        "ABANDONMENT_WARNING": 1,
-        "DISCONNECTED": 2,
-        "OFFLINE_SYNC_PENDING": 3,
-        "OFFLINE_SUBMITTED": 4,
-        "COMPLETED": 5,
-        "AUTO_SUBMITTED": 6,
-        "ABANDONED": 7,
+        "SUBMISSION_PROCESSING": 1,
+        "SYNC_PENDING": 2,
+        "OFFLINE_SYNC_PENDING": 2,
+        "OFFLINE_SUBMITTED": 3,
+        "COMPLETED": 4,
+        "SUBMITTED": 5,
+        "AUTO_SUBMITTED": 5,
+        "ABANDONED": 6,
     }
 
     if s_field == "name":

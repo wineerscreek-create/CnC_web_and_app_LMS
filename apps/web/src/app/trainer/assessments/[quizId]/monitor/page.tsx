@@ -80,7 +80,9 @@ interface MonitorCounters {
   startedCount: number;
   notStartedCount: number;
   activeCount: number;
+  submissionProcessingCount?: number;
   completedCount: number;
+  submittedCount?: number;
   offlineSubmittedCount: number;
   syncPendingCount: number;
   autoSubmittedCount: number;
@@ -100,12 +102,11 @@ interface SnapshotState {
 const STATUS_FILTERS = [
   { key: 'ALL_STARTED', label: 'All Started' },
   { key: 'ACTIVE', label: 'Active' },
-  { key: 'COMPLETED', label: 'Completed' },
-  { key: 'OFFLINE_SUBMITTED', label: 'Offline Submitted' },
+  { key: 'SUBMISSION_PROCESSING', label: 'Submission Processing' },
   { key: 'SYNC_PENDING', label: 'Sync Pending' },
-  { key: 'AUTO_SUBMITTED', label: 'Auto-Submitted' },
-  { key: 'ABANDONED', label: 'Abandoned' },
-  { key: 'DISCONNECTED', label: 'Disconnected' },
+  { key: 'COMPLETED', label: 'Completed' },
+  { key: 'SUBMITTED', label: 'Submitted' },
+  { key: 'OFFLINE_SUBMITTED', label: 'Offline Submitted' },
   { key: 'WITH_WARNINGS', label: 'With Warnings' },
   { key: 'NOT_STARTED', label: 'Not Started' },
 ] as const;
@@ -135,6 +136,7 @@ const SnapshotAgeLabel = memo(function SnapshotAgeLabel({
 
 const FINALIZED_SUBMISSION_STATUSES = new Set([
   'COMPLETED',
+  'SUBMITTED',
   'AUTO_SUBMITTED',
   'OFFLINE_SUBMITTED',
   'ABANDONED',
@@ -535,20 +537,22 @@ export default function TrainerAssessmentMonitorPage() {
                       connection_status: nextConn,
                     };
                   }
-                  if (s.candidate_status === 'OFFLINE_SYNC_PENDING') {
+                  if (s.candidate_status === 'OFFLINE_SYNC_PENDING' || s.candidate_status === 'SYNC_PENDING') {
                     return {
                       ...s,
                       online: nextOnline,
                       connection_status: nextOnline ? 'ONLINE' : 'OFFLINE',
                     };
                   }
+                  const nextSub = nextOnline ? 'ACTIVE' : (data.candidate_status || 'SUBMISSION_PROCESSING');
                   return {
                     ...s,
                     online: nextOnline,
                     connection_status: nextConn,
                     camera_on: data.camera_on ?? s.camera_on,
                     fullscreen: data.fullscreen ?? s.fullscreen,
-                    candidate_status: nextOnline ? 'ACTIVE' : 'DISCONNECTED',
+                    candidate_status: nextSub,
+                    submission_status: nextSub,
                     camera_status: !nextOnline && s.has_snapshot ? 'HISTORICAL' : s.camera_status,
                   };
                 })
@@ -1070,47 +1074,58 @@ export default function TrainerAssessmentMonitorPage() {
       ) : (
         <>
           {/* Deduplicated Cohort Counters */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
             <Card>
-              <CardBody className="p-3.5">
-                <span className="text-[11px] text-ink-3">Started / Total</span>
-                <p className="tnum mt-0.5 text-xl font-bold text-ink-1">
-                  {counters.startedCount}
-                  <span className="text-xs font-normal text-ink-3 ml-1">/ {counters.totalCandidates}</span>
-                </p>
-                <span className="text-[10px] text-ink-3">Not Started: {counters.notStartedCount}</span>
+              <CardBody className="p-3">
+                <span className="text-[11px] text-ink-3">Total Candidates</span>
+                <p className="tnum mt-0.5 text-xl font-bold text-ink-1">{counters.totalCandidates}</p>
+                <span className="text-[10px] text-ink-3">Started: {counters.startedCount}</span>
               </CardBody>
             </Card>
             <Card>
-              <CardBody className="p-3.5">
-                <span className="text-[11px] text-ink-3">Active (Online)</span>
+              <CardBody className="p-3">
+                <span className="text-[11px] text-ink-3">Not Started</span>
+                <p className="tnum mt-0.5 text-xl font-bold text-slate-600">{counters.notStartedCount}</p>
+              </CardBody>
+            </Card>
+            <Card>
+              <CardBody className="p-3">
+                <span className="text-[11px] text-ink-3">Active</span>
                 <p className="tnum mt-0.5 text-xl font-bold text-emerald-600">{counters.activeCount}</p>
-                <span className="text-[10px] text-amber-600">Disconnected: {counters.disconnectedCount}</span>
               </CardBody>
             </Card>
             <Card>
-              <CardBody className="p-3.5">
-                <span className="text-[11px] text-ink-3">Completed / Auto</span>
-                <p className="tnum mt-0.5 text-xl font-bold text-red-600">
-                  {counters.completedCount + counters.autoSubmittedCount}
+              <CardBody className="p-3">
+                <span className="text-[11px] text-ink-3">Processing</span>
+                <p className="tnum mt-0.5 text-xl font-bold text-orange-600">
+                  {counters.submissionProcessingCount ?? counters.disconnectedCount ?? 0}
                 </p>
-                <span className="text-[10px] text-ink-3">
-                  Manual: {counters.completedCount} · Auto: {counters.autoSubmittedCount}
-                </span>
               </CardBody>
             </Card>
             <Card>
-              <CardBody className="p-3.5">
+              <CardBody className="p-3">
+                <span className="text-[11px] text-ink-3">Sync Pending</span>
+                <p className="tnum mt-0.5 text-xl font-bold text-orange-600">{counters.syncPendingCount}</p>
+              </CardBody>
+            </Card>
+            <Card>
+              <CardBody className="p-3">
+                <span className="text-[11px] text-ink-3">Completed</span>
+                <p className="tnum mt-0.5 text-xl font-bold text-emerald-600">{counters.completedCount}</p>
+              </CardBody>
+            </Card>
+            <Card>
+              <CardBody className="p-3">
+                <span className="text-[11px] text-ink-3">Submitted (Auto)</span>
+                <p className="tnum mt-0.5 text-xl font-bold text-red-600">
+                  {counters.submittedCount ?? counters.autoSubmittedCount ?? 0}
+                </p>
+              </CardBody>
+            </Card>
+            <Card>
+              <CardBody className="p-3">
                 <span className="text-[11px] text-ink-3">Offline Submitted</span>
-                <p className="tnum mt-0.5 text-xl font-bold text-indigo-600">{counters.offlineSubmittedCount}</p>
-                <span className="text-[10px] text-amber-600">Sync Pending: {counters.syncPendingCount}</span>
-              </CardBody>
-            </Card>
-            <Card>
-              <CardBody className="p-3.5">
-                <span className="text-[11px] text-ink-3">Warnings / Abandoned</span>
-                <p className="tnum mt-0.5 text-xl font-bold text-rose-600">{counters.warningsTotal}</p>
-                <span className="text-[10px] text-ink-3">Abandoned: {counters.abandonedCount}</span>
+                <p className="tnum mt-0.5 text-xl font-bold text-emerald-600">{counters.offlineSubmittedCount}</p>
               </CardBody>
             </Card>
           </div>
@@ -1286,22 +1301,29 @@ export default function TrainerAssessmentMonitorPage() {
                             <td className="p-3 font-mono font-medium text-ink-1">{s.roll_number}</td>
                             <td className="p-3">
                               <p className="font-medium text-ink-1">{s.name}</p>
-                              <span className="flex items-center gap-1 text-[10px] text-ink-3">
+                              <span
+                                className="flex items-center gap-1 text-[10px] text-ink-3"
+                                title={s.connection_status ? `Connection: ${s.connection_status}` : undefined}
+                              >
                                 <span
                                   className={cn(
                                     'h-1.5 w-1.5 rounded-full',
                                     isFinished
                                       ? 'bg-slate-400'
-                                      : s.online
-                                      ? 'bg-emerald-500'
-                                      : 'bg-amber-500'
+                                      : candStatus === 'SUBMISSION_PROCESSING' || candStatus === 'SYNC_PENDING' || candStatus === 'OFFLINE_SYNC_PENDING'
+                                      ? 'bg-orange-500'
+                                      : 'bg-emerald-500'
                                   )}
                                 />
                                 {isFinished
                                   ? `Submitted ${fmtClock(s.completed_at || s.local_submitted_at)}`
-                                  : s.online
-                                  ? 'Connected'
-                                  : 'Offline / Interrupted'}
+                                  : candStatus === 'SUBMISSION_PROCESSING'
+                                  ? 'Submission Processing'
+                                  : candStatus === 'SYNC_PENDING' || candStatus === 'OFFLINE_SYNC_PENDING'
+                                  ? 'Sync Pending'
+                                  : candStatus === 'NOT_STARTED'
+                                  ? 'Not Started'
+                                  : 'In Progress'}
                               </span>
                             </td>
                             <td className="p-3 font-mono">
@@ -1356,36 +1378,39 @@ export default function TrainerAssessmentMonitorPage() {
                               )}
                             </td>
                             <td className="p-3">
-                              {candStatus === 'ABANDONMENT_WARNING' ? (
-                                <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-rose-500/20 text-rose-600 border border-rose-500/30 animate-pulse">
-                                  Abandon Warning
+                              {candStatus === 'NOT_STARTED' ? (
+                                <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300 dark:border-slate-700">
+                                  Not Started
                                 </span>
-                              ) : candStatus === 'ABANDONED' ? (
-                                <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-rose-100 text-rose-800 border border-rose-300">
-                                  Abandoned
+                              ) : candStatus === 'SUBMISSION_PROCESSING' || candStatus === 'DISCONNECTED' || candStatus === 'ABANDONMENT_WARNING' ? (
+                                <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-300 border border-orange-300 dark:border-orange-700">
+                                  Submission Processing
                                 </span>
-                              ) : candStatus === 'DISCONNECTED' ? (
-                                <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-300 dark:border-amber-700">
-                                  Disconnected
-                                </span>
-                              ) : candStatus === 'OFFLINE_SYNC_PENDING' ? (
-                                <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-amber-50 text-amber-700 border border-amber-400">
-                                  Offline – Sync Pending
+                              ) : candStatus === 'SYNC_PENDING' || candStatus === 'OFFLINE_SYNC_PENDING' ? (
+                                <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-300 border border-orange-300 dark:border-orange-700">
+                                  Sync Pending
                                 </span>
                               ) : candStatus === 'OFFLINE_SUBMITTED' ? (
-                                <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-300">
+                                <span className="rounded px-2 py-0.5 text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-400">
                                   Offline Submitted
                                 </span>
-                              ) : candStatus === 'AUTO_SUBMITTED' ? (
+                              ) : candStatus === 'SUBMITTED' || candStatus === 'AUTO_SUBMITTED' ? (
                                 <span
-                                  className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-400 border border-purple-300 dark:border-purple-700"
+                                  className="rounded px-2 py-0.5 text-[10px] font-bold uppercase bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300 border border-red-400"
                                   title={s.submission_reason || ''}
                                 >
-                                  Auto-Submitted
+                                  Submitted
                                 </span>
                               ) : candStatus === 'COMPLETED' ? (
-                                <span className="rounded px-2 py-0.5 text-[10px] font-bold uppercase bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300 border-2 border-red-500">
+                                <span className="rounded px-2 py-0.5 text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-400">
                                   Completed
+                                </span>
+                              ) : candStatus === 'ABANDONED' ? (
+                                <span
+                                  className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-rose-100 text-rose-800 border border-rose-300"
+                                  title={s.submission_reason || ''}
+                                >
+                                  Abandoned
                                 </span>
                               ) : (
                                 <span className="rounded px-2 py-0.5 text-[10px] font-semibold uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-300">
