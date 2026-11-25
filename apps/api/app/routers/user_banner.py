@@ -16,9 +16,14 @@ from pydantic import BaseModel, Field
 from app.authz.context import ScopeContext
 from app.authz.guards import get_scope_context
 from app.core.config import settings
-from app.core.errors import ValidationError
+from app.core.errors import Unauthenticated, ValidationError
 from app.db.postgres import get_pg_connection
-from app.services.storage import Keys, get_storage
+from app.services.media_service import (
+    cleanup_unreferenced_asset,
+    persist_media_asset,
+    validate_and_optimize_image,
+)
+from app.services.storage import Keys
 
 router = APIRouter(prefix="/user/banner", tags=["User Banner"])
 
@@ -87,7 +92,7 @@ async def get_user_banner(ctx: ScopeContext = Depends(get_scope_context)) -> dic
     async with get_pg_connection() as conn:
         row = await conn.fetchrow(
             """
-            SELECT id, banner_url, pos_x, pos_y, scale, crop_data, text_color, 
+            SELECT id, banner_url, media_asset_id, pos_x, pos_y, scale, crop_data, text_color,
                    overlay_type, overlay_opacity, glassmorphism, updated_at
             FROM user_banners
             WHERE user_id = $1
@@ -112,11 +117,16 @@ async def get_user_banner(ctx: ScopeContext = Depends(get_scope_context)) -> dic
             },
         }
 
+    resolved_url = (
+        f"{settings.API_V1_PREFIX}/media/{row['media_asset_id']}"
+        if row["media_asset_id"]
+        else (row["banner_url"] or None)
+    )
     return {
         "success": True,
         "data": {
-            "hasCustomBanner": True,
-            "bannerUrl": row["banner_url"],
+            "hasCustomBanner": bool(resolved_url),
+            "bannerUrl": resolved_url,
             "posX": row["pos_x"],
             "posY": row["pos_y"],
             "scale": float(row["scale"] or 1.0),
@@ -138,46 +148,55 @@ async def upload_user_banner(
     """Securely upload and assign a custom hero banner for the current user."""
     user_uuid = UUID(str(ctx.user_id)) if ctx.user_id else None
     if not user_uuid:
-        raise ValidationError("Authentication required")
+        raise Unauthenticated("Authentication required")
+    inst_uuid = UUID(str(ctx.college_id)) if getattr(ctx, "college_id", None) else None
 
     content = await file.read()
     filename = file.filename or "banner.jpg"
     content_type = file.content_type or "image/jpeg"
 
-    ext = _validate_image_bytes(content, filename, content_type)
-
+    opt_bytes, ext, canonical_mime = validate_and_optimize_image(
+        content, filename, content_type, max_dimensions=(1920, 1080)
+    )
     unique_filename = f"{uuid.uuid4().hex[:12]}{ext}"
-
-    if settings.STORAGE_DRIVER == "s3":
-        storage = get_storage()
-        key = Keys.user_banner(str(user_uuid), unique_filename)
-        await storage.put(key, content, content_type)
-        banner_url = await storage.signed_download_url(key, ttl=86400 * 7)
-    else:
-        user_folder = os.path.join(BANNER_UPLOAD_DIR, str(user_uuid))
-        os.makedirs(user_folder, exist_ok=True)
-        file_path = os.path.join(user_folder, unique_filename)
-        with open(file_path, "wb") as f:
-            f.write(content)
-        banner_url = f"/static/banners/{user_uuid}/{unique_filename}"
+    key = Keys.user_banner(str(user_uuid), unique_filename)
 
     async with get_pg_connection() as conn:
-        row = await conn.fetchrow(
-            """
-            INSERT INTO user_banners (
-                user_id, banner_url, pos_x, pos_y, scale, crop_data, 
-                text_color, overlay_type, overlay_opacity, glassmorphism, updated_at
+        async with conn.transaction():
+            old_asset_id = await conn.fetchval(
+                "SELECT media_asset_id FROM user_banners WHERE user_id = $1 FOR UPDATE",
+                user_uuid,
             )
-            VALUES ($1, $2, 50, 50, 1.0, '{}'::jsonb, '#FFFFFF', 'dark', 40, true, NOW())
-            ON CONFLICT (user_id) DO UPDATE SET
-                banner_url = EXCLUDED.banner_url,
-                updated_at = NOW()
-            RETURNING id, banner_url, pos_x, pos_y, scale, crop_data, text_color, 
-                      overlay_type, overlay_opacity, glassmorphism, updated_at
-            """,
-            user_uuid,
-            banner_url,
-        )
+            asset_id, banner_url = await persist_media_asset(
+                conn,
+                owner_id=user_uuid,
+                institution_id=inst_uuid,
+                image_type="BANNER",
+                storage_key=key,
+                content=opt_bytes,
+                mime_type=canonical_mime,
+            )
+            row = await conn.fetchrow(
+                """
+                INSERT INTO user_banners (
+                    user_id, banner_url, storage_key, media_asset_id, pos_x, pos_y, scale, crop_data,
+                    text_color, overlay_type, overlay_opacity, glassmorphism, updated_at
+                )
+                VALUES ($1, $2, $3, $4, 50, 50, 1.0, '{}'::jsonb, '#FFFFFF', 'dark', 40, true, NOW())
+                ON CONFLICT (user_id) DO UPDATE SET
+                    banner_url = EXCLUDED.banner_url,
+                    storage_key = EXCLUDED.storage_key,
+                    media_asset_id = EXCLUDED.media_asset_id,
+                    updated_at = NOW()
+                RETURNING id, banner_url, media_asset_id, pos_x, pos_y, scale, crop_data, text_color,
+                          overlay_type, overlay_opacity, glassmorphism, updated_at
+                """,
+                user_uuid,
+                banner_url,
+                key,
+                asset_id,
+            )
+            await cleanup_unreferenced_asset(conn, old_asset_id)
 
     return {
         "success": True,
@@ -301,10 +320,16 @@ async def delete_user_banner(ctx: ScopeContext = Depends(get_scope_context)) -> 
     """Remove custom banner and reset to default platform branding."""
     user_uuid = UUID(str(ctx.user_id)) if ctx.user_id else None
     if not user_uuid:
-        raise ValidationError("Authentication required")
+        raise Unauthenticated("Authentication required")
 
     async with get_pg_connection() as conn:
-        await conn.execute("DELETE FROM user_banners WHERE user_id = $1", user_uuid)
+        async with conn.transaction():
+            old_asset_id = await conn.fetchval(
+                "SELECT media_asset_id FROM user_banners WHERE user_id = $1 FOR UPDATE",
+                user_uuid,
+            )
+            await conn.execute("DELETE FROM user_banners WHERE user_id = $1", user_uuid)
+            await cleanup_unreferenced_asset(conn, old_asset_id)
 
     return {
         "success": True,

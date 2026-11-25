@@ -215,8 +215,9 @@ def create_app() -> FastAPI:
     )
     app.include_router(user_banner.router, prefix=prefix, tags=["user-banner"])
 
-    from app.routers import user_avatar
+    from app.routers import user_avatar, media
     app.include_router(user_avatar.router, prefix=prefix, tags=["user-avatar"])
+    app.include_router(media.router, prefix=prefix, tags=["media"])
 
     from app.routers.trainer_profile import public_trainers_router, TRAINER_STATIC_DIR
     app.include_router(public_trainers_router, prefix=prefix, tags=["public-trainers"])

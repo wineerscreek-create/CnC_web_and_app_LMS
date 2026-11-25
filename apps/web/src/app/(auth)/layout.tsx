@@ -13,9 +13,9 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           <Link
             href="/"
             className="inline-flex items-center transition-transform hover:opacity-90 active:scale-95"
-            aria-label="SkillSharp home"
+            aria-label="Go to Winners Creek homepage"
           >
-            <CNCLogo priority />
+            <CNCLogo variant="header" priority />
           </Link>
         </div>
 

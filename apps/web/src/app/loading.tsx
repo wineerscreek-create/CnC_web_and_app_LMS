@@ -18,8 +18,8 @@ export default function Loading() {
           <div aria-hidden className="absolute -inset-5 orbital-ring" />
           <div aria-hidden className="absolute -inset-9 orbital-ring [animation-duration:6s] [animation-direction:reverse] opacity-50" />
           
-          <div className="relative z-10 surface-3d rounded-2xl p-4 bg-card/90 shadow-3d-pop border border-line/80 dark:border-white/15 animate-float">
-            <SkillSharpLogo variant="full" priority className="drop-shadow-lg" />
+          <div className="relative z-10 surface-3d rounded-2xl p-5 bg-card/95 shadow-3d-pop border border-line/80 dark:border-white/15 animate-float">
+            <SkillSharpLogo variant="loading" priority className="drop-shadow-lg" />
           </div>
         </div>
 
@@ -27,7 +27,7 @@ export default function Loading() {
         <div className="relative z-10 flex flex-col items-center gap-2">
           <div className="flex items-center gap-2.5 text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">
             <Loader2 className="size-4 animate-spin text-indigo-600 dark:text-indigo-400" aria-hidden />
-            <span>Loading SkillSharp Platform…</span>
+            <span>Loading Winners Creek Platform…</span>
           </div>
           <p className="text-2xs text-slate-500 dark:text-slate-400 font-medium">
             Initialising secure session &amp; campus resources

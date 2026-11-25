@@ -1,3 +1,5 @@
+'use client';
+
 import * as React from 'react';
 import { cn } from '@/lib/cn';
 
@@ -12,6 +14,7 @@ export type LogoVariant =
   | 'auth'
   | 'invoice'
   | 'dashboard'
+  | 'loading'
   | 'intro';
 
 export interface SkillSharpLogoProps {
@@ -22,50 +25,57 @@ export interface SkillSharpLogoProps {
   alt?: string;
 }
 
+const PRIMARY_LOGO_SRC = '/images/skillsharp-logo-tight.png';
+const FALLBACK_LOGO_SRC = '/images/winnerscreek.png';
+
 const variantStyles: Record<LogoVariant, { wrapper: string; img: string }> = {
   intro: {
-    wrapper: 'h-24 sm:h-32 md:h-40 lg:h-48 max-w-[320px] sm:max-w-[420px]',
-    img: 'h-full w-auto max-h-[192px] object-contain drop-shadow-[0_12px_28px_rgba(59,130,246,0.35)]',
+    wrapper: 'h-28 sm:h-36 md:h-44 lg:h-52 max-w-[340px] sm:max-w-[440px]',
+    img: 'h-full w-auto max-h-[208px] object-contain drop-shadow-[0_12px_28px_rgba(59,130,246,0.35)]',
+  },
+  loading: {
+    wrapper: 'h-20 sm:h-24 md:h-28 max-w-[260px]',
+    img: 'h-full w-auto max-h-[112px] object-contain drop-shadow-md',
   },
   header: {
-    wrapper: 'h-9 sm:h-10 max-w-[180px]',
-    img: 'h-full w-auto max-h-10 object-contain drop-shadow-xs',
+    wrapper: 'h-12 sm:h-14 max-w-[200px]',
+    img: 'h-full w-auto max-h-14 object-contain drop-shadow-xs',
   },
   navbar: {
-    wrapper: 'h-9 sm:h-10 max-w-[180px]',
-    img: 'h-full w-auto max-h-10 object-contain drop-shadow-xs',
+    wrapper: 'h-12 sm:h-14 max-w-[200px]',
+    img: 'h-full w-auto max-h-14 object-contain drop-shadow-xs',
   },
   sidebar: {
-    wrapper: 'h-8 sm:h-9 max-w-[160px]',
-    img: 'h-full w-auto max-h-9 object-contain drop-shadow-xs',
+    wrapper: 'h-11 sm:h-12 max-w-[180px]',
+    img: 'h-full w-auto max-h-12 object-contain drop-shadow-xs',
   },
   compact: {
-    wrapper: 'size-7 sm:size-8 shrink-0',
-    img: 'size-full object-contain',
+    wrapper: 'h-10 w-12 sm:h-11 sm:w-14 shrink-0',
+    img: 'h-full w-auto max-h-11 object-contain',
   },
   mobile: {
-    wrapper: 'h-7 sm:h-8 max-w-[130px] shrink-0',
-    img: 'h-full w-auto max-h-8 object-contain',
+    wrapper: 'h-10 sm:h-11 max-w-[140px] shrink-0',
+    img: 'h-full w-auto max-h-11 object-contain',
   },
   auth: {
-    wrapper: 'h-14 sm:h-16 md:h-20 max-w-[240px]',
-    img: 'h-full w-auto max-h-20 object-contain drop-shadow-md',
+    wrapper: 'h-16 sm:h-20 md:h-24 max-w-[260px]',
+    img: 'h-full w-auto max-h-24 object-contain drop-shadow-md',
   },
   footer: {
-    wrapper: 'h-9 sm:h-10 max-w-[160px]',
-    img: 'h-full w-auto max-h-10 object-contain brightness-95 hover:brightness-105 transition-all',
+    wrapper: 'h-12 sm:h-14 max-w-[180px]',
+    img: 'h-full w-auto max-h-14 object-contain brightness-95 hover:brightness-105 transition-all',
   },
   invoice: {
-    wrapper: 'h-8 max-w-[140px]',
-    img: 'h-full w-auto max-h-8 object-contain',
+    wrapper: 'h-10 max-w-[160px]',
+    img: 'h-full w-auto max-h-10 object-contain',
   },
   dashboard: {
-    wrapper: 'h-9 sm:h-10 max-w-[180px]',
-    img: 'h-full w-auto max-h-10 object-contain drop-shadow-xs',
+    wrapper: 'h-12 sm:h-14 max-w-[210px]',
+    img: 'h-full w-auto max-h-14 object-contain drop-shadow-xs',
   },
   full: {
-    wrapper: 'h-9 sm:h-10 md:h-11 max-w-[200px]',
-    img: 'h-full w-auto max-h-11 object-contain drop-shadow-xs',
+    wrapper: 'h-12 sm:h-14 md:h-16 max-w-[220px]',
+    img: 'h-full w-auto max-h-16 object-contain drop-shadow-xs',
   },
 };
 
@@ -74,9 +84,19 @@ export function SkillSharpLogo({
   className,
   imgClassName,
   priority = false,
-  alt = 'SkillSharp Learning — Campus to Corporate',
+  alt = 'Winners Creek — Campus to Corporate',
 }: SkillSharpLogoProps) {
   const styles = variantStyles[variant] || variantStyles.full;
+  const [src, setSrc] = React.useState<string>(PRIMARY_LOGO_SRC);
+  const [failedAll, setFailedAll] = React.useState(false);
+
+  const handleError = () => {
+    if (src === PRIMARY_LOGO_SRC) {
+      setSrc(FALLBACK_LOGO_SRC);
+    } else {
+      setFailedAll(true);
+    }
+  };
 
   return (
     <div
@@ -87,13 +107,20 @@ export function SkillSharpLogo({
       )}
       aria-label={alt}
     >
-      <img
-        src="/images/skillsharp-learning-logo.png"
-        alt={alt}
-        loading={priority ? 'eager' : 'lazy'}
-        decoding="async"
-        className={cn('aspect-[3/2] select-none transition-all duration-200', styles.img, imgClassName)}
-      />
+      {failedAll ? (
+        <span className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-2.5 py-1 text-xs font-extrabold tracking-tight text-primary border border-primary/20">
+          WC · LMS
+        </span>
+      ) : (
+        <img
+          src={src}
+          alt={alt}
+          loading={priority ? 'eager' : 'lazy'}
+          decoding="async"
+          onError={handleError}
+          className={cn('select-none transition-all duration-200', styles.img, imgClassName)}
+        />
+      )}
       <span className="sr-only">{alt}</span>
     </div>
   );

@@ -7,11 +7,9 @@ import * as React from 'react';
 import { Input } from '@/components/ui/input';
 import { TooltipProvider } from '@/components/ui/misc';
 import { CNCLogo } from '@/components/ui/CNCLogo';
-import { getRoleHome } from '@/lib/roleRoutes';
 import { cn } from '@/lib/cn';
 import { useAppDispatch, useAppSelector } from '@/store';
 import { toggleSidebar } from '@/store/uiSlice';
-
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { NotificationMenu, ProfileMenu } from './menus';
 import { Sidebar } from './sidebar';
@@ -57,8 +55,12 @@ export function PortalShell({
 
             {/* Mobile branding */}
             <div className="flex items-center lg:hidden">
-              <Link href={getRoleHome(user)} className="flex items-center" aria-label="SkillSharp home">
-                <CNCLogo variant="compact" />
+              <Link
+                href="/"
+                className="flex items-center min-h-[40px] rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                aria-label="Go to Winners Creek homepage"
+              >
+                <CNCLogo variant="mobile" priority />
               </Link>
             </div>
 

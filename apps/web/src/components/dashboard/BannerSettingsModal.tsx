@@ -111,6 +111,7 @@ export function BannerSettingsModal({
       const res = await api.post<any>('/user/banner/upload', formData);
       if (res.success && res.data) {
         setBannerUrl(res.data.bannerUrl);
+        onBannerUpdated(res.data);
         toast.success('Banner image uploaded successfully!');
         setActiveTab('position');
       }

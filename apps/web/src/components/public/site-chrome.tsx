@@ -65,7 +65,7 @@ export function SiteHeader() {
             : 'max-w-[1240px]'
         )}
       >
-        <Link href="/" aria-label="Winners Creek / SkillSharp Home" className="shrink-0">
+        <Link href="/" aria-label="Go to Winners Creek homepage" className="shrink-0">
           <CNCLogo variant="header" priority />
         </Link>
 

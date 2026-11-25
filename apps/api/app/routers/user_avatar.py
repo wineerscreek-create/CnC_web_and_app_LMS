@@ -18,10 +18,15 @@ from pydantic import BaseModel
 from app.authz.context import ScopeContext
 from app.authz.guards import get_scope_context
 from app.core.config import settings
-from app.core.errors import AppError, ValidationError
+from app.core.errors import AppError, Unauthenticated, ValidationError
 from app.core.logging import get_logger
 from app.db.postgres import get_pg_connection
-from app.services.storage import Keys, get_storage
+from app.services.media_service import (
+    cleanup_unreferenced_asset,
+    persist_media_asset,
+    validate_and_optimize_image,
+)
+from app.services.storage import Keys
 
 log = get_logger("app.user_avatar")
 
@@ -68,13 +73,17 @@ async def get_user_avatar(ctx: ScopeContext = Depends(get_scope_context)) -> dic
 
     async with get_pg_connection() as conn:
         row = await conn.fetchrow(
-            "SELECT avatar_url, role FROM users WHERE id = $1 AND deleted_at IS NULL",
+            "SELECT avatar_url, avatar_asset_id, role FROM users WHERE id = $1 AND deleted_at IS NULL",
             user_uuid,
         )
         if not row:
             return {"success": True, "data": {"avatarUrl": None}}
 
-        avatar_url = row["avatar_url"]
+        avatar_url = (
+            f"{settings.API_V1_PREFIX}/media/{row['avatar_asset_id']}"
+            if row["avatar_asset_id"]
+            else row["avatar_url"]
+        )
         return {
             "success": True,
             "data": {
@@ -92,68 +101,71 @@ async def upload_user_avatar(
     """Securely upload and assign a custom profile avatar for the current user."""
     user_uuid = UUID(str(ctx.user_id)) if ctx.user_id else None
     if not user_uuid:
-        raise ValidationError("Authentication required")
+        raise Unauthenticated("Authentication required")
+    inst_uuid = UUID(str(ctx.college_id)) if getattr(ctx, "college_id", None) else None
 
     content = await file.read()
     filename = file.filename or "avatar.jpg"
     content_type = file.content_type or "image/jpeg"
 
-    ext = _validate_avatar_bytes(content, filename, content_type)
+    opt_bytes, ext, canonical_mime = validate_and_optimize_image(
+        content, filename, content_type, max_dimensions=(512, 512)
+    )
     unique_filename = f"{uuid.uuid4().hex[:12]}{ext}"
-
-    avatar_url = None
-    if settings.STORAGE_DRIVER == "s3":
-        try:
-            storage = get_storage()
-            key = Keys.user_avatar(str(user_uuid), unique_filename)
-            await storage.put(key, content, content_type)
-            avatar_url = await storage.signed_download_url(key, ttl=86400 * 7)
-        except Exception as exc:
-            log.warning(f"S3 storage put failed for user avatar ({exc}), falling back to local storage")
-            avatar_url = None
-
-    if not avatar_url:
-        user_folder = os.path.join(AVATAR_UPLOAD_DIR, str(user_uuid))
-        os.makedirs(user_folder, exist_ok=True)
-        file_path = os.path.join(user_folder, unique_filename)
-        with open(file_path, "wb") as f:
-            f.write(content)
-        avatar_url = f"/static/avatars/{user_uuid}/{unique_filename}"
+    key = Keys.user_avatar(str(user_uuid), unique_filename)
 
     async with get_pg_connection() as conn:
-        # 1. Update core users record
-        await conn.execute(
-            """
-            UPDATE users
-            SET avatar_url = $1, updated_at = NOW()
-            WHERE id = $2
-            """,
-            avatar_url,
-            user_uuid,
-        )
+        async with conn.transaction():
+            old_asset_id = await conn.fetchval(
+                "SELECT avatar_asset_id FROM users WHERE id = $1 FOR UPDATE",
+                user_uuid,
+            )
+            asset_id, avatar_url = await persist_media_asset(
+                conn,
+                owner_id=user_uuid,
+                institution_id=inst_uuid,
+                image_type="AVATAR",
+                storage_key=key,
+                content=opt_bytes,
+                mime_type=canonical_mime,
+            )
+            # 1. Update core users record
+            await conn.execute(
+                """
+                UPDATE users
+                SET avatar_url = $1, avatar_storage_key = $2, avatar_asset_id = $3, updated_at = NOW()
+                WHERE id = $4
+                """,
+                avatar_url,
+                key,
+                asset_id,
+                user_uuid,
+            )
 
-        # 2. Synchronize role-specific profile records if present
-        user_role = str(ctx.role).upper()
-        if user_role == "STUDENT":
-            await conn.execute(
-                """
-                UPDATE student_profiles
-                SET avatar_url = $1, updated_at = NOW()
-                WHERE user_id = $2
-                """,
-                avatar_url,
-                user_uuid,
-            )
-        elif user_role == "TRAINER":
-            await conn.execute(
-                """
-                UPDATE trainer_profiles
-                SET profile_photo_url = $1, updated_at = NOW()
-                WHERE user_id = $2
-                """,
-                avatar_url,
-                user_uuid,
-            )
+            # 2. Synchronize role-specific profile records if present
+            user_role = str(ctx.role).upper()
+            if user_role == "STUDENT":
+                await conn.execute(
+                    """
+                    UPDATE student_profiles
+                    SET avatar_url = $1, updated_at = NOW()
+                    WHERE user_id = $2
+                    """,
+                    avatar_url,
+                    user_uuid,
+                )
+            elif user_role == "TRAINER":
+                await conn.execute(
+                    """
+                    UPDATE trainer_profiles
+                    SET profile_photo_url = $1, updated_at = NOW()
+                    WHERE user_id = $2
+                    """,
+                    avatar_url,
+                    user_uuid,
+                )
+
+            await cleanup_unreferenced_asset(conn, old_asset_id)
 
     return {
         "success": True,
@@ -169,24 +181,30 @@ async def delete_user_avatar(ctx: ScopeContext = Depends(get_scope_context)) -> 
     """Remove custom profile avatar and reset to default."""
     user_uuid = UUID(str(ctx.user_id)) if ctx.user_id else None
     if not user_uuid:
-        raise ValidationError("Authentication required")
+        raise Unauthenticated("Authentication required")
 
     async with get_pg_connection() as conn:
-        await conn.execute(
-            "UPDATE users SET avatar_url = NULL, updated_at = NOW() WHERE id = $1",
-            user_uuid,
-        )
-        user_role = str(ctx.role).upper()
-        if user_role == "STUDENT":
-            await conn.execute(
-                "UPDATE student_profiles SET avatar_url = NULL, updated_at = NOW() WHERE user_id = $1",
+        async with conn.transaction():
+            old_asset_id = await conn.fetchval(
+                "SELECT avatar_asset_id FROM users WHERE id = $1 FOR UPDATE",
                 user_uuid,
             )
-        elif user_role == "TRAINER":
             await conn.execute(
-                "UPDATE trainer_profiles SET profile_photo_url = NULL, updated_at = NOW() WHERE user_id = $1",
+                "UPDATE users SET avatar_url = NULL, avatar_storage_key = NULL, avatar_asset_id = NULL, updated_at = NOW() WHERE id = $1",
                 user_uuid,
             )
+            user_role = str(ctx.role).upper()
+            if user_role == "STUDENT":
+                await conn.execute(
+                    "UPDATE student_profiles SET avatar_url = NULL, updated_at = NOW() WHERE user_id = $1",
+                    user_uuid,
+                )
+            elif user_role == "TRAINER":
+                await conn.execute(
+                    "UPDATE trainer_profiles SET profile_photo_url = NULL, updated_at = NOW() WHERE user_id = $1",
+                    user_uuid,
+                )
+            await cleanup_unreferenced_asset(conn, old_asset_id)
 
     return {
         "success": True,

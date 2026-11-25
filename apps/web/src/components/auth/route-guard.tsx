@@ -47,12 +47,17 @@ export function RouteGuard({
 
   return (
     <div
-      className="flex min-h-screen flex-col items-center justify-center gap-3"
+      className="flex min-h-screen flex-col items-center justify-center gap-5 bg-background px-4"
       role="status"
-      aria-label="Checking your session"
+      aria-label="Loading Winners Creek session"
     >
-      <SkillSharpLogo variant="full" priority />
-      <Loader2 className="size-4 animate-spin text-indigo-400" aria-hidden />
+      <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
+        <SkillSharpLogo variant="loading" priority />
+      </div>
+      <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+        <Loader2 className="size-4 animate-spin text-primary" aria-hidden />
+        <span>Loading Winners Creek…</span>
+      </div>
     </div>
   );
 }
