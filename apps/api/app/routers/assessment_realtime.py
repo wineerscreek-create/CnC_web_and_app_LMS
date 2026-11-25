@@ -133,15 +133,34 @@ async def get_assessment_monitor_data(
             conn,
             ctx,
             q_uuid,
-            "id, title, quiz_code, duration_minutes, max_score, settings, status, creator_trainer_id, batch_id, CASE WHEN jsonb_typeof(questions) = 'array' THEN jsonb_array_length(questions) ELSE 0 END AS total_questions",
+            "id, title, quiz_code, duration_minutes, max_score, settings, status, creator_trainer_id, batch_id, COALESCE(allow_retake, FALSE) AS allow_retake, CASE WHEN jsonb_typeof(questions) = 'array' THEN jsonb_array_length(questions) ELSE 0 END AS total_questions",
         )
 
         # Authoritative 1-row-per-student deduplication:
-        # Prioritize active in_progress attempts, then valid submitted attempts, then abandoned,
-        # breaking ties by most recent activity/completion/creation timestamp.
+        # 1. Exclude superseded/reconciled duplicate attempts.
+        # 2. Finalized submissions (COMPLETED, SUBMITTED, OFFLINE_SUBMITTED, AUTO_SUBMITTED)
+        #    always take precedence over stale/accidental in_progress rows, EXCEPT when
+        #    allow_retake=TRUE and the in_progress attempt was created after the latest finalized attempt.
+        # 3. Deterministic tie-breaking by submission timestamp, heartbeat, created_at, id.
+        allow_retake = bool(quiz["allow_retake"])
         db_attempts = await conn.fetch(
             """
-            WITH ranked_attempts AS (
+            WITH filtered_attempts AS (
+                SELECT qa.*,
+                       MAX(
+                           CASE
+                               WHEN qa.status = 'completed'
+                                    AND COALESCE(UPPER(qa.candidate_status), 'COMPLETED') IN ('COMPLETED', 'SUBMITTED', 'OFFLINE_SUBMITTED', 'AUTO_SUBMITTED')
+                               THEN COALESCE(qa.completed_at, qa.local_submitted_at, qa.created_at)
+                           END
+                       ) OVER (PARTITION BY qa.student_user_id) AS latest_finalized_at
+                FROM quiz_attempts qa
+                WHERE qa.quiz_id = $1
+                  AND COALESCE(LOWER(qa.status), '') <> 'superseded'
+                  AND COALESCE(UPPER(qa.candidate_status), '') <> 'SUPERSEDED_DUPLICATE'
+                  AND COALESCE(UPPER(qa.submission_reason), '') <> 'RECONCILED_DUPLICATE_ACTIVE'
+            ),
+            ranked_attempts AS (
                 SELECT qa.id, qa.student_user_id, qa.score, qa.possible, qa.percentage, qa.passed,
                        qa.status, qa.candidate_status, qa.submission_reason, qa.submission_source,
                        qa.is_recovered, qa.warning_count, qa.completed_at, qa.local_submitted_at,
@@ -152,15 +171,21 @@ async def get_assessment_monitor_data(
                            PARTITION BY qa.student_user_id
                            ORDER BY
                                CASE
-                                   WHEN qa.status = 'in_progress' THEN 0
-                                   WHEN qa.status = 'completed' AND COALESCE(qa.candidate_status, 'COMPLETED') IN ('COMPLETED', 'SUBMITTED', 'OFFLINE_SUBMITTED', 'AUTO_SUBMITTED') THEN 1
+                                   WHEN $2::boolean = TRUE
+                                        AND qa.status = 'in_progress'
+                                        AND (qa.latest_finalized_at IS NULL OR qa.created_at > qa.latest_finalized_at)
+                                   THEN 0
+                                   WHEN qa.status = 'completed'
+                                        AND COALESCE(UPPER(qa.candidate_status), 'COMPLETED') IN ('COMPLETED', 'SUBMITTED', 'OFFLINE_SUBMITTED', 'AUTO_SUBMITTED')
+                                   THEN 0
+                                   WHEN qa.status = 'in_progress' THEN 1
                                    ELSE 2
                                END ASC,
-                               COALESCE(qa.completed_at, qa.last_heartbeat_at, qa.created_at) DESC,
-                               qa.created_at DESC
+                               COALESCE(qa.completed_at, qa.local_submitted_at, qa.last_heartbeat_at, qa.created_at) DESC NULLS LAST,
+                               qa.created_at DESC,
+                               qa.id DESC
                        ) AS rn
-                FROM quiz_attempts qa
-                WHERE qa.quiz_id = $1 AND qa.status <> 'superseded'
+                FROM filtered_attempts qa
             )
             SELECT ra.*, u.name, u.email, sp.roll_number
             FROM ranked_attempts ra
@@ -170,6 +195,7 @@ async def get_assessment_monitor_data(
             ORDER BY sp.roll_number ASC NULLS LAST, u.name ASC
             """,
             q_uuid,
+            allow_retake,
         )
 
         # Check sync_operations for any pending/failed offline assessment submissions
@@ -253,28 +279,45 @@ async def get_assessment_monitor_data(
         if att_status == "completed":
             if sub_source == "OFFLINE_SYNC" or raw_cand == "OFFLINE_SUBMITTED":
                 cand_status = "OFFLINE_SUBMITTED"
+                sub_status = "OFFLINE_SUBMITTED"
                 counters["offlineSubmittedCount"] += 1
             elif raw_cand == "AUTO_SUBMITTED":
                 cand_status = "AUTO_SUBMITTED"
+                sub_status = "AUTO_SUBMITTED"
                 counters["autoSubmittedCount"] += 1
             elif raw_cand == "ABANDONED":
                 cand_status = "ABANDONED"
+                sub_status = "ABANDONED"
                 counters["abandonedCount"] += 1
             else:
                 cand_status = "COMPLETED"
+                sub_status = "COMPLETED"
                 counters["completedCount"] += 1
         elif uid in pending_sync_users or raw_cand == "OFFLINE_SYNC_PENDING":
             cand_status = "OFFLINE_SYNC_PENDING"
+            sub_status = "SYNC_PENDING"
             counters["syncPendingCount"] += 1
         elif raw_cand == "ABANDONMENT_WARNING":
             cand_status = "ABANDONMENT_WARNING"
+            sub_status = "IN_PROGRESS"
             counters["activeCount"] += 1
         elif not is_online:
             cand_status = "DISCONNECTED"
+            sub_status = "IN_PROGRESS"
             counters["disconnectedCount"] += 1
         else:
             cand_status = "ACTIVE"
+            sub_status = "IN_PROGRESS"
             counters["activeCount"] += 1
+
+        if is_online:
+            conn_status = "ONLINE"
+        elif sub_status in ("SYNC_PENDING", "OFFLINE_SUBMITTED") or sub_source == "OFFLINE_SYNC":
+            conn_status = "OFFLINE"
+        elif att["last_heartbeat_at"] is not None or live is not None:
+            conn_status = "DISCONNECTED"
+        else:
+            conn_status = "UNKNOWN"
 
         warn_cnt = int(att["warning_count"] or 0)
         counters["warningsTotal"] += warn_cnt
@@ -331,6 +374,8 @@ async def get_assessment_monitor_data(
             "online": False if is_finished else is_online,
             "status": att_status,
             "candidate_status": cand_status,
+            "submission_status": sub_status,
+            "connection_status": conn_status,
             "submission_source": sub_source,
             "submission_reason": att["submission_reason"],
             "is_recovered": bool(att["is_recovered"]),
@@ -367,6 +412,8 @@ async def get_assessment_monitor_data(
                 "online": False,
                 "status": "not_started",
                 "candidate_status": "NOT_STARTED",
+                "submission_status": "NOT_STARTED",
+                "connection_status": "UNKNOWN",
                 "submission_source": "ONLINE",
                 "submission_reason": None,
                 "is_recovered": False,

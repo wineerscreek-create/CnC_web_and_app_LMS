@@ -2516,7 +2516,7 @@ async def export_trainer_assessment_excel_batch_scoped(
     from openpyxl.drawing.image import Image as OpenpyxlImage
     from openpyxl.utils import get_column_letter
     from app.db.postgres import get_pg_connection
-    from app.repositories.assignment_quiz_repo import _safe_uuid, _parse_json_list
+    from app.repositories.assignment_quiz_repo import QuizRepository, _safe_uuid, _parse_json_list
     from app.core.errors import NotFound, ScopeForbidden, ValidationError
 
     q_uuid = _safe_uuid(quiz_id)
@@ -2616,22 +2616,10 @@ async def export_trainer_assessment_excel_batch_scoped(
             b_label = b_info["code"] or b_info["name"] or "Batch"
             batch_slugs.append(re.sub(r'[^a-zA-Z0-9_-]', '_', b_label))
 
-            attempts = await conn.fetch(
-                """
-                SELECT qa.id, qa.student_user_id, u.name AS student_name, sp.roll_number,
-                       qa.score, qa.possible, qa.percentage, qa.passed,
-                       qa.correct_count, qa.incorrect_count, qa.unattempted_count,
-                       qa.status, qa.candidate_status, qa.submission_reason,
-                       qa.submission_source, qa.time_taken_seconds, qa.completed_at,
-                       qa.warning_count, qa.warnings
-                FROM quiz_attempts qa
-                JOIN users u ON u.id = qa.student_user_id
-                LEFT JOIN student_profiles sp ON sp.user_id = qa.student_user_id
-                WHERE qa.quiz_id = $1
-                  AND COALESCE(qa.batch_id, sp.batch_id) = $2
-                ORDER BY qa.score DESC NULLS LAST, sp.roll_number ASC NULLS LAST
-                """,
-                q_uuid, bu,
+            attempts = await QuizRepository.fetch_canonical_export_attempts(
+                conn,
+                q_uuid,
+                batch_id=bu,
             )
 
             res_title = _sheet_title("Result", b_label, used_sheet_names)
@@ -2655,7 +2643,8 @@ async def export_trainer_assessment_excel_batch_scoped(
             ws_res.row_dimensions[1].height = 24
 
             for a in attempts:
-                sub_time = a["completed_at"].isoformat() if a["completed_at"] else "—"
+                sub_dt = a["completed_at"] or a["local_submitted_at"]
+                sub_time = sub_dt.isoformat() if sub_dt else "—"
                 ws_res.append([
                     a["roll_number"] or "—",
                     a["student_name"] or "Student",
@@ -2704,27 +2693,24 @@ async def export_trainer_assessment_excel_batch_scoped(
                 for idx in range(3, 13):
                     ws_snap.column_dimensions[get_column_letter(idx)].width = 22
 
-                student_ids_in_batch = list({a["student_user_id"] for a in attempts})
-                snaps_by_student: dict[Any, list[Any]] = {}
-                if student_ids_in_batch:
+                selected_attempt_ids = [a["id"] for a in attempts]
+                snaps_by_attempt: dict[Any, list[Any]] = {}
+                if selected_attempt_ids:
                     snap_rows = await conn.fetch(
                         """
                         SELECT student_user_id, attempt_id, snapshot_timestamp, image_data
                         FROM quiz_camera_snapshots
-                        WHERE quiz_id = $1 AND student_user_id = ANY($2::uuid[])
+                        WHERE quiz_id = $1 AND attempt_id = ANY($2::uuid[])
                         ORDER BY snapshot_timestamp ASC
                         """,
-                        q_uuid, student_ids_in_batch,
+                        q_uuid, selected_attempt_ids,
                     )
                     for sr in snap_rows:
-                        snaps_by_student.setdefault(sr["student_user_id"], []).append(sr)
+                        snaps_by_attempt.setdefault(sr["attempt_id"], []).append(sr)
 
                 cam_row = 2
                 for a in attempts:
-                    stu_snaps = [
-                        s for s in snaps_by_student.get(a["student_user_id"], [])
-                        if s["attempt_id"] is None or s["attempt_id"] == a["id"]
-                    ][:10]
+                    stu_snaps = snaps_by_attempt.get(a["id"], [])[:10]
                     ws_snap.append([a["roll_number"] or "—", a["student_name"] or "Student"] + [""] * 10)
                     ws_snap.row_dimensions[cam_row].height = 110
                     ws_snap.cell(row=cam_row, column=1).font = regular_font
@@ -2859,7 +2845,7 @@ async def export_trainer_assessment_excel(
             "Pass" if r.get("passed") else "Fail",
             warning_cnt,
             r.get("completedAt") or r.get("submittedAt") or "—",
-            r.get("status") or "—",
+            r.get("candidateStatus") or r.get("status") or "—",
             r.get("submissionReason") or "—",
             quiz_id,
             r.get("attemptId") or "—",

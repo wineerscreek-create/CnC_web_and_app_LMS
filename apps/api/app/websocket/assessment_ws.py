@@ -74,38 +74,66 @@ class AssessmentHub:
                     "online": True,
                     "last_seen": now,
                     "status": "in_progress",
+                    "is_finalized": False,
+                    "submission_status": "IN_PROGRESS",
                 }
             else:
                 self.student_states[quiz_id][user_id]["online"] = True
                 self.student_states[quiz_id][user_id]["last_seen"] = now
-                if remaining_seconds is not None:
-                    self.student_states[quiz_id][user_id]["remaining_seconds"] = eff_remaining
-                    self.student_states[quiz_id][user_id]["deadline"] = eff_deadline
+                if not self.student_states[quiz_id][user_id].get("is_finalized"):
+                    if remaining_seconds is not None:
+                        self.student_states[quiz_id][user_id]["remaining_seconds"] = eff_remaining
+                        self.student_states[quiz_id][user_id]["deadline"] = eff_deadline
 
+        is_finalized = bool(self.student_states[quiz_id][user_id].get("is_finalized"))
         log.info("student_ws_registered", extra={"quiz_id": quiz_id, "user_id": user_id, "student_name": name})
-        await self.broadcast_to_trainers(
-            quiz_id,
-            "student_joined",
-            {
-                "session_id": user_id,
-                "name": name,
-                "roll_number": roll_number,
-            },
-        )
+        if is_finalized:
+            await self.broadcast_to_trainers(
+                quiz_id,
+                "student_status",
+                {
+                    "session_id": user_id,
+                    "online": True,
+                    "connection_status": "ONLINE",
+                    "is_finalized": True,
+                    "submission_status": self.student_states[quiz_id][user_id].get("submission_status"),
+                },
+            )
+        else:
+            await self.broadcast_to_trainers(
+                quiz_id,
+                "student_joined",
+                {
+                    "session_id": user_id,
+                    "name": name,
+                    "roll_number": roll_number,
+                },
+            )
 
     async def unregister_student(self, quiz_id: str, user_id: str, ws: WebSocket) -> None:
+        is_finalized = False
+        sub_status = None
         async with self._lock:
             if quiz_id in self.student_sockets and self.student_sockets[quiz_id].get(user_id) == ws:
                 del self.student_sockets[quiz_id][user_id]
             if quiz_id in self.student_states and user_id in self.student_states[quiz_id]:
-                self.student_states[quiz_id][user_id]["online"] = False
-                self.student_states[quiz_id][user_id]["last_seen"] = time.time()
+                st = self.student_states[quiz_id][user_id]
+                st["online"] = False
+                st["last_seen"] = time.time()
+                is_finalized = bool(st.get("is_finalized"))
+                sub_status = st.get("submission_status")
 
         log.info("student_ws_unregistered", extra={"quiz_id": quiz_id, "user_id": user_id})
         await self.broadcast_to_trainers(
             quiz_id,
             "student_status",
-            {"session_id": user_id, "online": False},
+            {
+                "session_id": user_id,
+                "online": False,
+                "connection_status": "DISCONNECTED",
+                "is_finalized": is_finalized,
+                "submission_status": sub_status,
+            },
         )
 
     async def register_trainer(self, quiz_id: str, ws: WebSocket, user_id: str) -> None:
@@ -170,7 +198,7 @@ class AssessmentHub:
             return False
 
         state = self.student_states.get(quiz_id, {}).get(user_id)
-        if not state:
+        if not state or state.get("is_finalized"):
             return False
 
         self.last_snapshot_time[quiz_id][user_id] = now
@@ -263,10 +291,11 @@ class AssessmentHub:
         state = self.student_states.get(quiz_id, {}).get(user_id)
         if not state:
             return
-        if camera_on is not None:
-            state["camera_on"] = camera_on
-        if fullscreen is not None:
-            state["fullscreen"] = fullscreen
+        if not state.get("is_finalized"):
+            if camera_on is not None:
+                state["camera_on"] = camera_on
+            if fullscreen is not None:
+                state["fullscreen"] = fullscreen
         state["last_seen"] = time.time()
         await self.broadcast_to_trainers(
             quiz_id,
@@ -276,6 +305,9 @@ class AssessmentHub:
                 "camera_on": state["camera_on"],
                 "fullscreen": state["fullscreen"],
                 "online": True,
+                "connection_status": "ONLINE",
+                "is_finalized": bool(state.get("is_finalized")),
+                "submission_status": state.get("submission_status"),
             },
         )
 
@@ -315,7 +347,10 @@ class AssessmentHub:
     async def handle_submit(self, quiz_id: str, user_id: str, result: dict[str, Any]) -> None:
         state = self.student_states.get(quiz_id, {}).get(user_id)
         if state:
-            state["status"] = result.get("candidate_status") or "submitted"
+            sub_status = str(result.get("candidate_status") or result.get("submission_status") or "COMPLETED").upper()
+            state["status"] = sub_status
+            state["submission_status"] = sub_status
+            state["is_finalized"] = True
             state["online"] = False
             state["camera_on"] = False
             state["last_seen"] = time.time()

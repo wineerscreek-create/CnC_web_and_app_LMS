@@ -64,6 +64,8 @@ interface MonitoredStudent {
   online: boolean;
   status: string;
   candidate_status: string;
+  submission_status?: string;
+  connection_status?: 'ONLINE' | 'DISCONNECTED' | 'OFFLINE' | 'UNKNOWN';
   submission_source: string;
   submission_reason?: string | null;
   is_recovered?: boolean;
@@ -130,6 +132,21 @@ const SnapshotAgeLabel = memo(function SnapshotAgeLabel({
     </span>
   );
 });
+
+const FINALIZED_SUBMISSION_STATUSES = new Set([
+  'COMPLETED',
+  'AUTO_SUBMITTED',
+  'OFFLINE_SUBMITTED',
+  'ABANDONED',
+]);
+
+function isFinalizedSubmission(s: Pick<MonitoredStudent, 'status' | 'candidate_status' | 'submission_status'>): boolean {
+  return (
+    s.status === 'completed' ||
+    FINALIZED_SUBMISSION_STATUSES.has((s.submission_status || '').toUpperCase()) ||
+    FINALIZED_SUBMISSION_STATUSES.has((s.candidate_status || '').toUpperCase())
+  );
+}
 
 const EMPTY_COUNTERS: MonitorCounters = {
   totalCandidates: 0,
@@ -413,7 +430,7 @@ export default function TrainerAssessmentMonitorPage() {
 
     // Do not overwrite finalized DONE state for already-completed students
     const target = studentsRef.current.find((s) => s.session_id === sessionId);
-    if (target && target.status === 'completed') return;
+    if (target && isFinalizedSubmission(target)) return;
 
     recordCameraSnapshot(eventData);
 
@@ -443,8 +460,8 @@ export default function TrainerAssessmentMonitorPage() {
 
       setStudents((prev) =>
         prev.map((s) =>
-          s.session_id === sessionId && s.status !== 'completed'
-            ? { ...s, camera_on: true, camera_status: 'LIVE', online: true, has_snapshot: true }
+          s.session_id === sessionId && !isFinalizedSubmission(s)
+            ? { ...s, camera_on: true, camera_status: 'LIVE', online: true, connection_status: 'ONLINE', has_snapshot: true }
             : s
         )
       );
@@ -491,11 +508,16 @@ export default function TrainerAssessmentMonitorPage() {
               const exists = studentsRef.current.some((s) => s.session_id === data.session_id);
               if (exists) {
                 setStudents((prev) =>
-                  prev.map((s) =>
-                    s.session_id === data.session_id
-                      ? { ...s, online: true, candidate_status: 'ACTIVE', stale: false }
-                      : s
-                  )
+                  prev.map((s) => {
+                    if (s.session_id !== data.session_id) return s;
+                    if (isFinalizedSubmission(s)) {
+                      return { ...s, online: true, connection_status: 'ONLINE' };
+                    }
+                    if (s.candidate_status === 'OFFLINE_SYNC_PENDING') {
+                      return { ...s, online: true, connection_status: 'ONLINE', stale: false };
+                    }
+                    return { ...s, online: true, connection_status: 'ONLINE', candidate_status: 'ACTIVE', stale: false };
+                  })
                 );
               } else {
                 void fetchMonitorRef.current();
@@ -503,11 +525,27 @@ export default function TrainerAssessmentMonitorPage() {
             } else if (evt === 'student_status') {
               setStudents((prev) =>
                 prev.map((s) => {
-                  if (s.session_id !== data.session_id || s.status === 'completed') return s;
+                  if (s.session_id !== data.session_id) return s;
                   const nextOnline = data.online ?? s.online;
+                  const nextConn: MonitoredStudent['connection_status'] = nextOnline ? 'ONLINE' : 'DISCONNECTED';
+                  if (isFinalizedSubmission(s) || data.is_finalized) {
+                    return {
+                      ...s,
+                      online: nextOnline,
+                      connection_status: nextConn,
+                    };
+                  }
+                  if (s.candidate_status === 'OFFLINE_SYNC_PENDING') {
+                    return {
+                      ...s,
+                      online: nextOnline,
+                      connection_status: nextOnline ? 'ONLINE' : 'OFFLINE',
+                    };
+                  }
                   return {
                     ...s,
                     online: nextOnline,
+                    connection_status: nextConn,
                     camera_on: data.camera_on ?? s.camera_on,
                     fullscreen: data.fullscreen ?? s.fullscreen,
                     candidate_status: nextOnline ? 'ACTIVE' : 'DISCONNECTED',
@@ -537,7 +575,7 @@ export default function TrainerAssessmentMonitorPage() {
               pushActivity(`⚠ Abandonment warning on ${data.roll_number || 'Candidate'}`);
               setStudents((prev) =>
                 prev.map((s) =>
-                  s.session_id === data.session_id
+                  s.session_id === data.session_id && !isFinalizedSubmission(s)
                     ? { ...s, candidate_status: 'ABANDONMENT_WARNING', status: 'in_progress' }
                     : s
                 )
@@ -546,7 +584,7 @@ export default function TrainerAssessmentMonitorPage() {
               pushActivity(`✔ Candidate ${data.roll_number || 'Candidate'} returned to exam`);
               setStudents((prev) =>
                 prev.map((s) =>
-                  s.session_id === data.session_id
+                  s.session_id === data.session_id && !isFinalizedSubmission(s)
                     ? { ...s, candidate_status: 'ACTIVE', status: 'in_progress' }
                     : s
                 )
@@ -1225,8 +1263,10 @@ export default function TrainerAssessmentMonitorPage() {
                     <tbody className="divide-y divide-line">
                       {students.map((s) => {
                         const snap = snapshots[s.session_id];
-                        const candStatus = s.candidate_status;
-                        const isFinished = s.status === 'completed';
+                        const isFinished = isFinalizedSubmission(s);
+                        const candStatus = isFinished && s.candidate_status === 'DISCONNECTED'
+                          ? (s.submission_status || 'COMPLETED')
+                          : s.candidate_status;
                         const isEligibleForRecovery =
                           isFinished ||
                           candStatus === 'COMPLETED' ||

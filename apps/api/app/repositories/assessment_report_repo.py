@@ -1089,18 +1089,35 @@ class AssessmentReportRepository:
                 if not trainer_assigned:
                     raise ScopeForbidden("You are not authorized to export reports for this assessment.")
 
-            # Fetch attempts for this quiz
-            query = """
-                SELECT a.id as attempt_id
-                FROM quiz_attempts a
-                WHERE a.quiz_id = $1 AND a.status = 'completed'
-            """
+            # Fetch one canonical completed attempt per (quiz_id, batch_id, student_user_id)
             params: list[Any] = [q_uuid]
+            batch_filter = ""
             if b_uuid:
                 params.append(b_uuid)
-                query += f" AND a.batch_id = ${len(params)}"
+                batch_filter = f" AND a.batch_id = ${len(params)}"
 
-            query += " ORDER BY a.completed_at DESC"
+            query = f"""
+                WITH ranked_bulk_attempts AS (
+                    SELECT a.id AS attempt_id,
+                           a.completed_at,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY a.quiz_id, a.batch_id, a.student_user_id
+                               ORDER BY COALESCE(a.completed_at, a.local_submitted_at, a.created_at) DESC NULLS LAST,
+                                        a.created_at DESC,
+                                        a.id DESC
+                           ) AS rn
+                    FROM quiz_attempts a
+                    WHERE a.quiz_id = $1
+                      AND a.status = 'completed'
+                      AND COALESCE(UPPER(a.candidate_status), 'COMPLETED') IN ('COMPLETED', 'SUBMITTED', 'OFFLINE_SUBMITTED', 'AUTO_SUBMITTED')
+                      AND COALESCE(UPPER(a.submission_reason), '') <> 'RECONCILED_DUPLICATE_ACTIVE'
+                      {batch_filter}
+                )
+                SELECT attempt_id
+                FROM ranked_bulk_attempts
+                WHERE rn = 1
+                ORDER BY completed_at DESC NULLS LAST
+            """
             attempts = await conn.fetch(query, *params)
 
         if not attempts:

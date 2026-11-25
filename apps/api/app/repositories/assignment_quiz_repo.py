@@ -2386,6 +2386,121 @@ class QuizRepository:
         return {"quizId": quiz_id, "assignedBatches": len(b_uuids), "success": True}
 
     @classmethod
+    async def fetch_canonical_export_attempts(
+        cls,
+        conn: Any,
+        q_uuid: uuid.UUID,
+        *,
+        batch_id: uuid.UUID | None = None,
+        trainer_user_id: uuid.UUID | None = None,
+        enforce_trainer_scope: bool = False,
+    ) -> list[Any]:
+        """Selects exactly one canonical attempt per (quiz_id, batch_id, student_user_id).
+
+        Rules:
+        1. Excludes SUPERSEDED_DUPLICATE / superseded / reconciled duplicate rows.
+        2. Prioritizes valid finalized submissions (COMPLETED, SUBMITTED, OFFLINE_SUBMITTED,
+           AUTO_SUBMITTED) over non-finalized attempts (IN_PROGRESS, ABANDONED, etc.).
+        3. Orders finalized submissions by latest submission timestamp
+           (completed_at / local_submitted_at), then created_at DESC, id DESC.
+        4. Deduplicates independently per batch so multi-batch students retain batch-specific rows.
+        """
+        scope_clause = ""
+        if enforce_trainer_scope:
+            scope_clause = """
+              AND (
+                b.id IN (SELECT batch_id FROM batch_trainers WHERE trainer_user_id = $2 AND (status = 'ACTIVE' OR status IS NULL))
+                OR $2 = (SELECT creator_trainer_id FROM quizzes WHERE id = $1)
+                OR $2 IN (SELECT id FROM users WHERE role IN ('ADMIN', 'SUPER_ADMIN'))
+              )
+            """
+            return await conn.fetch(
+                f"""
+                WITH ranked_export_attempts AS (
+                    SELECT qa.id, qa.student_user_id, u.name AS student_name, u.email AS student_email,
+                           sp.roll_number, b.id AS batch_id, b.name AS batch_name,
+                           qa.score, qa.possible, qa.percentage, qa.passed,
+                           qa.correct_count, qa.incorrect_count, qa.unattempted_count,
+                           qa.completed_at, qa.local_submitted_at, qa.time_taken_seconds,
+                           qa.warning_count, qa.warnings, qa.device_id, qa.status, qa.candidate_status,
+                           qa.submission_reason, qa.submission_source, qa.is_recovered, qa.created_at,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY qa.quiz_id, COALESCE(qa.batch_id, sp.batch_id), qa.student_user_id
+                               ORDER BY
+                                   CASE
+                                       WHEN qa.status = 'completed'
+                                            AND COALESCE(UPPER(qa.candidate_status), 'COMPLETED') IN ('COMPLETED', 'SUBMITTED', 'OFFLINE_SUBMITTED', 'AUTO_SUBMITTED')
+                                       THEN 0
+                                       ELSE 1
+                                   END ASC,
+                                   COALESCE(qa.completed_at, qa.local_submitted_at, qa.created_at) DESC NULLS LAST,
+                                   qa.created_at DESC,
+                                   qa.id DESC
+                           ) AS rn
+                    FROM quiz_attempts qa
+                    JOIN users u ON u.id = qa.student_user_id
+                    LEFT JOIN student_profiles sp ON sp.user_id = qa.student_user_id
+                    LEFT JOIN batches b ON b.id = COALESCE(qa.batch_id, sp.batch_id)
+                    WHERE qa.quiz_id = $1
+                      AND COALESCE(LOWER(qa.status), '') <> 'superseded'
+                      AND COALESCE(UPPER(qa.candidate_status), '') <> 'SUPERSEDED_DUPLICATE'
+                      AND COALESCE(UPPER(qa.submission_reason), '') <> 'RECONCILED_DUPLICATE_ACTIVE'
+                      {scope_clause}
+                      AND ($3::uuid IS NULL OR COALESCE(qa.batch_id, sp.batch_id) = $3)
+                )
+                SELECT *
+                FROM ranked_export_attempts
+                WHERE rn = 1
+                ORDER BY score DESC NULLS LAST, roll_number ASC NULLS LAST, student_name ASC
+                """,
+                q_uuid,
+                trainer_user_id,
+                batch_id,
+            )
+
+        return await conn.fetch(
+            """
+            WITH ranked_export_attempts AS (
+                SELECT qa.id, qa.student_user_id, u.name AS student_name, u.email AS student_email,
+                       sp.roll_number, COALESCE(qa.batch_id, sp.batch_id) AS batch_id, b.name AS batch_name,
+                       qa.score, qa.possible, qa.percentage, qa.passed,
+                       qa.correct_count, qa.incorrect_count, qa.unattempted_count,
+                       qa.completed_at, qa.local_submitted_at, qa.time_taken_seconds,
+                       qa.warning_count, qa.warnings, qa.device_id, qa.status, qa.candidate_status,
+                       qa.submission_reason, qa.submission_source, qa.is_recovered, qa.created_at,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY qa.quiz_id, COALESCE(qa.batch_id, sp.batch_id), qa.student_user_id
+                           ORDER BY
+                               CASE
+                                   WHEN qa.status = 'completed'
+                                        AND COALESCE(UPPER(qa.candidate_status), 'COMPLETED') IN ('COMPLETED', 'SUBMITTED', 'OFFLINE_SUBMITTED', 'AUTO_SUBMITTED')
+                                   THEN 0
+                                   ELSE 1
+                               END ASC,
+                               COALESCE(qa.completed_at, qa.local_submitted_at, qa.created_at) DESC NULLS LAST,
+                               qa.created_at DESC,
+                               qa.id DESC
+                       ) AS rn
+                FROM quiz_attempts qa
+                JOIN users u ON u.id = qa.student_user_id
+                LEFT JOIN student_profiles sp ON sp.user_id = qa.student_user_id
+                LEFT JOIN batches b ON b.id = COALESCE(qa.batch_id, sp.batch_id)
+                WHERE qa.quiz_id = $1
+                  AND COALESCE(LOWER(qa.status), '') <> 'superseded'
+                  AND COALESCE(UPPER(qa.candidate_status), '') <> 'SUPERSEDED_DUPLICATE'
+                  AND COALESCE(UPPER(qa.submission_reason), '') <> 'RECONCILED_DUPLICATE_ACTIVE'
+                  AND ($2::uuid IS NULL OR COALESCE(qa.batch_id, sp.batch_id) = $2)
+            )
+            SELECT *
+            FROM ranked_export_attempts
+            WHERE rn = 1
+            ORDER BY score DESC NULLS LAST, roll_number ASC NULLS LAST, student_name ASC
+            """,
+            q_uuid,
+            batch_id,
+        )
+
+    @classmethod
     async def get_trainer_quiz_results(
         cls,
         ctx: ScopeContext,
@@ -2404,59 +2519,46 @@ class QuizRepository:
             if not quiz:
                 raise NotFound("Quiz not found")
 
-            attempts = await conn.fetch(
-                """
-                SELECT qa.id, qa.student_user_id, u.name as student_name, u.email as student_email,
-                       sp.roll_number, b.id as batch_id, b.name as batch_name,
-                       qa.score, qa.possible, qa.percentage, qa.passed, qa.completed_at,
-                       qa.warning_count, qa.warnings, qa.device_id, qa.status, qa.candidate_status,
-                       qa.submission_reason, qa.is_recovered, qa.created_at
-                FROM quiz_attempts qa
-                JOIN users u ON u.id = qa.student_user_id
-                LEFT JOIN student_profiles sp ON sp.user_id = qa.student_user_id
-                LEFT JOIN batches b ON b.id = COALESCE(qa.batch_id, sp.batch_id)
-                WHERE qa.quiz_id = $1
-                  AND (
-                    b.id IN (SELECT batch_id FROM batch_trainers WHERE trainer_user_id = $2 AND (status = 'ACTIVE' OR status IS NULL))
-                    OR $2 = (SELECT creator_trainer_id FROM quizzes WHERE id = $1)
-                    OR $2 IN (SELECT id FROM users WHERE role IN ('ADMIN', 'SUPER_ADMIN'))
-                  )
-                  AND ($3::uuid IS NULL OR b.id = $3)
-                ORDER BY qa.score DESC
-                """,
-                q_uuid, t_uuid, b_uuid
+            attempts = await cls.fetch_canonical_export_attempts(
+                conn,
+                q_uuid,
+                batch_id=b_uuid,
+                trainer_user_id=t_uuid,
+                enforce_trainer_scope=True,
             )
 
-            # Retrieve persisted camera snapshots for this quiz
-            # When include_snapshots_data is False, image_data is omitted to avoid massive RAM and payload latency
-            if include_snapshots_data:
-                snap_rows = await conn.fetch(
-                    """
-                    SELECT id, student_user_id, attempt_id, snapshot_timestamp, event_type, image_data
-                    FROM quiz_camera_snapshots
-                    WHERE quiz_id = $1
-                    ORDER BY snapshot_timestamp ASC
-                    """,
-                    q_uuid
-                )
-            else:
-                snap_rows = await conn.fetch(
-                    """
-                    SELECT id, student_user_id, attempt_id, snapshot_timestamp, event_type
-                    FROM quiz_camera_snapshots
-                    WHERE quiz_id = $1
-                    ORDER BY snapshot_timestamp ASC
-                    """,
-                    q_uuid
-                )
-            snaps_by_student: dict[str, list[dict[str, Any]]] = {}
+            # Retrieve persisted camera snapshots strictly for selected attempt IDs
+            selected_attempt_ids = [a["id"] for a in attempts]
+            snap_rows: list[Any] = []
+            if selected_attempt_ids:
+                if include_snapshots_data:
+                    snap_rows = await conn.fetch(
+                        """
+                        SELECT id, student_user_id, attempt_id, snapshot_timestamp, event_type, image_data
+                        FROM quiz_camera_snapshots
+                        WHERE quiz_id = $1 AND attempt_id = ANY($2::uuid[])
+                        ORDER BY snapshot_timestamp ASC
+                        """,
+                        q_uuid,
+                        selected_attempt_ids,
+                    )
+                else:
+                    snap_rows = await conn.fetch(
+                        """
+                        SELECT id, student_user_id, attempt_id, snapshot_timestamp, event_type
+                        FROM quiz_camera_snapshots
+                        WHERE quiz_id = $1 AND attempt_id = ANY($2::uuid[])
+                        ORDER BY snapshot_timestamp ASC
+                        """,
+                        q_uuid,
+                        selected_attempt_ids,
+                    )
+            snaps_by_attempt: dict[str, list[dict[str, Any]]] = {}
             for s in snap_rows:
-                s_uid = str(s["student_user_id"])
-                if s_uid not in snaps_by_student:
-                    snaps_by_student[s_uid] = []
-                snaps_by_student[s_uid].append({
+                s_att_id = str(s["attempt_id"])
+                snaps_by_attempt.setdefault(s_att_id, []).append({
                     "id": str(s["id"]),
-                    "attemptId": str(s["attempt_id"]) if s["attempt_id"] else None,
+                    "attemptId": s_att_id,
                     "timestamp": s["snapshot_timestamp"].isoformat() if s["snapshot_timestamp"] else None,
                     "eventType": s["event_type"],
                     "imageData": s["image_data"] if include_snapshots_data and "image_data" in s else None,
@@ -2466,10 +2568,7 @@ class QuizRepository:
         for i, a in enumerate(attempts, start=1):
             stu_id = str(a["student_user_id"])
             att_id = str(a["id"])
-            stu_snaps = [
-                s for s in snaps_by_student.get(stu_id, [])
-                if s.get("attemptId") is None or s.get("attemptId") == att_id
-            ]
+            stu_snaps = snaps_by_attempt.get(att_id, [])
             warning_cnt = int(a["warning_count"] or 0)
             warning_items = _parse_json_list(a["warnings"]) if a["warnings"] else []
             if warning_cnt == 0 and len(warning_items) > 0:
@@ -2484,7 +2583,7 @@ class QuizRepository:
                 "rollNumber": a["roll_number"] or "—",
                 "batchId": str(a["batch_id"]) if a["batch_id"] else None,
                 "batchName": a["batch_name"] or "—",
-                "score": int(a["score"]),
+                "score": int(a["score"] or 0),
                 "maxScore": int(a["possible"] or 100),
                 "percentage": float(a["percentage"]) if a["percentage"] is not None else 0.0,
                 "passed": a["passed"],
@@ -2492,7 +2591,7 @@ class QuizRepository:
                 "warningCount": warning_cnt,
                 "warningList": warning_items,
                 "completedAt": a["completed_at"].isoformat() if a["completed_at"] else None,
-                "submittedAt": a["completed_at"].isoformat() if a["completed_at"] else None,
+                "submittedAt": (a["completed_at"] or a["local_submitted_at"]).isoformat() if (a["completed_at"] or a["local_submitted_at"]) else None,
                 "createdAt": a["created_at"].isoformat() if a["created_at"] else None,
                 "status": a["status"] or "submitted",
                 "candidateStatus": a["candidate_status"] or ("SUBMITTED" if a["status"] == "completed" else "IN_PROGRESS"),

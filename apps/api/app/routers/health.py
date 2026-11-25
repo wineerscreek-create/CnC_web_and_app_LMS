@@ -1,6 +1,8 @@
 """Liveness and readiness."""
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter
 
 from app.core.config import get_settings, settings
@@ -16,7 +18,11 @@ router = APIRouter(tags=["health"])
 @router.get("/health")
 async def health() -> dict:
     s = get_settings()
-    return {"status": "ok", "app": s.APP_NAME, "env": s.ENV, "version": "1.0.0"}
+    commit = os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT")
+    payload = {"status": "ok", "app": s.APP_NAME, "env": s.ENV, "version": "1.0.0"}
+    if commit:
+        payload["commit"] = commit
+    return payload
 
 
 @router.get("/health/ready")
